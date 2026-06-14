@@ -1,0 +1,57 @@
+{
+  "app": {
+    "title": "Helix",
+    "tagline": "Your music, your privacy",
+    "search_placeholder": "Search YouTube..."
+  },
+  "player": {
+    "play": "Play",
+    "pause": "Pause",
+    "next": "Next",
+    "previous": "Previous",
+    "volume": "Volume",
+    "now_playing": "Now Playing",
+    "queue": "Queue",
+    "no_track": "No track selected"
+  },
+  "library": {
+    "favorites": "Favorites",
+    "playlists": "Playlists",
+    "history": "History",
+    "local_files": "Local Files",
+    "search": "Search library..."
+  },
+  "visualizer": {
+    "spectrum": "Spectrum",
+    "oscilloscope": "Oscilloscope",
+    "album_art": "Album Art",
+    "fullscreen": "Fullscreen"
+  },
+  "settings": {
+    "title": "Settings",
+    "language": "Language",
+    "theme": "Theme",
+    "audio": "Audio",
+    "about": "About Helix",
+    "version": "Version"
+  },
+  "errors": {
+    "NETWORK_TIMEOUT": "Connection timed out. Check your network.",
+    "SEARCH_FAILED": "Search failed: {reason}",
+    "PLAYBACK_ERROR": "Playback error: {reason}",
+    "STREAM_NOT_FOUND": "Stream not found. It may be unavailable.",
+    "DEVICE_NOT_FOUND": "Audio device not found.",
+    "PLUGIN_LOAD_FAILED": "Failed to load plugin: {name}",
+    "UNKNOWN_ERROR": "Something went wrong. Try again."
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Error",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
+    "close": "Close",
+    "search": "Search"
+  }
+}

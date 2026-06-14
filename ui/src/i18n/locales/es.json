@@ -1,0 +1,57 @@
+{
+  "app": {
+    "title": "Helix",
+    "tagline": "Tu música, tu privacidad",
+    "search_placeholder": "Buscar en YouTube..."
+  },
+  "player": {
+    "play": "Reproducir",
+    "pause": "Pausa",
+    "next": "Siguiente",
+    "previous": "Anterior",
+    "volume": "Volumen",
+    "now_playing": "Reproduciendo ahora",
+    "queue": "Cola",
+    "no_track": "Ninguna canción seleccionada"
+  },
+  "library": {
+    "favorites": "Favoritos",
+    "playlists": "Listas de reproducción",
+    "history": "Historial",
+    "local_files": "Archivos locales",
+    "search": "Buscar en biblioteca..."
+  },
+  "visualizer": {
+    "spectrum": "Espectro",
+    "oscilloscope": "Osciloscopio",
+    "album_art": "Carátula",
+    "fullscreen": "Pantalla completa"
+  },
+  "settings": {
+    "title": "Configuración",
+    "language": "Idioma",
+    "theme": "Tema",
+    "audio": "Audio",
+    "about": "Acerca de Helix",
+    "version": "Versión"
+  },
+  "errors": {
+    "NETWORK_TIMEOUT": "Tiempo de espera agotado. Verifica tu conexión.",
+    "SEARCH_FAILED": "Error al buscar: {reason}",
+    "PLAYBACK_ERROR": "Error de reproducción: {reason}",
+    "STREAM_NOT_FOUND": "Stream no encontrado. Puede que no esté disponible.",
+    "DEVICE_NOT_FOUND": "Dispositivo de audio no encontrado.",
+    "PLUGIN_LOAD_FAILED": "Error al cargar plugin: {name}",
+    "UNKNOWN_ERROR": "Algo salió mal. Intenta de nuevo."
+  },
+  "common": {
+    "loading": "Cargando...",
+    "error": "Error",
+    "retry": "Reintentar",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "delete": "Eliminar",
+    "close": "Cerrar",
+    "search": "Buscar"
+  }
+}

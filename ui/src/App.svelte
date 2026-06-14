@@ -1,9 +1,17 @@
 <script>
+  import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { initI18n, switchLocale, locale, t } from './i18n';
 
   let query = '';
   let results = [];
   let currentTrack = null;
+  let ready = false;
+
+  onMount(async () => {
+    await initI18n();
+    ready = true;
+  });
 
   async function doSearch() {
     results = await invoke('search', { query });
@@ -12,28 +20,52 @@
   async function play(url) {
     await invoke('play', { url });
   }
+
+  // Available languages for the switcher
+  const languages = [
+    { code: 'en', label: 'English' },
+    { code: 'es', label: 'Español' },
+  ];
 </script>
 
 <main>
-  <h1>Helix</h1>
+  <header>
+    <h1>{$t('app.title')}</h1>
+    <span class="tagline">{$t('app.tagline')}</span>
+  </header>
 
-  <input
-    bind:value={query}
-    on:keydown={(e) => e.key === 'Enter' && doSearch()}
-    placeholder="Search YouTube..."
-  />
+  {#if ready}
+    <!-- Language switcher -->
+    <select
+      class="locale-switcher"
+      value={$locale}
+      on:change={(e) => switchLocale(e.target.value)}
+    >
+      {#each languages as lang}
+        <option value={lang.code}>{lang.label}</option>
+      {/each}
+    </select>
 
-  <div class="results">
-    {#each results as track}
-      <div class="track" on:click={() => play(track.stream_url)}>
-        <img src={track.thumbnail} alt="" />
-        <div class="info">
-          <strong>{track.title}</strong>
-          <span>{track.artist}</span>
+    <input
+      bind:value={query}
+      on:keydown={(e) => e.key === 'Enter' && doSearch()}
+      placeholder={$t('app.search_placeholder')}
+    />
+
+    <div class="results">
+      {#each results as track}
+        <div class="track" on:click={() => play(track.stream_url)}>
+          <img src={track.thumbnail} alt="" />
+          <div class="info">
+            <strong>{track.title}</strong>
+            <span>{track.artist}</span>
+          </div>
         </div>
-      </div>
-    {/each}
-  </div>
+      {/each}
+    </div>
+  {:else}
+    <p class="loading">{$t('common.loading')}</p>
+  {/if}
 </main>
 
 <style>
@@ -51,10 +83,35 @@
     padding: 2rem;
   }
 
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
   h1 {
     color: #00ccff;
     font-size: 2rem;
-    margin-bottom: 1.5rem;
+    margin: 0;
+  }
+
+  .tagline {
+    color: #666;
+    font-size: 0.9rem;
+  }
+
+  .locale-switcher {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    background: #1a1a2e;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #e0e0e0;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    cursor: pointer;
   }
 
   input {
@@ -65,6 +122,13 @@
     border-radius: 8px;
     color: #fff;
     font-size: 1rem;
+    box-sizing: border-box;
+  }
+
+  .loading {
+    text-align: center;
+    color: #666;
+    margin-top: 3rem;
   }
 
   .track {
@@ -85,5 +149,9 @@
     height: 48px;
     border-radius: 4px;
     object-fit: cover;
+  }
+
+  .results {
+    margin-top: 1rem;
   }
 </style>
