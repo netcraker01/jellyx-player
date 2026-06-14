@@ -1,0 +1,84 @@
+name: CLA Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  cla-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check if CLA is accepted
+        id: cla-check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          # List of users who have accepted the CLA
+          CLA_SIGNED_URL="https://raw.githubusercontent.com/netcraker01/helix/main/.github/cla-signers.txt"
+
+          # Check if author is in the signed list
+          if curl -s "$CLA_SIGNED_URL" | grep -qi "^${PR_AUTHOR}$"; then
+            echo "cla_signed=true" >> $GITHUB_ENV
+            echo "✅ CLA already signed by $PR_AUTHOR"
+          else
+            echo "cla_signed=false" >> $GITHUB_ENV
+            # Check if the PR body contains the agreement
+            PR_BODY=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.body // ""')
+            if echo "$PR_BODY" | grep -qi "I have read and agree to the CLA"; then
+              echo "cla_signed=true" >> $GITHUB_ENV
+              echo "✅ CLA accepted in PR body"
+            else
+              echo "❌ CLA not accepted yet"
+            fi
+          fi
+
+      - name: Add CLA label
+        if: env.cla_signed == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create cla-signed --description "Contributor has signed the CLA" --color "0E8A16" --repo "${{ github.repository }}" 2>/dev/null || true
+          gh pr edit "${{ github.event.pull_request.number }}" --add-label "cla-signed" --repo "${{ github.repository }}"
+          gh pr edit "${{ github.event.pull_request.number }}" --remove-label "cla-required" --repo "${{ github.repository }}" 2>/dev/null || true
+
+      - name: Add CLA required label
+        if: env.cla_signed != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create cla-required --description "CLA not yet signed" --color "D93F0B" --repo "${{ github.repository }}" 2>/dev/null || true
+          gh pr edit "${{ github.event.pull_request.number }}" --add-label "cla-required" --repo "${{ github.repository }}"
+
+      - name: Comment on PR if CLA not signed
+        if: env.cla_signed != 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Check if we already commented
+          COMMENTS=$(gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" --jq '.[].body')
+          if echo "$COMMENTS" | grep -q "CLA"; then
+            echo "Already commented about CLA"
+          else
+            cat << 'EOF' > /tmp/cla-comment.md
+            ## 📝 Thank you for contributing to Helix!
+
+            Before we can review your pull request, we need you to agree to the **Contributor License Agreement (CLA)**.
+
+            ### What is the CLA?
+            It's a simple agreement that lets us include your contribution in both the open-source version (AGPL-3.0) and any future commercial versions of Helix. **You keep full ownership of your code.**
+
+            ### How to accept
+            Just add a comment to this PR saying:
+
+            > I have read and agree to the CLA
+
+            That's it. You only need to do this once for all future contributions.
+
+            **[Read the full CLA here](https://github.com/netcraker01/helix/blob/main/CLA.md)**
+            EOF
+            gh pr comment "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --body-file /tmp/cla-comment.md
+          fi

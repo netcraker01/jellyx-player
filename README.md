@@ -173,9 +173,24 @@ cargo tauri dev
 
 ---
 
-## License
+## License & Commercial Use
 
-MIT — free as in freedom. No tracking, no telemetry, no BS.
+**Helix is dual-licensed:**
+
+### Open Source — AGPL-3.0
+The code is free and open-source under the **GNU Affero General Public License v3.0**. Anyone can use, modify, and distribute it, provided they comply with the terms of AGPL-3.0 (which requires that modified versions distributed to users also be open-source).
+
+[Read the full license →](LICENSE)
+
+### Commercial License
+If your organization cannot or does not want to comply with AGPL-3.0 (for example, embedding Helix in a proprietary product), you can purchase a **commercial license** from the project owner.
+
+[Contact for commercial licensing →](mailto:netcraker01@users.noreply.github.com)
+
+### Contributing
+When you contribute to Helix, you agree to the **Contributor License Agreement (CLA)**, which grants the project owner permission to include your contribution under both the AGPL-3.0 and commercial licenses. You retain full ownership of your work and receive credit in `AUTHORS.md`.
+
+[Read the CLA →](CLA.md)
 
 ---
 
