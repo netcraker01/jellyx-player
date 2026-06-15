@@ -61,6 +61,6 @@ Chain strategy: size-exception
 
 ## Phase 5: Slim main.rs + Re-export Cleanup
 
-- [ ] 5.1 Slim `main.rs` to only `mod` declarations + `fn main()` with `tauri::Builder`
-- [ ] 5.2 Remove all `pub use` backward-compat bridges from `sources/mod.rs` (Track, SourceError)
-- [ ] 5.3 Add `#[cfg(test)] mod tests` in `errors/types.rs` with `From<SourceError>` mapping test → `cargo test`
+- [x] 5.1 Slim `main.rs` to only `mod` declarations + `fn main()` with `tauri::Builder`
+- [x] 5.2 Remove all `pub use` backward-compat bridges from `sources/mod.rs` (Track, SourceError)
+- [x] 5.3 Add `#[cfg(test)] mod tests` in `errors/types.rs` with `From<SourceError>` mapping test → `cargo test`

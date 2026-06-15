@@ -65,3 +65,43 @@ impl From<AudioError> for AppError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_error_network_maps_to_network_timeout() {
+        let err = AppError::from(SourceError::NetworkError("timeout".into()));
+        assert_eq!(err.code, "NETWORK_TIMEOUT");
+        assert_eq!(err.details, Some("timeout".to_string()));
+    }
+
+    #[test]
+    fn source_error_resolve_maps_to_stream_not_found() {
+        let err = AppError::from(SourceError::ResolveError("not found".into()));
+        assert_eq!(err.code, "STREAM_NOT_FOUND");
+        assert_eq!(err.details, Some("not found".to_string()));
+    }
+
+    #[test]
+    fn source_error_unsupported_maps_to_unknown_error() {
+        let err = AppError::from(SourceError::UnsupportedSource);
+        assert_eq!(err.code, "UNKNOWN_ERROR");
+        assert!(err.details.is_none());
+    }
+
+    #[test]
+    fn audio_error_decode_maps_to_playback_error() {
+        let err = AppError::from(AudioError::DecodeError("corrupt frame".into()));
+        assert_eq!(err.code, "PLAYBACK_ERROR");
+        assert!(err.details.as_ref().unwrap().contains("decode: corrupt frame"));
+    }
+
+    #[test]
+    fn audio_error_device_maps_to_device_not_found() {
+        let err = AppError::from(AudioError::DeviceError("no output".into()));
+        assert_eq!(err.code, "DEVICE_NOT_FOUND");
+        assert_eq!(err.details, Some("no output".to_string()));
+    }
+}
