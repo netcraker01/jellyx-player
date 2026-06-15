@@ -1,9 +1,9 @@
-//! Audio visualization engine.
+//! Audio visualization module.
 //!
-//! Takes FFT frequency data and renders real-time visualizations
-//! using WGPU (cross-platform GPU: Vulkan, Metal, DX12).
+//! Processes FFT frequency data and provides it to the frontend
+//! via IPC binary bridge for canvas rendering.
 
-pub mod renderer;
+pub mod fft_bridge;
 
 pub enum VisualizerMode {
     Spectrum,    // Classic bars

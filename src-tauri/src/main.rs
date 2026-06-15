@@ -2,13 +2,12 @@
 //!
 //! Built with Tauri v2 + Rust + Svelte.
 //! Audio pipeline: symphonia (decode) + cpal (output).
-//! Visualizations: rustfft (analysis) + WGPU (rendering).
+//! Visualizations: rustfft (analysis) + frontend canvas rendering.
 //! i18n: Backend returns error codes → frontend maps to translations.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod audio;
-mod plugins;
 mod sources;
 mod visualizer;
 mod app;

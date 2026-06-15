@@ -54,10 +54,10 @@ Chain strategy: size-exception
 
 ## Phase 4: Dependency Cleanup
 
-- [ ] 4.1 Delete `src-tauri/src/plugins/mod.rs` + `plugins/runtime.rs`
-- [ ] 4.2 Delete `src-tauri/src/visualizer/renderer.rs`; update `visualizer/mod.rs` to remove `mod renderer`, add `pub mod fft_bridge;`
-- [ ] 4.3 Remove `wasmtime = "19"` and `wgpu = "22"` from `Cargo.toml` [dependencies]
-- [ ] 4.4 Remove `mod plugins` from `main.rs` → `cargo check`
+- [x] 4.1 Delete `src-tauri/src/plugins/mod.rs` + `plugins/runtime.rs`
+- [x] 4.2 Delete `src-tauri/src/visualizer/renderer.rs`; update `visualizer/mod.rs` to remove `mod renderer`, add `pub mod fft_bridge;`
+- [x] 4.3 Remove `wasmtime = "19"` and `wgpu = "22"` from `Cargo.toml` [dependencies]
+- [x] 4.4 Remove `mod plugins` from `main.rs` → `cargo check`
 
 ## Phase 5: Slim main.rs + Re-export Cleanup
 
