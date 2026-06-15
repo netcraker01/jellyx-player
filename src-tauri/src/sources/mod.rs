@@ -8,7 +8,7 @@ pub mod youtube;
 // pub mod radio;
 
 /// Result from a source search.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct Track {
     pub id: String,
     pub title: String,

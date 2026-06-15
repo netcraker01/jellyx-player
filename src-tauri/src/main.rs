@@ -15,6 +15,7 @@ mod visualizer;
 use audio::playback::CpalBackend;
 use audio::AudioBackend;
 use serde::Serialize;
+use sources::SourceResolver;
 use std::sync::Mutex;
 
 /// Structured error with a translatable code + optional details.
@@ -25,7 +26,7 @@ pub struct AppError {
     pub details: Option<String>,
 }
 
-impl<T: std::fmt::Debug> From<sources::SourceError> for AppError {
+impl From<sources::SourceError> for AppError {
     fn from(e: sources::SourceError) -> Self {
         match e {
             sources::SourceError::NetworkError(msg) => AppError {
@@ -44,7 +45,7 @@ impl<T: std::fmt::Debug> From<sources::SourceError> for AppError {
     }
 }
 
-impl<T: std::fmt::Debug> From<audio::AudioError> for AppError {
+impl From<audio::AudioError> for AppError {
     fn from(e: audio::AudioError) -> Self {
         match e {
             audio::AudioError::DecodeError(msg) => AppError {

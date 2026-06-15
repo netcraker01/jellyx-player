@@ -4,15 +4,7 @@
 //! their own implementations behind the `AudioBackend` trait.
 
 use super::{AudioBackend, AudioError, PlaybackState};
-use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::DecoderOptions;
-use symphonia::core::formats::FormatOptions;
-use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
-use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 pub struct CpalBackend {
     state: Arc<Mutex<PlaybackState>>,
