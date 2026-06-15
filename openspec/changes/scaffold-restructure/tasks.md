@@ -39,11 +39,11 @@ Chain strategy: size-exception
 
 ## Phase 2: Type Relocation
 
-- [ ] 2.1 Move `AppError` struct + `From<SourceError>` + `From<AudioError>` impls from `main.rs` to `errors/types.rs`
-- [ ] 2.2 Move `SourceError` enum from `sources/mod.rs` to `errors/types.rs`; add `pub use` bridge in `sources/mod.rs`
-- [ ] 2.3 Move `Track` struct from `sources/mod.rs` to `models/track.rs`; add `pub use` bridge in `sources/mod.rs`
-- [ ] 2.4 Update `sources/youtube.rs` to import `Track` from `crate::models::track` and `SourceError` from `crate::errors::types`
-- [ ] 2.5 Update `main.rs` to import `AppError` from `crate::errors::types` → `cargo check`
+- [x] 2.1 Move `AppError` struct + `From<SourceError>` + `From<AudioError>` impls from `main.rs` to `errors/types.rs`
+- [x] 2.2 Move `SourceError` enum from `sources/mod.rs` to `errors/types.rs`; add `pub use` bridge in `sources/mod.rs`
+- [x] 2.3 Move `Track` struct from `sources/mod.rs` to `models/track.rs`; add `pub use` bridge in `sources/mod.rs`
+- [x] 2.4 Update `sources/youtube.rs` to import `Track` from `crate::models::track` and `SourceError` from `crate::errors::types`
+- [x] 2.5 Update `main.rs` to import `AppError` from `crate::errors::types` → `cargo check`
 
 ## Phase 3: Command + CpalBackend Extraction
 

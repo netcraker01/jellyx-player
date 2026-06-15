@@ -3,7 +3,9 @@
 //! Uses yt-dlp to search YouTube and resolve stream URLs.
 //! yt-dlp handles extraction, format selection, and URL resolution.
 
-use super::{SourceError, SourceResolver, Track};
+use super::SourceResolver;
+use crate::errors::types::SourceError;
+use crate::models::track::Track;
 use std::process::Command;
 
 pub struct YouTubeResolver;

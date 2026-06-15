@@ -22,59 +22,10 @@ mod shared;
 
 use audio::playback::CpalBackend;
 use audio::AudioBackend;
-use serde::Serialize;
 use sources::SourceResolver;
 use std::sync::Mutex;
 
-/// Structured error with a translatable code + optional details.
-/// Frontend maps `code` to a localized string and can use `details` for params.
-#[derive(Debug, Serialize)]
-pub struct AppError {
-    pub code: String,
-    pub details: Option<String>,
-}
-
-impl From<sources::SourceError> for AppError {
-    fn from(e: sources::SourceError) -> Self {
-        match e {
-            sources::SourceError::NetworkError(msg) => AppError {
-                code: "NETWORK_TIMEOUT".into(),
-                details: Some(msg),
-            },
-            sources::SourceError::ResolveError(msg) => AppError {
-                code: "STREAM_NOT_FOUND".into(),
-                details: Some(msg),
-            },
-            sources::SourceError::UnsupportedSource => AppError {
-                code: "UNKNOWN_ERROR".into(),
-                details: None,
-            },
-        }
-    }
-}
-
-impl From<audio::AudioError> for AppError {
-    fn from(e: audio::AudioError) -> Self {
-        match e {
-            audio::AudioError::DecodeError(msg) => AppError {
-                code: "PLAYBACK_ERROR".into(),
-                details: Some(format!("decode: {}", msg)),
-            },
-            audio::AudioError::DeviceError(msg) => AppError {
-                code: "DEVICE_NOT_FOUND".into(),
-                details: Some(msg),
-            },
-            audio::AudioError::UnsupportedFormat => AppError {
-                code: "PLAYBACK_ERROR".into(),
-                details: Some("unsupported format".into()),
-            },
-            audio::AudioError::PlatformNotSupported => AppError {
-                code: "PLAYBACK_ERROR".into(),
-                details: Some("platform not supported".into()),
-            },
-        }
-    }
-}
+pub use errors::types::AppError;
 
 /// Application state shared across Tauri commands.
 struct AppState {
@@ -82,7 +33,7 @@ struct AppState {
 }
 
 #[tauri::command]
-fn search(query: &str) -> Result<Vec<sources::Track>, AppError> {
+fn search(query: &str) -> Result<Vec<models::track::Track>, AppError> {
     let resolver = sources::youtube::YouTubeResolver::new();
     resolver.search(query).map_err(Into::into)
 }
