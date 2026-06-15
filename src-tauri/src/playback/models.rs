@@ -1,0 +1,1 @@
+//! Playback internal DTOs (placeholder).

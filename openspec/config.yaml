@@ -1,0 +1,59 @@
+schema: spec-driven
+
+context: |
+  Stack: Rust + Tauri v2 + Svelte (TypeScript)
+  Architecture: Centralized Rust backend (Source of Truth), Svelte "dumb client" via Tauri IPC (commands + events + binary FFT)
+  Audio pipeline: symphonia decoder → PCM Bus → cpal output + rustfft FFT → IPC binary → Svelte canvas
+  Persistence: SQLite (planned)
+  Sources: YouTube (yt-dlp), SoundCloud, Local files
+  Testing: Pre-code project — no test infrastructure yet
+  Style: Dark mode only, accent color system, mixed sans-serif + monospace typography
+
+strict_tdd: false
+
+testing:
+  runner: none
+  layers:
+    unit: unavailable
+    integration: unavailable
+    e2e: unavailable
+  coverage:
+    available: false
+    command: ""
+  quality:
+    linter: unavailable
+    type_checker: unavailable
+    formatter: unavailable
+  notes: |
+    Project is pre-code (foundational docs only: PRD.md, ARCHITECTURE.md, UI_DESIGN.md).
+    No Cargo.toml, package.json, or test config exists yet.
+    Strict TDD set to false until test infrastructure is bootstrapped.
+    Once Rust (cargo test) and Svelte (vitest + @testing-library/svelte) are set up,
+    strict_tdd should be enabled and this config updated.
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes (especially audio pipeline and source resolvers)
+    - Reference PRD acceptance criteria when proposing features
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Separate concerns by domain: playback, audio, sources, library, ipc, ui
+  design:
+    - Document architecture decisions with rationale (match ARCHITECTURE.md style)
+    - Include sequence diagrams for IPC flows (commands, events, binary FFT)
+    - Rust is Source of Truth — design must reflect backend-driven state
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Rust tasks before Svelte tasks (backend-first)
+  apply:
+    - Follow existing code patterns (once established)
+    tdd: false
+    test_command: ""
+  verify:
+    test_command: ""
+    build_command: ""
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas

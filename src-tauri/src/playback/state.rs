@@ -1,0 +1,1 @@
+//! Playback state — Source of Truth (placeholder).

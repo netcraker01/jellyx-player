@@ -1,0 +1,1 @@
+//! Source enum (placeholder for change #3).

@@ -1,0 +1,1 @@
+//! Local file source resolver (placeholder).

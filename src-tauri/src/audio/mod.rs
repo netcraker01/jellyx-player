@@ -5,6 +5,9 @@
 
 pub mod playback;
 pub mod fft;
+pub mod decoder;
+pub mod output;
+pub mod pipeline;
 
 /// Trait that abstracts the audio backend for cross-platform support.
 ///

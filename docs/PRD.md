@@ -1,312 +1,572 @@
-# Helix — Product Requirements Document
+# PRD — Helix Player
 
-**Version:** 1.0  
-**Status:** Draft  
-**Author:** netcraker01  
+Helix es un reproductor de música open-source para escritorio, orientado a privacidad, libertad del usuario y una experiencia de escucha moderna. Este PRD es un documento vivo: consolida las decisiones ya tomadas y deja visibles los puntos que siguen abiertos.
 
----
+## Estado
 
-## 1. Vision
+- **Estado**: borrador consolidado
+- **Fuente base verificada**: README del repositorio oficial `netcraker01/helix`
+- **Inspiración de referencia**: Nuclear
+- **Dirección acordada**: Helix no será “solo un Nuclear mejor”, sino una plataforma musical abierta con mejor experiencia base de escucha en el MVP
 
-Helix is a **privacy-first, open-source music platform** for the modern world. A replacement for Spotify and other streaming services that:
+## Resumen ejecutivo
 
-- **Does not track you** — No telemetry, no cookies, no analytics
-- **Lets you stream from anywhere** — YouTube, SoundCloud, Bandcamp, radio, local files
-- **Visually comes alive** — Real-time audio visualizations (Winamp-style)
-- **Grows with you** — Plugin system (WASM) for unlimited extensibility
-- **Speaks your language** — Full i18n from day 1. System language detection + manual override
-- **Belongs to everyone** — Open-source (AGPL-3.0), community-driven
+Helix busca cubrir un hueco claro: una aplicación de escritorio para escuchar música gratis, sin suscripción, sin tracking y sin anuncios propios, con soporte para múltiples fuentes y una experiencia visual atractiva.
 
----
+Para `v0.1`, el foco NO será ganar por plugins ni por ambición funcional, sino por una **experiencia base de escucha más simple e intuitiva** que Nuclear. El MVP debe validar que existe demanda para una app que combine:
 
-## 2. Target Audience
+- escucha rápida y estable,
+- interfaz clara,
+- control real de reproducción,
+- soporte inicial para streaming abierto y archivos locales,
+- identidad visual propia.
 
-| Persona | Needs | Pain points today |
-|---|---|---|
-| **Privacy-conscious user** | Music without tracking | Spotify/Apple Music track everything. Nuclear lacks features. |
-| **Audiophile / Power user** | Visualizations, plugins, control | Winamp is dead. Modern players are boring. |
-| **Developer** | Extensible, hackable music platform | No good open-source player with plugin APIs |
-| **Casual listener** | Just works, looks great, free | Tired of subscriptions, ads, trackers |
+## Problema
 
----
+El usuario quiere escuchar música de forma cómoda, gratuita y sin anuncios, pero las alternativas actuales suelen imponer al menos uno de estos costes:
 
-## 3. Platform Strategy
+- suscripción mensual,
+- publicidad,
+- rastreo del comportamiento,
+- dependencia de una plataforma cerrada.
 
-### Primary: Desktop (v1.0)
+Además, el mercado deja huecos claros:
 
-| Platform | Support | Engine |
-|---|---|---|
-| **Windows** (10/11) | ✅ Native | Tauri v2 + Rust |
-| **macOS** (Intel + Apple Silicon) | ✅ Native | Tauri v2 + Rust |
-| **Linux** (AppImage, .deb, .rpm, Flatpak) | ✅ Native | Tauri v2 + Rust |
+- muchos reproductores open-source no ofrecen una experiencia moderna de streaming,
+- las visualizaciones en tiempo real casi han desaparecido,
+- los sistemas extensibles suelen ser complejos o poco maduros.
 
-### Secondary: Mobile (v2.0+)
+## Visión del producto
 
-| Platform | Support | Notes |
-|---|---|---|
-| **Android** | 🔄 Planned (v2.0) | Different audio pipeline needed (Oboe/AAudio) |
-| **iOS** | 🔄 Planned (v2.0) | Different audio pipeline needed (AVAudioEngine) |
+Construir una plataforma musical abierta para escritorio que permita:
 
-**Key architectural decision:** Desktop and mobile will share the **same Rust core** for business logic (search, playlist management, metadata) but will have **different audio backends** and **different UIs**.
+1. escuchar música desde múltiples fuentes,
+2. descubrir nueva música,
+3. disfrutar visualizaciones en tiempo real,
+4. mantener privacidad y control,
+5. evolucionar a futuro hacia extensibilidad mediante plugins.
 
-### Why not mobile first?
+## Propuesta de valor
 
-1. **Audio pipeline is completely different** — cpal/symphonia work on desktop. Mobile needs Oboe (Android) or AVAudioEngine (iOS). Building both from day 1 doubles the audio work.
-2. **yt-dlp doesn't run on mobile** — Stream resolution needs a different approach (remote proxy or native Rust reimplementation)
-3. **UI paradigm shift** — Desktop UI patterns don't translate to mobile. Would need separate UI.
-4. **Distribution complexity** — App Store, Google Play, signing, background playback permissions
+Helix quiere ser la forma más simple y agradable de escuchar música gratis en escritorio, sin suscripción, sin tracking y sin anuncios propios.
 
-**Recommendation:** Build a rock-solid desktop app first (v1.0), then port the core to mobile (v2.0).
+### Posicionamiento del producto
 
----
+Helix se posiciona como una **plataforma musical abierta** centrada en:
 
-## 4. Features
+- libertad del usuario,
+- privacidad,
+- experiencia de escucha,
+- extensibilidad futura.
 
-### v0.1 — Core Player *(MVP)*
-| ID | Feature | Priority | Notes |
-|---|---|---|---|
-| F-001 | Search YouTube via yt-dlp | P0 | |
-| F-002 | Play/Pause/Next/Prev/Seek | P0 | |
-| F-003 | Volume control | P0 | |
-| F-004 | Basic audio pipeline (symphonia + cpal) | P0 | Rust-native, no browser MSE |
-| F-005 | Search results list | P0 | |
-| F-006 | Now playing bar | P0 | |
-| F-007 | Queue management | P1 | |
-| F-008 | Keyboard shortcuts | P1 | Media keys, spacebar, arrows |
-| F-009 | **i18n infrastructure** | **P0** | System locale detection, locale switcher, translation files |
+No debe comunicarse como un simple “Spotify killer” ni como “solo un Nuclear mejor”, aunque Nuclear sea una referencia clara de partida.
 
-### v0.2 — Library & Playlists
-| ID | Feature | Priority | Notes |
-|---|---|---|---|
-| F-010 | Favorites (tracks, albums, artists) | P1 | Local storage |
-| F-011 | Playlists (create, export, import) | P1 | |
-| F-012 | Listening history | P1 | |
-| F-013 | Local file support | P1 | Import MP3/FLAC/OGG |
-| F-014 | SoundCloud search | P2 | |
-| F-015 | Bandcamp search | P2 | |
+### Definición operativa de “sin publicidad”
 
-### v0.3 — Visualizations
-| ID | Feature | Priority | Notes |
-|---|---|---|---|
-| F-016 | FFT audio pipeline | P0 | Real-time frequency data |
-| F-017 | Spectrum analyzer (bars) | P0 | Classic Winamp style |
-| F-018 | Oscilloscope | P1 | Waveform visualization |
-| F-019 | Album art visualizer | P1 | |
-| F-020 | OpenGL shader effects | P2 | User-customizable shaders |
-| F-021 | Multiple visualization modes | P1 | Switchable presets |
+En Helix, “sin publicidad” significa:
 
-### v0.4 — Radio & Discovery
-| ID | Feature | Priority | Notes |
-|---|---|---|---|
-| F-022 | IceCast/Shoutcast radio browser | P1 | |
-| F-023 | Last.fm scrobbling | P1 | |
-| F-024 | Last.fm recommendations | P2 | Similar artists, tags |
-| F-025 | MusicBrainz metadata | P2 | Artist bios, album info |
+- la app no mostrará anuncios propios,
+- no habrá banners ni formatos promocionales internos,
+- no se promete control absoluto sobre limitaciones o comportamientos de servicios externos.
 
-### v0.5 — Plugin System
-| ID | Feature | Priority | Notes |
-|---|---|---|---|
-| F-026 | WASM runtime for plugins | P1 | Sandboxed execution |
-| F-027 | Plugin SDK (Rust bindings) | P1 | |
-| F-028 | Plugin store (in-app) | P2 | |
-| F-029 | Theme system | P1 | CSS/customizable |
+## Benchmark e identidad frente a Nuclear
 
-### v1.0 — Production Ready
-| ID | Feature | Priority | Notes |
-|---|---|---|---|
-| F-030 | Auto-updates | P0 | |
-| F-031 | Installers (Win/macOS/Linux) | P0 | AppImage, .deb, .msi, .dmg |
-| F-032 | Accessibility (a11y) | P2 | |
+Nuclear es la referencia principal de inspiración, pero Helix quiere mejorarla en:
 
----
+- experiencia base de escucha,
+- claridad de interfaz,
+- descubrimiento progresivo,
+- componente visual,
+- apertura futura de la arquitectura.
 
-## 5. Technical Architecture
+### Gancho principal del MVP
 
-```
-┌─────────────────────────────────────────────────────┐
-│                      HELIX                           │
-│                                                       │
-│  ┌─────────────────────────────────────────────────┐ │
-│  │              TAURI SHELL (v2)                    │ │
-│  │  ┌──────────────┐  ┌──────────────────────────┐ │ │
-│  │  │  Frontend     │  │  Rust Backend            │ │ │
-│  │  │  (Svelte)    │  │                          │ │ │
-│  │  │              │  │  ┌────┐ ┌────┐ ┌──────┐ │ │ │
-│  │  │  Components  │↔│  │Audio│ │Sources│ │Plugin│ │ │ │
-│  │  │  Stores      │  │  │     │ │       │ │Runtime│ │ │ │
-│  │  │  Themes      │  │  │Playb│ │yt-dlp │ │WASM  │ │ │ │
-│  │  │  i18n 🇪🇸🇺🇸  │  │  │FFT  │ │Radio  │ │      │ │ │ │
-│  │  └──────────────┘  │  └────┘ └────┘ └──────┘ │ │ │
-│  │                    │  ┌──────────────────────┐ │ │ │
-│  │                    │  │  Visualizer (WGPU)   │ │ │ │
-│  │                    │  │  ─ Spectrum          │ │ │ │
-│  │                    │  │  ─ Oscilloscope      │ │ │ │
-│  │                    │  │  ─ Shaders           │ │ │ │
-│  │                    │  └──────────────────────┘ │ │ │
-│  └─────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────┘
-```
+La mejora principal frente a Nuclear en `v0.1` será:
 
-### Key Design Decisions
+- **una interfaz más simple e intuitiva para escuchar música**.
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| **Shell** | Tauri v2 | Cross-platform desktop (Win/Mac/Linux). Mobile support ready for v2.0 |
-| **Backend language** | Rust | Performance, safety, cross-compilation to mobile |
-| **Frontend** | Svelte | Small bundle, reactive, compiles to WASM |
-| **Audio playback** | symphonia + cpal | Native decoding. No browser MSE. Full control |
-| **FFT** | rustfft | Real-time spectrum data for visualizations |
-| **Graphics** | WGPU | Cross-platform GPU (Vulkan/Metal/DX12). Future-proof |
-| **Stream resolution** | yt-dlp (lib) | Battle-tested YouTube/SoundCloud/Bandcamp |
-| **Plugins** | WASM | Sandboxed, portable, any language |
-| **Mobile future** | Tauri v2 mobile | Shared Rust core, different UI + audio backend |
-| **i18n** | Svelte store + JSON locales | Frontend-only. Backend uses error codes → frontend maps to translations. System locale auto-detect + manual override. No restart needed. |
+## Usuario objetivo
 
----
+### Usuario principal de `v0.1`
 
-## 6. Internationalization (i18n)
+Persona a la que le gusta la música, no quiere pagar una suscripción tipo Spotify, no quiere ser rastreada y quiere escuchar música de forma simple desde una app sin anuncios propios.
 
-### Strategy: Frontend-first
+### Público primario
 
-Helix maneja i18n **completamente en el frontend**. El backend (Rust) nunca renderiza texto al usuario directamente.
+- personas que quieren una alternativa sin cuota mensual,
+- usuarios que valoran privacidad,
+- personas que quieren escuchar música sin fricción,
+- usuarios que quieren streaming sin depender de una sola plataforma.
 
-```
-┌─────────────────────────────────────────────┐
-│  i18n Architecture                          │
-│                                             │
-│  Rust Backend ─── error codes ──┐           │
-│  (no translations)              │           │
-│                                 ▼           │
-│  ┌─────────────────────────────────────────┐│
-│  │  Frontend i18n Layer                    ││
-│  │                                         ││
-│  │  locales/                               ││
-│  │  ├── en.json    ← English (default)     ││
-│  │  ├── es.json    ← Spanish               ││
-│  │  ├── de.json    ← German                ││
-│  │  ├── fr.json    ← French                ││
-│  │  ├── pt-BR.json ← Portuguese (BR)       ││
-│  │  ├── ja.json    ← Japanese              ││
-│  │  └── zh.json    ← Chinese (Simplified)  ││
-│  │                                         ││
-│  │  store/i18n.ts                          ││
-│  │  ├── $locale (reactive Svelte store)    ││
-│  │  ├── detectSystemLocale()               ││
-│  │  ├── switchLocale(code)                 ││
-│  │  └── translate(key, params) → string    ││
-│  └─────────────────────────────────────────┘│
-└─────────────────────────────────────────────┘
-```
+### Público secundario
 
-### Flujo de traducción
+- usuarios que disfrutan una experiencia visual más expresiva,
+- power users que a medio plazo querrán personalización,
+- desarrolladores interesados en la extensibilidad futura.
 
-1. App inicia → `detectSystemLocale()` detecta idioma del SO
-2. Si hay traducción → se carga. Si no → fallback a `en.json`
-3. Usuario puede cambiar idioma en settings → `switchLocale('es')`
-4. El cambio es **instantáneo** y **no requiere reinicio**
-5. Backend devuelve error codes (ej. `NETWORK_TIMEOUT`) → frontend traduce
+## Objetivos
 
-### Formato de archivos de traducción
+### Objetivos de `v0.1`
 
-```json
-{
-  "app": {
-    "title": "Helix",
-    "search": "Buscar en YouTube...",
-    "now_playing": "Reproduciendo ahora"
-  },
-  "errors": {
-    "NETWORK_TIMEOUT": "Tiempo de espera agotado. Verifica tu conexión.",
-    "SEARCH_FAILED": "Error al buscar: {reason}"
-  },
-  "player": {
-    "play": "Reproducir",
-    "pause": "Pausa",
-    "next": "Siguiente",
-    "volume": "Volumen"
-  }
-}
-```
+- validar demanda para una experiencia base de escucha mejor resuelta,
+- entregar un core player usable, estable y claro,
+- ofrecer una UX más simple e intuitiva que Nuclear,
+- soportar un set inicial de fuentes atractivo pero controlado,
+- sentar una base técnica que permita crecer sin bloquear visualizaciones ni plugins futuros.
 
-### Idiomas iniciales (v1.0)
+### Objetivos a medio plazo
 
-| Idioma | Prioridad | Estado |
-|---|---|---|
-| 🇺🇸 English | P0 | Default. 100% |
-| 🇪🇸 Spanish | P0 | Completo |
-| 🇧🇷 Portuguese (BR) | P1 | En progreso |
-| 🇫🇷 French | P1 | En progreso |
-| 🇩🇪 German | P2 | Comunidad |
-| 🇯🇵 Japanese | P2 | Comunidad |
-| 🇨🇳 Chinese (Simplified) | P2 | Comunidad |
+- biblioteca y playlists más completas,
+- radio y discovery más profundo,
+- visualizaciones avanzadas,
+- sistema de plugins visible para usuario final.
 
-Traducciones comunitarias via archivos JSON + PRs. Any language can be added without code changes.
+## No objetivos de `v0.1`
 
----
+Quedan fuera del MVP:
 
-These are explicitly out of scope for v1.0:
+- app móvil,
+- sincronización multiplataforma compleja,
+- red social interna,
+- plugin store o instalación de plugins visible,
+- radio online,
+- Bandcamp,
+- sistema avanzado de librería local tipo music manager completo.
 
-- ❌ **Mobile apps** (iOS/Android) — Planned for v2.0
-- ❌ **Social features** — No friends, no sharing, no comments
-- ❌ **Podcasts** — Music-only for v1.0
-- ❌ **Offline downloads** — Streaming + local files only
-- ❌ **AI-generated music** — No plans currently
-- ❌ **Web version** — Desktop native only
+## Alcance del MVP (`v0.1`)
 
----
+### Prioridad principal
 
-## 7. Success Metrics
+Helix debe ganar primero por:
 
-| Metric | Target (v1.0) |
+- **experiencia base de escucha simple, rápida y estable**.
+
+### Principios UX del MVP
+
+- lo que está sonando debe estar siempre claro,
+- buscar debe ser inmediato,
+- reproducir debe requerir el mínimo esfuerzo,
+- la navegación debe ser familiar para usuario común,
+- la app debe evitar sobrecarga visual innecesaria.
+
+## Navegación y experiencia principal
+
+### Estructura general
+
+El MVP seguirá un patrón **tipo Spotify** con vistas separadas y reproductor persistente.
+
+### Secciones principales
+
+1. **Inicio**
+2. **Buscar**
+3. **Ahora suena**
+4. **Favoritos**
+
+Quedan fuera del primer nivel:
+
+- Cola
+- Playlists
+- Descubrir
+- Radio
+- Ajustes
+
+### Happy path principal
+
+1. El usuario abre Helix.
+2. Ve inmediatamente qué está sonando.
+3. Busca una canción, artista o álbum sin fricción.
+4. Entiende los resultados con claridad.
+5. Reproduce con un clic.
+6. Controla la reproducción y la cola.
+7. Puede activar la visualización en tiempo real.
+
+## Definición funcional del MVP
+
+### Inicio
+
+`Inicio` debe mostrar:
+
+1. **Reproducido recientemente**
+2. **Recomendaciones / descubrir**
+3. **Accesos rápidos por géneros o moods**
+
+Objetivo: servir como punto de retorno musical, no como una copia de `Buscar`.
+
+### Ahora suena
+
+`Ahora suena` debe incluir:
+
+1. **Controles completos de reproducción**
+2. **Carátula grande + metadata**
+3. **Acciones rápidas**: favorito, compartir, abrir artista/álbum
+4. **Visualización en tiempo real**
+5. **Cola integrada en la propia vista**
+
+Objetivo: ser el centro visual y operativo del reproductor.
+
+### Cola
+
+La cola no tendrá vista principal propia en `v0.1`; vivirá dentro de `Ahora suena`.
+
+Operaciones iniciales:
+
+- ver próximo tema,
+- reordenar manualmente,
+- eliminar canciones individuales,
+- guardar cola como playlist,
+- shuffle,
+- repeat.
+
+### Buscar
+
+Capacidades prioritarias:
+
+- buscar por canción,
+- buscar por artista,
+- buscar por álbum,
+- filtrar resultados por tipo.
+
+Presentación de resultados:
+
+- bloques separados por **canciones**, **artistas** y **álbumes**.
+
+Acciones directas sobre resultados:
+
+- reproducir,
+- añadir a favoritos,
+- añadir a cola.
+
+### Vistas propias de contenido
+
+#### Vista `Artista`
+
+Debe incluir:
+
+- nombre + imagen,
+- top canciones,
+- álbumes del artista.
+
+#### Vista `Álbum`
+
+Debe incluir:
+
+- portada + título + artista,
+- listado de canciones,
+- reproducir álbum completo.
+
+## Fuentes y reproducción
+
+### Fuentes iniciales de `v0.1`
+
+Entran en el MVP:
+
+1. **YouTube**
+2. **SoundCloud**
+3. **Archivos locales**
+
+Quedan fuera, por ahora:
+
+- radio online,
+- Bandcamp.
+
+### Archivos locales
+
+El soporte local tendrá un alcance **medio**:
+
+- indexación básica,
+- organización mínima por artistas y álbumes,
+- integración real con la experiencia general.
+
+### Modelo de indexación local
+
+El usuario seleccionará explícitamente las carpetas que Helix debe escanear.
+
+Esto evita:
+
+- escaneos agresivos del disco o del `home`,
+- sorpresas para el usuario,
+- complejidad innecesaria en el MVP.
+
+## Plugins
+
+Los plugins **no forman parte de la funcionalidad visible de `v0.1`**.
+
+En el MVP solo se asume:
+
+- base arquitectónica futura,
+- separación razonable de responsabilidades,
+- decisiones que no bloqueen el sistema de plugins posterior.
+
+### Modelo futuro de permisos
+
+Aunque no entren en `v0.1`, la arquitectura debe prepararse para un modelo de **permisos declarativos (tipo extensiones de navegador)**:
+
+- los plugins declararán qué permisos necesitan (ej: acceso a red para un dominio concreto),
+- el usuario deberá aprobarlos explícitamente al instalarlos,
+- proporciona un equilibrio óptimo entre seguridad privacy-first y capacidad técnica para extensiones.
+
+El roadmap previsto mantiene plugins como línea fuerte a futuro, no como parte del alcance inmediato.
+
+## Requisitos no funcionales
+
+| Área | Decisión inicial |
 |---|---|
-| Startup time | < 2 seconds |
-| Memory usage | < 200 MB idle |
-| Search results | < 3 seconds |
-| Playback start | < 1 second |
-| FPS (visualizer) | 60 fps |
-| AppImage size | < 50 MB |
+| Rendimiento | Reproducción fluida y UI responsiva |
+| Audio | Pipeline nativo estable y de baja latencia |
+| Privacidad | Sin tracking ni publicidad propia |
+| Extensibilidad | Arquitectura que no bloquee plugins futuros |
+| Portabilidad | Base para Linux, Windows y macOS |
 
----
+## Métricas principales del MVP
 
-## 8. Risks & Mitigations
+Las métricas prioritarias para evaluar `v0.1` serán:
 
-| Risk | Impact | Mitigation |
-|---|---|---|
-| yt-dlp breaks (Google changes) | High | Monitor yt-dlp releases. Fallback to alternative sources |
-| Plugin security (WASM) | Medium | WASM sandbox. Review plugin store submissions |
-| Cross-platform audio differences | Medium | Abstract audio backend (trait-based). Test on all platforms early |
-| Mobile port complexity | High | Don't start mobile until desktop is stable. Shared Rust core |
-| Copyright/DMCA issues | Medium | No hosting. No caching. Stream URLs expire. AGPL ≠ piracy |
+1. **Tiempo hasta primera reproducción**
+2. **Tasa de reproducción exitosa**
+3. **Consumo de CPU/RAM**
 
----
+### Umbrales iniciales
 
-## 9. Timeline (Estimated)
+- **Tiempo hasta primera reproducción**: menos de **5 segundos** en condiciones normales.
+- **Tasa de reproducción exitosa**: al menos **90%**.
+- **CPU durante reproducción normal con visualización activa**: menos de **20%** en un equipo medio.
+- **RAM durante reproducción normal con visualización activa**: menos de **500 MB** en un equipo medio.
 
-```
-v0.1 ───── Core Player ───── 3-4 weeks
-v0.2 ───── Library ───────── 2-3 weeks
-v0.3 ───── Visualizations ── 3-4 weeks
-v0.4 ───── Radio ─────────── 2-3 weeks
-v0.5 ───── Plugins ───────── 3-4 weeks
-v1.0 ───── Production ────── 2-3 weeks
-         ──────────────────────────
-         Total: ~15-21 weeks
-```
+### Criterio de eficiencia
 
----
+Helix priorizará un **equilibrio entre rendimiento y visualización**. No debe vaciar la experiencia visual para ahorrar recursos, pero tampoco degradar la escucha por efectos demasiado costosos.
 
-## 10. Competitive Analysis
+## Arquitectura de referencia
 
-| Feature | Helix | Spotify | Nuclear | Strawberry | Winamp |
-|---|---|---|---|---|---|
-| **Privacy** | ✅ No tracking | ❌ Tracks everything | ✅ No tracking | ✅ No tracking | ❌ Abandonware |
-| **Streaming** | ✅ Multi-source | ✅ Only Spotify | ✅ YouTube/SC | ❌ Local only | ❌ Local only |
-| **Visualizations** | ✅ FFT + WGPU | ❌ None | ❌ None | ❌ Basic | ✅ Classic |
-| **Plugins** | ✅ WASM | ❌ | ✅ JS | ❌ | ❌ |
-| **Open Source** | ✅ AGPL-3.0 | ❌ | ✅ AGPL-3.0 | ✅ GPL | ❌ |
-| **Cost** | 💰 Free | 💸 Subscription | 💰 Free | 💰 Free | 💰 Free |
-| **Cross-platform** | ✅ All desktop | ✅ All | ✅ All | ✅ Linux/macOS | ❌ Windows only |
+### Stack acordado para el MVP
 
----
+| Capa | Tecnología |
+|---|---|
+| Shell | Tauri v2 |
+| Backend | Rust |
+| Frontend | Svelte |
+| Playback | `symphonia` + `cpal` |
+| FFT | `rustfft` |
+| Visualización | OpenGL o WGPU |
+| Resolución de streams | `yt-dlp` |
+| Plugins futuros | WASM runtime |
 
-*This document will evolve as the project progresses. Last updated: 2026-06-14.*
+### Decisiones técnicas clave
+
+- **Svelte** se elige para iterar UX más rápido en el MVP.
+- El backend **nativo en Rust** habilita más control sobre reproducción, FFT y rendimiento.
+- La arquitectura debe preservar futura extensibilidad, aunque plugins no entren todavía en `v0.1`.
+
+### Diferenciador técnico principal
+
+Helix quiere evitar depender del navegador para el pipeline de audio. Eso habilita:
+
+- FFT real para visualizaciones,
+- menor latencia,
+- mejor control del pipeline,
+- soporte más sólido para formatos y reproducción.
+
+## Roadmap de producto
+
+| Versión | Enfoque |
+|---|---|
+| `v0.1` | Core player + UX base + búsqueda + cola + favoritos + local files básicos |
+| `v0.2` | Biblioteca, playlists, historial y mejoras de organización |
+| `v0.3` | Visualizaciones avanzadas |
+| `v0.4` | Radio y discovery enriquecido |
+| `v0.5` | Sistema de plugins |
+| `v1.0` | Empaquetado multiplataforma, auto-updates, i18n, temas más maduros |
+
+## Riesgos principales
+
+- complejidad del pipeline nativo de audio + FFT + visualización,
+- dependencia funcional de fuentes externas,
+- riesgos legales o de compatibilidad con ciertos servicios,
+- sobrecarga de alcance si se adelantan features futuras,
+- tensión entre identidad visual y eficiencia de recursos.
+
+### Riesgo detallado: fuentes externas
+
+Helix asume desde el inicio que las fuentes externas representan un riesgo **mixto: técnico y legal**.
+
+#### Riesgo técnico
+
+- cambios en APIs, estructura o disponibilidad de servicios externos,
+- rotura de resolutores o degradación de estabilidad,
+- diferencias de comportamiento entre fuentes que afecten la experiencia del usuario.
+
+#### Riesgo legal
+
+- posibles tensiones con términos de servicio de terceros,
+- ambigüedad sobre usos permitidos en determinados contextos,
+- necesidad de comunicar el producto con cuidado para no prometer más de lo que controla.
+
+### Postura de producto frente al riesgo de fuentes externas
+
+Helix adoptará una **postura equilibrada**.
+
+Esto implica:
+
+- comunicar una propuesta de valor fuerte sin lenguaje agresivo innecesario,
+- reconocer límites técnicos y dependencias de terceros,
+- evitar promesas absolutas sobre comportamiento o disponibilidad de fuentes externas,
+- sostener una narrativa clara de libertad del usuario y privacidad sin convertirla en confrontación vacía.
+
+### Mitigaciones iniciales para fuentes externas
+
+Helix debe reflejar al menos estas mitigaciones iniciales:
+
+1. **Diseñar conectores/fuentes desacoplados**
+2. **Registrar y monitorizar fallos por fuente**
+3. **Poder desactivar una fuente problemática sin romper toda la app**
+
+Estas mitigaciones reducen el riesgo operativo del MVP y mejoran la resiliencia del producto ante cambios o roturas en servicios externos.
+
+### Redacción base de límites del producto
+
+Helix debe comunicar estos límites con un tono **claro para usuario final**.
+
+Mensaje base recomendado para producto/documentación:
+
+> Helix te ofrece una forma abierta y privada de escuchar música desde distintas fuentes, pero algunas funciones pueden depender de servicios externos que pueden cambiar, fallar o dejar de estar disponibles con el tiempo.
+
+Esta línea mantiene honestidad con el usuario sin convertir la comunicación del producto en un texto legalista o defensivo.
+
+## Dependencias relevantes
+
+- Tauri v2
+- ecosystem Rust (`symphonia`, `cpal`, `rustfft`)
+- `yt-dlp`
+- APIs futuras potenciales: Last.fm, MusicBrainz, directorios de radio
+
+## Decisiones abiertas
+
+Quedan abiertas para próximas iteraciones:
+
+1. completar criterios de aceptación por feature del MVP,
+2. aterrizar mejor la estrategia de monetización/licenciamiento dentro del PRD,
+3. aterrizar mejor riesgos legales y técnicos de fuentes externas.
+
+## Monetización y licenciamiento
+
+### Enfoque inicial de monetización
+
+Helix se orientará inicialmente a un modelo **open-source + donaciones/patrocinios**.
+
+Esto implica que, en esta fase:
+
+- la prioridad es construir producto y comunidad,
+- no se fuerza una monetización agresiva dentro de la experiencia del usuario,
+- la sostenibilidad económica se apoya primero en apoyo voluntario y patrocinio.
+
+### Principio de producto asociado
+
+La monetización no debe contaminar la propuesta central de Helix:
+
+- sin publicidad propia,
+- sin romper privacidad,
+- sin degradar la experiencia base de escucha.
+
+### Postura de licenciamiento en el PRD
+
+El PRD debe presentar a Helix como un proyecto **open-source** y, al mismo tiempo, dejar claro que la sostenibilidad futura puede apoyarse en vías compatibles con esa identidad.
+
+Esto implica:
+
+- comunicar la naturaleza abierta del proyecto como parte central de su propuesta,
+- separar la experiencia del usuario de la estrategia de sostenibilidad,
+- dejar espacio para evolución futura sin convertir el PRD en un documento financiero o legal detallado.
+
+### Visibilidad de donaciones y patrocinios
+
+En esta fase, las donaciones y patrocinios deben comunicarse **fuera de la app**.
+
+Canales apropiados:
+
+- README,
+- web del proyecto,
+- documentación,
+- GitHub Sponsors u otros canales equivalentes.
+
+Esto protege la experiencia principal del usuario y evita contaminar el MVP con elementos de monetización dentro del producto.
+
+## Criterios de aceptación iniciales del MVP
+
+Estos criterios cubren los flujos principales ya definidos del MVP. Aún faltan criterios más detallados para áreas futuras o transversales.
+
+### Feature: Buscar y reproducir
+
+Se considerará aceptado si:
+
+1. la búsqueda devuelve resultados de **canción**, **artista** y **álbum**,
+2. los resultados aparecen separados por bloques por tipo,
+3. una canción puede reproducirse con un clic,
+4. un resultado de artista abre su vista propia.
+
+### Feature: Cola dentro de `Ahora suena`
+
+Se considerará aceptado si:
+
+1. la cola muestra el próximo tema,
+2. las canciones pueden reordenarse manualmente,
+3. una canción puede eliminarse de la cola,
+4. la cola puede guardarse como playlist.
+
+### Feature: `Ahora suena`
+
+Se considerará aceptado si:
+
+1. muestra carátula grande y metadata,
+2. permite controles completos de reproducción,
+3. muestra visualización en tiempo real,
+4. mantiene visible el contexto de reproducción actual.
+
+### Feature: `Inicio`
+
+Se considerará aceptado si:
+
+1. muestra reproducido recientemente,
+2. muestra recomendaciones / descubrir,
+3. permite retomar reproducción rápidamente,
+4. sirve como entrada clara al producto al abrir la app.
+
+### Feature: archivos locales
+
+Se considerará aceptado si:
+
+1. el usuario puede seleccionar carpetas a escanear,
+2. Helix indexa solo las carpetas elegidas,
+3. la librería local se organiza por artista y álbum,
+4. los archivos locales aparecen integrados con la experiencia general.
+
+### Feature: Favoritos
+
+Se considerará aceptado si:
+
+1. una canción puede añadirse a favoritos,
+2. Favoritos aparece como sección principal,
+3. Favoritos muestra el contenido guardado de forma clara,
+4. desde Favoritos puede reproducirse directamente.
+
+## Checklist de completitud
+
+- [x] usuario objetivo priorizado
+- [x] problema principal definido
+- [x] propuesta de valor resumida
+- [x] alcance base del MVP
+- [x] navegación principal del MVP
+- [x] definición funcional de Inicio, Buscar, Ahora suena y Cola
+- [x] fuentes iniciales del MVP
+- [x] definición operativa de “sin publicidad”
+- [x] frontend del MVP
+- [x] métricas principales del MVP
+- [~] criterios de aceptación por funcionalidad
+- [x] riesgos legales/técnicos más detallados
+- [x] monetización/licenciamiento dentro del PRD
+- [x] definición futura del sistema de plugins
+
+## Referencias
+
+- Repositorio oficial: `https://github.com/netcraker01/helix`
+- README público del repositorio
+- Benchmark conceptual: Nuclear

@@ -11,6 +11,14 @@ mod audio;
 mod plugins;
 mod sources;
 mod visualizer;
+mod app;
+mod ipc;
+mod playback;
+mod library;
+mod models;
+mod persistence;
+mod errors;
+mod shared;
 
 use audio::playback::CpalBackend;
 use audio::AudioBackend;

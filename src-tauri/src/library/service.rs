@@ -1,0 +1,1 @@
+//! Library service — CRUD for favorites, history, playlists (placeholder).

@@ -1,0 +1,1 @@
+//! Library internal models (placeholder).

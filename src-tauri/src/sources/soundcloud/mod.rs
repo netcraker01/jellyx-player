@@ -1,0 +1,1 @@
+//! SoundCloud source resolver (placeholder).

@@ -1,0 +1,1 @@
+//! PCM Bus — internal pub/sub for audio pipeline (placeholder).

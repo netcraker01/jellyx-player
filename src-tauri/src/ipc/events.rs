@@ -1,0 +1,1 @@
+//! Tauri event emissions (placeholder for change #4).
