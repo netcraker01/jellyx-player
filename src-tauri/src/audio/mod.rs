@@ -3,7 +3,6 @@
 //! Platform-agnostic audio backend trait.
 //! Desktop uses `cpal + symphonia`. Mobile will use platform backends.
 
-pub mod playback;
 pub mod fft;
 pub mod decoder;
 pub mod output;

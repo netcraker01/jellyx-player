@@ -47,10 +47,10 @@ Chain strategy: size-exception
 
 ## Phase 3: Command + CpalBackend Extraction
 
-- [ ] 3.1 Move `AppState` struct + all 7 `#[tauri::command]` fns from `main.rs` to `ipc/commands.rs`; update imports
-- [ ] 3.2 Update `main.rs` `invoke_handler` to register `ipc::commands::*`; add `use` for `CpalBackend`
-- [ ] 3.3 Move `CpalBackend` from `audio/playback.rs` to `audio/output.rs`; keep `AudioBackend` trait + `PlaybackState` + `AudioError` in `audio/mod.rs`
-- [ ] 3.4 Delete `audio/playback.rs`; update `audio/mod.rs` to declare `pub mod output;` instead of `pub mod playback;` → `cargo check`
+- [x] 3.1 Move `AppState` struct + all 7 `#[tauri::command]` fns from `main.rs` to `ipc/commands.rs`; update imports
+- [x] 3.2 Update `main.rs` `invoke_handler` to register `ipc::commands::*`; add `use` for `CpalBackend`
+- [x] 3.3 Move `CpalBackend` from `audio/playback.rs` to `audio/output.rs`; keep `AudioBackend` trait + `PlaybackState` + `AudioError` in `audio/mod.rs`
+- [x] 3.4 Delete `audio/playback.rs`; update `audio/mod.rs` to declare `pub mod output;` instead of `pub mod playback;` → `cargo check`
 
 ## Phase 4: Dependency Cleanup
 
