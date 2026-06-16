@@ -6,15 +6,23 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
     "svelte": "^4.0.0",
-    "@tauri-apps/api": "^2.0.0"
+    "svelte-routing": "^2.0.0",
+    "@tauri-apps/api": "^2.0.0",
+    "lucide-svelte": "^0.400.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^3.0.0",
+    "@testing-library/svelte": "^4.0.0",
+    "jsdom": "^24.0.0",
+    "svelte-preprocess": "^5.0.0",
+    "typescript": "^5.0.0",
     "vite": "^5.0.0",
-    "typescript": "^5.0.0"
+    "vitest": "^2.0.0"
   }
 }
