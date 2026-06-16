@@ -44,6 +44,13 @@
     "PLUGIN_LOAD_FAILED": "Failed to load plugin: {name}",
     "UNKNOWN_ERROR": "Something went wrong. Try again."
   },
+  "routes": {
+    "home": "Home",
+    "search": "Search",
+    "favorites": "Favorites",
+    "now_playing": "Now Playing",
+    "settings": "Settings"
+  },
   "common": {
     "loading": "Loading...",
     "error": "Error",

@@ -1,0 +1,23 @@
+:root {
+  /* Background tokens */
+  --bg-base: #0a0a0f;
+  --bg-surface: #111827;
+  --bg-elevated: #1f2937;
+
+  /* Text tokens */
+  --text-primary: #e0e0e0;
+  --text-secondary: #9ca3af;
+
+  /* Accent */
+  --color-accent: #6366f1;
+
+  /* Border */
+  --border-color: #1f2937;
+
+  /* Sizing */
+  --sidebar-width: 240px;
+  --bottombar-height: 72px;
+
+  /* Font */
+  --font-family: 'Inter', sans-serif;
+}

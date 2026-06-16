@@ -44,6 +44,13 @@
     "PLUGIN_LOAD_FAILED": "Error al cargar plugin: {name}",
     "UNKNOWN_ERROR": "Algo salió mal. Intenta de nuevo."
   },
+  "routes": {
+    "home": "Inicio",
+    "search": "Buscar",
+    "favorites": "Favoritos",
+    "now_playing": "Reproduciendo",
+    "settings": "Configuración"
+  },
   "common": {
     "loading": "Cargando...",
     "error": "Error",
