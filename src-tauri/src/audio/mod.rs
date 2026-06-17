@@ -8,6 +8,9 @@ pub mod decoder;
 pub mod output;
 pub mod pipeline;
 
+// Re-export PlaybackState from the playback module — it is the Source of Truth.
+pub use crate::playback::state::PlaybackState;
+
 /// Trait that abstracts the audio backend for cross-platform support.
 ///
 /// Desktop → cpal backend
@@ -22,15 +25,6 @@ pub trait AudioBackend {
     fn volume(&mut self, level: f32) -> Result<(), AudioError>;
     fn position(&self) -> f64;
     fn state(&self) -> PlaybackState;
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub enum PlaybackState {
-    Stopped,
-    Playing,
-    Paused,
-    Buffering,
 }
 
 #[derive(Debug, serde::Serialize)]
