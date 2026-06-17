@@ -6,6 +6,7 @@
  */
 import { writable } from 'svelte/store';
 import * as commands from '@services/commands';
+import { notifications } from '@shared/stores/notifications';
 import type { Track } from '@shared/types/models';
 
 export interface SearchStore {
@@ -34,6 +35,7 @@ function createSearchStore(): SearchStore {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         searchError.set(msg);
+        notifications.push({ type: 'error', title: 'Search Failed', message: msg, dismissible: true });
         set([]);
       } finally {
         isSearching.set(false);

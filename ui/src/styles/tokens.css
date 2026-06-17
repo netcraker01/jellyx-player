@@ -11,6 +11,12 @@
   /* Accent */
   --color-accent: #6366f1;
 
+  /* Notification colors */
+  --color-error: #ef4444;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-info: #3b82f6;
+
   /* Border */
   --border-color: #1f2937;
 

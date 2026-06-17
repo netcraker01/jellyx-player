@@ -6,6 +6,7 @@
  */
 import { writable } from 'svelte/store';
 import * as commands from '@services/commands';
+import { notifications } from '@shared/stores/notifications';
 import type { FavoriteEntry, Track } from '@shared/types/models';
 
 export interface FavoritesStore {
@@ -28,7 +29,8 @@ function createFavoritesStore(): FavoritesStore {
         const entries = await commands.getFavorites();
         set(entries);
       } catch (e) {
-        console.error('Failed to load favorites:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        notifications.push({ type: 'error', title: 'Favorites Error', message: msg, dismissible: true });
       }
     },
 
@@ -44,8 +46,10 @@ function createFavoritesStore(): FavoritesStore {
           };
           return [entry, ...entries];
         });
+        notifications.push({ type: 'success', title: 'Favorites', message: 'Added to favorites', dismissible: true });
       } catch (e) {
-        console.error('Failed to add favorite:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        notifications.push({ type: 'error', title: 'Favorites Error', message: msg, dismissible: true });
       }
     },
 
@@ -56,7 +60,8 @@ function createFavoritesStore(): FavoritesStore {
         // Optimistically remove from local state
         update((entries) => entries.filter((e) => e.track.id !== trackId));
       } catch (e) {
-        console.error('Failed to remove favorite:', e);
+        const msg = e instanceof Error ? e.message : String(e);
+        notifications.push({ type: 'error', title: 'Favorites Error', message: msg, dismissible: true });
       }
     },
 

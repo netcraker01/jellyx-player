@@ -35,3 +35,35 @@
     height var(--viz-cinema-transition, 0.3s ease),
     opacity var(--viz-cinema-transition, 0.3s ease);
 }
+
+/* ── Toast animations ─────────────────────────────────── */
+
+.toast-enter {
+  animation: toastSlideIn 0.3s ease forwards;
+}
+
+.toast-leave {
+  animation: toastSlideOut 0.25s ease forwards;
+}
+
+@keyframes toastSlideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes toastSlideOut {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}

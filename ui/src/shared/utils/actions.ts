@@ -3,13 +3,15 @@
  * Used by TrackList and other components to avoid duplicate command imports.
  */
 import * as commands from '@services/commands';
+import { notifications } from '@shared/stores/notifications';
 
 /** Play a track by its stream URL or local path. */
 export async function playTrack(url: string): Promise<void> {
   try {
     await commands.play(url);
   } catch (e) {
-    console.error('Failed to play track:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
 
@@ -17,7 +19,9 @@ export async function playTrack(url: string): Promise<void> {
 export async function addToQueueAction(trackId: string): Promise<void> {
   try {
     await commands.addToQueue(trackId);
+    notifications.push({ type: 'success', title: 'Queue', message: 'Track added to queue', dismissible: true });
   } catch (e) {
-    console.error('Failed to add to queue:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Queue Error', message: msg, dismissible: true });
   }
 }

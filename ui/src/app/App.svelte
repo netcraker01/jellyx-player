@@ -2,6 +2,7 @@
   import { Router, Route } from 'svelte-routing';
   import Sidebar from './layout/Sidebar.svelte';
   import BottomBar from './layout/BottomBar.svelte';
+  import ToastContainer from '@shared/components/ToastContainer.svelte';
   import Home from '../routes/Home/Page.svelte';
   import Search from '../routes/Search/Page.svelte';
   import Favorites from '../routes/Favorites/Page.svelte';
@@ -35,6 +36,7 @@
     </Router>
   </main>
   <BottomBar />
+  <ToastContainer />
 </div>
 
 <style>

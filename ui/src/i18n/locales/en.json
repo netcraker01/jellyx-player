@@ -78,5 +78,12 @@
     "close": "Close",
     "search": "Search",
     "play": "Play"
+  },
+  "toasts": {
+    "favorite_added": "Added to favorites",
+    "favorite_removed": "Removed from favorites",
+    "scan_completed": "Scan completed: {count} files added",
+    "track_added_to_queue": "Track added to queue",
+    "yt_dlp_missing": "yt-dlp is not installed. Please install it to search and play from YouTube."
   }
 }

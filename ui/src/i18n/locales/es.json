@@ -78,5 +78,12 @@
     "close": "Cerrar",
     "search": "Buscar",
     "play": "Reproducir"
+  },
+  "toasts": {
+    "favorite_added": "Añadido a favoritos",
+    "favorite_removed": "Eliminado de favoritos",
+    "scan_completed": "Escaneo completado: {count} archivos añadidos",
+    "track_added_to_queue": "Pista añadida a la cola",
+    "yt_dlp_missing": "yt-dlp no está instalado. Instálalo para buscar y reproducir desde YouTube."
   }
 }

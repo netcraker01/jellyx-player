@@ -8,6 +8,7 @@
 import { writable } from 'svelte/store';
 import * as events from '@services/events';
 import * as commands from '@services/commands';
+import { notifications } from '@shared/stores/notifications';
 import type { Track, FrequencyData } from '@shared/types/models';
 
 // ── Stores ────────────────────────────────────────────────────────
@@ -74,7 +75,8 @@ export async function playTrack(url: string): Promise<void> {
   try {
     await commands.play(url);
   } catch (e) {
-    console.error('Failed to play track:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
 
@@ -83,7 +85,8 @@ export async function pauseTrack(): Promise<void> {
   try {
     await commands.pause();
   } catch (e) {
-    console.error('Failed to pause:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
 
@@ -92,7 +95,8 @@ export async function resumeTrack(): Promise<void> {
   try {
     await commands.resume();
   } catch (e) {
-    console.error('Failed to resume:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
 
@@ -101,7 +105,8 @@ export async function nextTrack(): Promise<void> {
   try {
     await commands.next();
   } catch (e) {
-    console.error('Failed to skip next:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
 
@@ -110,7 +115,8 @@ export async function previousTrack(): Promise<void> {
   try {
     await commands.previous();
   } catch (e) {
-    console.error('Failed to skip previous:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
 
@@ -119,7 +125,8 @@ export async function seekTo(position: number): Promise<void> {
   try {
     await commands.seek(position);
   } catch (e) {
-    console.error('Failed to seek:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
 
@@ -129,7 +136,8 @@ export async function setVolume(value: number): Promise<void> {
   try {
     await commands.setVolume(value);
   } catch (e) {
-    console.error('Failed to set volume:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
 

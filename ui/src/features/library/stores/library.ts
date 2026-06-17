@@ -10,6 +10,7 @@ import {
   getWatchedFolders,
   removeWatchedFolder,
 } from '@services/commands';
+import { notifications } from '@shared/stores/notifications';
 import type { WatchedFolder, LocalTrackEntry, ScanResult } from '@shared/types/models';
 
 // ── Stores ────────────────────────────────────────────────────────
@@ -44,7 +45,8 @@ export async function loadWatchedFolders(): Promise<void> {
     const folders = await getWatchedFolders();
     watchedFolders.set(folders);
   } catch (e) {
-    console.error('Failed to load watched folders:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Library Error', message: msg, dismissible: true });
   }
 }
 
@@ -54,7 +56,8 @@ export async function loadLocalTracks(folderPath?: string): Promise<void> {
     const tracks = await getLocalTracks(folderPath);
     localTracks.set(tracks);
   } catch (e) {
-    console.error('Failed to load local tracks:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Library Error', message: msg, dismissible: true });
   }
 }
 
@@ -69,9 +72,17 @@ export async function scanNewFolder(folderPath: string): Promise<void> {
     // Refresh both folders and tracks
     await loadWatchedFolders();
     await loadLocalTracks();
+    // Success toast
+    notifications.push({
+      type: 'success',
+      title: 'Scan Complete',
+      message: `Added ${result.filesAdded} file${result.filesAdded === 1 ? '' : 's'}`,
+      dismissible: true,
+    });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     scanError.set(msg);
+    notifications.push({ type: 'error', title: 'Scan Failed', message: msg, dismissible: true });
   } finally {
     isScanning.set(false);
   }
@@ -84,6 +95,7 @@ export async function removeFolder(path: string): Promise<void> {
     await loadWatchedFolders();
     await loadLocalTracks();
   } catch (e) {
-    console.error('Failed to remove watched folder:', e);
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Library Error', message: msg, dismissible: true });
   }
 }
