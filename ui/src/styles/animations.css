@@ -1,3 +1,37 @@
 /* Helix Animations
-   Placeholder for transition and animation definitions.
-   Will be populated as UI components require them. */
+   Transition and animation definitions for UI components. */
+
+/* ── Visualizer transitions ───────────────────────────── */
+
+.viz-enter {
+  animation: vizFadeIn 0.3s ease forwards;
+}
+
+.viz-leave {
+  animation: vizFadeOut 0.3s ease forwards;
+}
+
+@keyframes vizFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes vizFadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.modo-cine-transition {
+  transition:
+    width var(--viz-cinema-transition, 0.3s ease),
+    height var(--viz-cinema-transition, 0.3s ease),
+    opacity var(--viz-cinema-transition, 0.3s ease);
+}

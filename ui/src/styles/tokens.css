@@ -20,4 +20,12 @@
 
   /* Font */
   --font-family: 'Inter', sans-serif;
+
+  /* Visualizer */
+  --viz-blur-radius: 20px;
+  --viz-bar-gap: 2px;
+  --viz-bar-min-height: 2px;
+  --viz-color-accent: var(--color-accent);
+  --viz-cinema-transition: 0.3s ease;
+  --viz-overlay-opacity: 0.3;
 }

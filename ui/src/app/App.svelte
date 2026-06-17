@@ -6,9 +6,17 @@
   import Search from '../routes/Search/Page.svelte';
   import Favorites from '../routes/Favorites/Page.svelte';
   import NowPlaying from '../routes/NowPlaying/Page.svelte';
+  import { frequencyData, modoCineActive } from '@features/player/stores/player';
 </script>
 
-<div class="app-shell">
+<div class="app-shell" class:modo-cine-active={$modoCineActive}>
+  <!-- Ambient Blur overlay: shows during navigation when frequency data exists and not in Modo Cine -->
+  {#if $frequencyData && !$modoCineActive}
+    <div
+      class="ambient-blur-overlay"
+      style="background-color: hsl({240 + $frequencyData.peak * 120}, 70%, 25%)"
+    ></div>
+  {/if}
   <Sidebar />
   <main class="content">
     <Router>
@@ -41,11 +49,39 @@
     background: var(--bg-base, #0a0a0f);
     color: var(--text-primary, #e0e0e0);
     font-family: 'Inter', sans-serif;
+    position: relative;
+  }
+
+  .app-shell.modo-cine-active .content,
+  .app-shell.modo-cine-active :global(.sidebar),
+  .app-shell.modo-cine-active :global(.bottom-bar) {
+    display: none;
   }
 
   .content {
     grid-area: content;
     overflow-y: auto;
     padding: 1.5rem;
+  }
+
+  .ambient-blur-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    opacity: var(--viz-overlay-opacity, 0.3);
+    -webkit-backdrop-filter: blur(var(--viz-blur-radius, 20px));
+    backdrop-filter: blur(var(--viz-blur-radius, 20px));
+    transition: background-color 0.1s ease;
+  }
+
+  /* Fallback for browsers without backdrop-filter support */
+  @supports not (backdrop-filter: blur(1px)) {
+    .ambient-blur-overlay {
+      opacity: 0.5;
+    }
   }
 </style>

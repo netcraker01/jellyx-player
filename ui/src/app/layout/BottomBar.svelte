@@ -1,6 +1,7 @@
 <script>
-  import { Play, Pause, SkipForward, SkipBack, Volume2 } from 'lucide-svelte';
+  import { Play, Pause, SkipForward, SkipBack, Volume2, Maximize, Minimize } from 'lucide-svelte';
   import { t } from '../../i18n';
+  import { modoCineActive } from '@features/player/stores/player';
 </script>
 
 <div class="bottom-bar">
@@ -24,6 +25,19 @@
   </div>
 
   <div class="volume">
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <button
+      class="control-btn modo-cine-btn"
+      aria-label={$modoCineActive ? $t('visualizer.fullscreen') : $t('visualizer.spectrum')}
+      on:click={() => modoCineActive.set(!$modoCineActive)}
+    >
+      {#if $modoCineActive}
+        <Minimize size={16} />
+      {:else}
+        <Maximize size={16} />
+      {/if}
+    </button>
     <Volume2 size={18} />
     <div class="volume-bar"></div>
   </div>
@@ -115,5 +129,14 @@
     height: 4px;
     background: var(--bg-elevated, #1f2937);
     border-radius: 2px;
+  }
+
+  .modo-cine-btn {
+    opacity: 0.6;
+    transition: opacity 0.2s;
+  }
+
+  .modo-cine-btn:hover {
+    opacity: 1;
   }
 </style>
