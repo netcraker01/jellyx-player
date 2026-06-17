@@ -3,7 +3,7 @@
 //! Moves the Tauri builder from `main.rs` into a dedicated setup function
 //! for cleaner initialization and AppState registration.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 
@@ -25,7 +25,11 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             let db_path = database_path();
             let db = Arc::new(Database::open(&db_path).expect("failed to initialize database"));
 
-            let playback = PlaybackService::new(app.handle().clone(), db.clone());
+            // Binary FFT channel — shared between AppState and PlaybackService
+            let fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>> =
+                Arc::new(Mutex::new(None));
+
+            let playback = PlaybackService::new(app.handle().clone(), db.clone(), fft_channel.clone());
             let library = LibraryService::new(db.clone());
             let scanner = ScannerService::new(db);
 
@@ -33,6 +37,7 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
                 playback: Arc::new(playback),
                 library: Arc::new(library),
                 scanner: Arc::new(scanner),
+                fft_channel,
             });
             Ok(())
         })
@@ -60,6 +65,8 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::get_local_tracks,
             crate::ipc::commands::get_watched_folders,
             crate::ipc::commands::remove_watched_folder,
+            // FFT binary streaming
+            crate::ipc::commands::start_fft_stream,
         ])
 }
 

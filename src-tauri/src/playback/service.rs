@@ -24,7 +24,7 @@ use crate::sources::local::LocalResolver;
 use crate::sources::soundcloud::SoundCloudResolver;
 use crate::sources::youtube::YouTubeResolver;
 use crate::sources::SourceRegistry;
-use crate::visualizer::fft_bridge::FftBridge;
+use crate::visualizer::fft_bridge::FftChannel;
 use crate::persistence::db::Database;
 
 /// How often (in ms) progress-tick events are emitted during playback.
@@ -45,6 +45,8 @@ pub struct PlaybackService {
     emitter: PlaybackEventEmitter,
     /// Registry of source resolvers (YouTube, SoundCloud, etc.).
     sources: SourceRegistry,
+    /// Binary FFT streaming channel (shared with AppState.fft_channel).
+    fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
 }
 
 /// Internal state protected by the Mutex.
@@ -70,9 +72,10 @@ impl PlaybackService {
     ///
     /// The `app` handle is used for emitting events to the frontend.
     /// The `db` is used to register the LocalResolver in the source registry.
+    /// The `fft_channel` is shared with AppState for binary FFT streaming.
     /// The actual audio backend (CpalBackend) is created internally
     /// when `play_local()` is called, not at construction time.
-    pub fn new(app: tauri::AppHandle, db: Arc<Database>) -> Self {
+    pub fn new(app: tauri::AppHandle, db: Arc<Database>, fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>) -> Self {
         let mut sources = SourceRegistry::new();
         sources.register(Box::new(YouTubeResolver::new()));
         sources.register(Box::new(SoundCloudResolver::new()));
@@ -92,6 +95,7 @@ impl PlaybackService {
             backend: Arc::new(Mutex::new(None)),
             emitter: PlaybackEventEmitter::new(app),
             sources,
+            fft_channel,
         }
     }
 
@@ -262,12 +266,12 @@ impl PlaybackService {
         }
         let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
 
-        // Start FFT analysis timer
-        let fft_app = self.emitter.app_handle();
+        // Start FFT analysis timer (binary IPC via Channel)
+        let fft_channel_arc = self.fft_channel.clone();
         let fft_engine_state = self.state.clone();
         let fft_sample_rate = sample_rate;
         thread::spawn(move || {
-            let fft_bridge = FftBridge::new(fft_app);
+            let fft_channel = FftChannel::new(fft_channel_arc);
             let mut fft_engine = FftEngine::new(1024, fft_subscriber, fft_sample_rate);
 
             loop {
@@ -282,12 +286,15 @@ impl PlaybackService {
                 // Collect frames and analyze
                 fft_engine.collect_frames();
                 if let Some(freq_data) = fft_engine.analyze_if_ready() {
-                    let _ = fft_bridge.emit_frequency_data(&freq_data);
+                    fft_channel.send(&freq_data);
                 }
 
                 // Sleep to avoid busy-looping (~60Hz for visualization)
                 thread::sleep(Duration::from_millis(16));
             }
+
+            // Clear channel when FFT thread exits
+            fft_channel.clear();
         });
 
         // Start progress tick timer

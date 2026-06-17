@@ -3,7 +3,7 @@
 //! All `#[tauri::command]` functions delegate to PlaybackService or LibraryService.
 //! AppState holds Arc<PlaybackService> and Arc<LibraryService> shared across commands.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::errors::types::AppError;
 use crate::library::LibraryService;
@@ -16,10 +16,13 @@ use crate::sources::local::{ScannerService, ScanResult};
 /// PlaybackService is the single authority for all playback operations.
 /// LibraryService manages favorites and history.
 /// ScannerService manages local file scanning.
+/// fft_channel holds the Tauri Channel for binary FFT streaming.
 pub struct AppState {
     pub playback: Arc<PlaybackService>,
     pub library: Arc<LibraryService>,
     pub scanner: Arc<ScannerService>,
+    /// Binary FFT streaming channel — set by `start_fft_stream`, used by FFT thread.
+    pub fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
 }
 
 #[tauri::command]
@@ -139,4 +142,19 @@ pub fn get_watched_folders(state: tauri::State<AppState>) -> Result<Vec<WatchedF
 #[tauri::command]
 pub fn remove_watched_folder(state: tauri::State<AppState>, folder_path: &str) -> Result<(), AppError> {
     state.scanner.remove_folder(folder_path)
+}
+
+/// Start streaming binary FFT data to the frontend.
+///
+/// The frontend creates a `Channel<Uint8Array>` and passes it to this command.
+/// The Channel is stored in `AppState.fft_channel` so the FFT thread can send
+/// binary frames at ~60fps. The Channel is cleared when playback stops.
+#[tauri::command]
+pub fn start_fft_stream(state: tauri::State<AppState>, channel: tauri::ipc::Channel<Vec<u8>>) -> Result<(), AppError> {
+    let mut fft_ch = state.fft_channel.lock().map_err(|_| AppError {
+        code: "UNKNOWN_ERROR".into(),
+        details: Some("mutex lock".into()),
+    })?;
+    *fft_ch = Some(channel);
+    Ok(())
 }

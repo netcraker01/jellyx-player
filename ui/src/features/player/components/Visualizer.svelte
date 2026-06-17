@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { frequencyData, modoCineActive } from '../stores/player';
-  import { onFrequencyData } from '@services/events';
+  import { createFftChannel } from '@services/events';
   import type { FrequencyData } from '@shared/types/models';
 
   let canvas: HTMLCanvasElement;
@@ -17,8 +17,8 @@
   }
 
   onMount(async () => {
-    // Subscribe to Tauri frequency-data events
-    unlisten = await onFrequencyData((data: FrequencyData) => {
+    // Subscribe to binary FFT stream via Tauri Channel
+    unlisten = await createFftChannel((data: FrequencyData) => {
       frequencyData.set(data);
     });
 
@@ -77,10 +77,12 @@
     const barWidth = Math.max(1, (width - barGap * (maxBars - 1)) / maxBars);
 
     for (let i = 0; i < maxBars; i++) {
-      // Average the bins in this group
+      // Average the bins in this group — iterate Float32Array directly
       let sum = 0;
       let count = 0;
-      for (let j = i * groupSize; j < Math.min((i + 1) * groupSize, bins.length); j++) {
+      const groupStart = i * groupSize;
+      const groupEnd = Math.min((i + 1) * groupSize, bins.length);
+      for (let j = groupStart; j < groupEnd; j++) {
         sum += bins[j];
         count++;
       }

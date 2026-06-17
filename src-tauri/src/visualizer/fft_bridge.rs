@@ -1,39 +1,51 @@
 //! FFT IPC binary bridge — sends frequency data to Svelte frontend.
 //!
-//! `FftBridge` receives `FrequencyData` from the FFT engine and emits it
-//! via Tauri v2 binary IPC (`AppHandle.emit()`) to the Svelte visualizer.
+//! `FftChannel` receives `FrequencyData` from the FFT engine and sends it
+//! via Tauri v2 binary IPC (`Channel<Vec<u8>>`) to the Svelte visualizer.
 //! Binary events avoid JSON serialization overhead at 60fps.
 
+use std::sync::{Arc, Mutex};
+
+use crate::audio::fft::encode_frequency_data_binary;
 use crate::audio::fft::FrequencyData;
-use crate::errors::types::IPCError;
-use tauri::{AppHandle, Emitter};
 
-/// Event name for FFT frequency data (binary IPC).
-pub const EVENT_FREQUENCY_DATA: &str = "frequency-data";
-
-/// Bridge between FFT engine and Tauri frontend.
+/// Binary FFT streaming channel.
 ///
-/// Receives frequency analysis data and emits it as a Tauri event.
-/// The frontend subscribes to `frequency-data` events and receives
-/// the `FrequencyData` struct serialized as JSON (for v0.1).
-pub struct FftBridge {
-    app: AppHandle,
+/// Wraps a Tauri IPC Channel that sends raw byte frames to the frontend.
+/// The frontend creates the Channel and passes it via the `start_fft_stream`
+/// command. The FFT thread calls `send()` to push binary frames.
+pub struct FftChannel {
+    channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
 }
 
-impl FftBridge {
-    /// Create a new FftBridge with the given Tauri AppHandle.
-    pub fn new(app: AppHandle) -> Self {
-        Self { app }
+impl FftChannel {
+    /// Create a new FftChannel sharing the same Arc as AppState.fft_channel.
+    pub fn new(channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>) -> Self {
+        Self { channel }
     }
 
-    /// Emit frequency data to the frontend.
+    /// Send frequency data as a binary frame to the frontend.
     ///
-    /// For v0.1, this uses Tauri's standard `emit()` with JSON serialization.
-    /// Future optimization: use binary IPC (Uint8Array) to avoid JSON overhead.
-    pub fn emit_frequency_data(&self, data: &FrequencyData) -> Result<(), IPCError> {
-        self.app
-            .emit(EVENT_FREQUENCY_DATA, data)
-            .map_err(|e| IPCError::CommandFailed(e.to_string()))
+    /// Encodes `FrequencyData` into the binary frame format:
+    /// [4B sample_rate u32 LE][4B peak f32 LE][N*4B bins f32 LE]
+    ///
+    /// Silently drops the frame if the channel is not available or send fails.
+    pub fn send(&self, data: &FrequencyData) {
+        let frame = encode_frequency_data_binary(data);
+
+        let ch = self.channel.lock().ok();
+        if let Some(guard) = ch {
+            if let Some(ref channel) = *guard {
+                let _ = channel.send(frame);
+            }
+        }
+    }
+
+    /// Clear the channel reference (e.g., when playback stops).
+    pub fn clear(&self) {
+        if let Ok(mut guard) = self.channel.lock() {
+            *guard = None;
+        }
     }
 }
 
@@ -43,69 +55,74 @@ mod tests {
     use crate::audio::fft::FrequencyData;
 
     #[test]
-    fn frequency_data_event_constant() {
-        assert_eq!(EVENT_FREQUENCY_DATA, "frequency-data");
-    }
-
-    #[test]
-    fn fft_bridge_new_creates_instance() {
-        // We can't test emit_frequency_data without a Tauri runtime,
-        // but we can verify that the event constant is correct and that
-        // FrequencyData serializes properly for the bridge.
+    fn fft_channel_send_encodes_binary_frame() {
         let data = FrequencyData {
-            bins: vec![0.1, 0.2, 0.3, 0.4, 0.5],
+            bins: vec![0.1, 0.2, 0.3],
             sample_rate: 44100,
-            peak: 0.5,
+            peak: 0.3,
         };
 
-        // Verify FrequencyData is Serialize (required for emit)
-        let json = serde_json::to_string(&data).unwrap();
-        assert!(json.contains("\"bins\""));
-        assert!(json.contains("\"sampleRate\""));
-        assert!(json.contains("\"peak\""));
+        // Verify the binary encoding function produces correct output
+        let frame = encode_frequency_data_binary(&data);
+        assert_eq!(frame.len(), 20, "3 bins should produce 20-byte frame");
+
+        let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
+        assert_eq!(sr, 44100);
     }
 
     #[test]
-    fn frequency_data_serializes_for_ipc() {
-        // Simulate what the frontend would receive
+    fn fft_channel_clear_sets_none() {
+        let channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>> = Arc::new(Mutex::new(None));
+        let fft = FftChannel::new(channel.clone());
+
+        // Clear should work even when channel is already None
+        fft.clear();
+
+        let guard = channel.lock().unwrap();
+        assert!(guard.is_none());
+    }
+
+    #[test]
+    fn fft_channel_send_does_nothing_when_no_channel() {
+        let channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>> = Arc::new(Mutex::new(None));
+        let fft = FftChannel::new(channel.clone());
+
         let data = FrequencyData {
-            bins: vec![0.0; 128],
+            bins: vec![0.5; 128],
             sample_rate: 48000,
-            peak: 0.0,
-        };
-
-        let json = serde_json::to_string(&data).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-
-        // Verify structure matches TypeScript expectations
-        assert!(parsed.get("bins").unwrap().is_array(), "bins must be array");
-        assert_eq!(parsed.get("bins").unwrap().as_array().unwrap().len(), 128);
-        assert_eq!(parsed.get("sampleRate").unwrap().as_u64(), Some(48000));
-        assert_eq!(parsed.get("peak").unwrap().as_f64(), Some(0.0));
-    }
-
-    #[test]
-    fn frequency_data_with_peak_serializes() {
-        let data = FrequencyData {
-            bins: vec![0.1, 0.5, 0.3],
-            sample_rate: 44100,
             peak: 0.5,
         };
 
-        let json = serde_json::to_string(&data).unwrap();
-
-        // Peak should be the max of bins
-        assert!(json.contains("\"peak\":0.5") || json.contains("\"peak\": 0.5"),
-            "Peak value should serialize correctly");
+        // Should not panic when sending with no channel
+        fft.send(&data);
     }
 
     #[test]
-    fn fft_bridge_event_name_is_valid_tauri_event() {
-        // Tauri event names should be lowercase-hyphen (not camelCase, not snake_case)
-        assert_eq!(EVENT_FREQUENCY_DATA, "frequency-data");
-        assert!(!EVENT_FREQUENCY_DATA.contains('_'),
-            "Event name should not use snake_case");
-        assert!(!EVENT_FREQUENCY_DATA.contains(char::is_uppercase),
-            "Event name should be all lowercase");
+    fn binary_frame_format_matches_spec() {
+        let data = FrequencyData {
+            bins: vec![1.0, 2.0, 3.0, 4.0],
+            sample_rate: 22050,
+            peak: 4.0,
+        };
+
+        let frame = encode_frequency_data_binary(&data);
+
+        // Verify frame structure
+        assert_eq!(frame.len(), 8 + 4 * 4, "Frame: 8 header + 4 bins * 4 bytes");
+
+        // sample_rate at offset 0
+        let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
+        assert_eq!(sr, 22050);
+
+        // peak at offset 4
+        let pk = f32::from_le_bytes(frame[4..8].try_into().unwrap());
+        assert!((pk - 4.0).abs() < f32::EPSILON);
+
+        // bins starting at offset 8
+        for (i, expected) in [1.0f32, 2.0, 3.0, 4.0].iter().enumerate() {
+            let offset = 8 + i * 4;
+            let val = f32::from_le_bytes(frame[offset..offset + 4].try_into().unwrap());
+            assert!((val - *expected).abs() < f32::EPSILON, "bin[{}] mismatch", i);
+        }
     }
 }

@@ -1,11 +1,13 @@
 /**
- * Typed Tauri event subscriptions.
+ * Typed Tauri event subscriptions and binary FFT channel.
  *
- * These are thin wrappers around subscribeEvent that add type safety.
+ * Event subscriptions are thin wrappers around subscribeEvent that add type safety.
+ * Binary FFT uses Tauri v2's Channel API for zero-JSON-overhead streaming.
  * Event names use lowercase-hyphen format matching Rust constants.
  */
 
 import { subscribeEvent } from './tauri';
+import { invokeCommand } from './tauri';
 import type { Track, FrequencyData } from '@shared/types/models';
 
 type UnlistenFn = () => void;
@@ -32,7 +34,47 @@ export function onProgressTick(cb: (progress: ProgressTick) => void): Promise<Un
   return subscribeEvent<ProgressTick>('progress-tick', cb);
 }
 
-/** Subscribe to frequency data events from the Rust FFT engine. */
-export function onFrequencyData(cb: (data: FrequencyData) => void): Promise<UnlistenFn> {
-  return subscribeEvent<FrequencyData>('frequency-data', cb);
+/**
+ * Decode a binary FFT frame into FrequencyData.
+ *
+ * Binary frame layout (all little-endian):
+ * - Bytes 0-3: sample_rate (u32 LE)
+ * - Bytes 4-7: peak (f32 LE)
+ * - Bytes 8+: bins (N * f32 LE)
+ */
+function decodeFftFrame(buffer: ArrayBuffer): FrequencyData {
+  const view = new DataView(buffer);
+  const sampleRate = view.getUint32(0, true);  // little-endian
+  const peak = view.getFloat32(4, true);         // little-endian
+  const bins = new Float32Array(buffer, 8);     // view from byte offset 8
+  return { bins, sampleRate, peak };
+}
+
+/**
+ * Create a Tauri Channel for binary FFT streaming and start the stream.
+ *
+ * The Channel receives Uint8Array frames from the Rust FFT engine at ~60fps.
+ * Each frame is decoded into a FrequencyData object with a Float32Array for bins.
+ * Returns an unlisten function that stops the stream.
+ */
+export async function createFftChannel(cb: (data: FrequencyData) => void): Promise<UnlistenFn> {
+  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+  if (!isTauri) {
+    return () => {};
+  }
+
+  const { Channel } = await import('@tauri-apps/api/core');
+
+  const channel = new Channel<ArrayBuffer>();
+  channel.onmessage = (message: ArrayBuffer) => {
+    const data = decodeFftFrame(message);
+    cb(data);
+  };
+
+  await invokeCommand('start_fft_stream', { channel });
+
+  // Return a no-op unlisten for now — the Channel lifecycle is tied to playback
+  // When playback stops, the Rust side clears the channel
+  return () => {};
 }

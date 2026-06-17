@@ -42,13 +42,19 @@ export interface Album {
 }
 
 /**
- * Frequency data payload from the Rust FFT engine.
- * Matches the Rust `FrequencyData` struct with `serde(rename_all = "camelCase")`.
- * Event: "frequency-data"
+ * Frequency data payload decoded from binary FFT frames.
+ *
+ * Binary frame layout (all little-endian):
+ * - Bytes 0-3: sample_rate (u32 LE)
+ * - Bytes 4-7: peak (f32 LE)
+ * - Bytes 8+: bins (N * f32 LE, N = fft_size/2)
+ *
+ * The `bins` field is a Float32Array view over the raw buffer,
+ * avoiding conversion to number[] for performance at 60fps.
  */
 export interface FrequencyData {
-  bins: number[];      // f32 array from FFT, length = fft_size/2
-  sampleRate: number;   // u32, matches Rust serde camelCase
+  bins: Float32Array;   // f32 array from FFT binary frame, length = fft_size/2
+  sampleRate: number;   // u32, decoded from binary frame header
   peak: number;         // f32, max bin value for amplitude reference
 }
 

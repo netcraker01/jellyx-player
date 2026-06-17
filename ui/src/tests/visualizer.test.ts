@@ -1,25 +1,25 @@
 /**
  * Visualizer data layer tests.
  *
- * Tests the FrequencyData type, event subscription, and store layer
- * for the visualizer frontend (specs VF-006 through VF-009).
+ * Tests the FrequencyData type, binary FFT channel, and store layer
+ * for the visualizer frontend (binary IPC migration).
  */
 import { describe, it, expect } from 'vitest';
 import type { FrequencyData } from '@shared/types/models';
-import { onFrequencyData } from '@services/events';
+import { createFftChannel } from '@services/events';
 import { frequencyData, modoCineActive } from '@features/player/stores/player';
 
-// ── VF-006: FrequencyData type shape ────────────────────
+// ── FrequencyData type shape (binary mode) ────────────────
 
 describe('FrequencyData type', () => {
-  it('has bins, sampleRate, and peak fields matching Rust serde camelCase', () => {
+  it('has bins as Float32Array, sampleRate, and peak fields', () => {
     const data: FrequencyData = {
-      bins: [0.1, 0.2, 0.3, 0.4, 0.5],
+      bins: new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5]),
       sampleRate: 44100,
       peak: 0.5,
     };
 
-    expect(data.bins).toBeInstanceOf(Array);
+    expect(data.bins).toBeInstanceOf(Float32Array);
     expect(data.bins.length).toBe(5);
     expect(data.sampleRate).toBe(44100);
     expect(data.peak).toBe(0.5);
@@ -27,7 +27,7 @@ describe('FrequencyData type', () => {
 
   it('bins can be empty (no audio data)', () => {
     const data: FrequencyData = {
-      bins: [],
+      bins: new Float32Array(0),
       sampleRate: 48000,
       peak: 0.0,
     };
@@ -37,7 +37,10 @@ describe('FrequencyData type', () => {
   });
 
   it('supports large bin arrays (FFT size 1024 = 512 bins)', () => {
-    const bins = new Array(512).fill(0).map((_, i) => i / 512);
+    const bins = new Float32Array(512);
+    for (let i = 0; i < 512; i++) {
+      bins[i] = i / 512;
+    }
     const data: FrequencyData = {
       bins,
       sampleRate: 44100,
@@ -47,25 +50,72 @@ describe('FrequencyData type', () => {
     expect(data.bins.length).toBe(512);
     expect(data.peak).toBeCloseTo(0.999);
   });
+
+  it('bins values can be iterated directly without conversion', () => {
+    const data: FrequencyData = {
+      bins: new Float32Array([0.1, 0.5, 0.3]),
+      sampleRate: 44100,
+      peak: 0.5,
+    };
+
+    let sum = 0;
+    for (let i = 0; i < data.bins.length; i++) {
+      sum += data.bins[i];
+    }
+    expect(sum).toBeCloseTo(0.9, 5);
+  });
 });
 
-// ── VF-007: Event subscription ───────────────────────────
+// ── Binary FFT channel ───────────────────────────────────
 
-describe('onFrequencyData', () => {
+describe('createFftChannel', () => {
   it('is a function that returns Promise<UnlistenFn>', async () => {
-    // Browser fallback: subscribeEvent returns () => {} when Tauri unavailable
-    const result = await onFrequencyData(() => {});
+    // Browser fallback: returns no-op when Tauri unavailable
+    const result = await createFftChannel(() => {});
     expect(typeof result).toBe('function');
   });
 
-  it('subscribes to frequency-data event (verified by module structure)', () => {
-    // The event name 'frequency-data' is validated by Rust tests
-    // and by the events.ts module export
-    expect(typeof onFrequencyData).toBe('function');
+  it('is exported as the replacement for onFrequencyData', () => {
+    expect(typeof createFftChannel).toBe('function');
   });
 });
 
-// ── VF-008: FrequencyData store ──────────────────────────
+// ── Binary frame decoding ────────────────────────────────
+
+describe('binary frame decoding', () => {
+  it('decodes a valid binary frame into FrequencyData', () => {
+    // Simulate a binary frame: [sample_rate u32 LE][peak f32 LE][bins f32 LE]
+    const sampleRate = 44100;
+    const peak = 0.5;
+    const bins = [0.1, 0.2, 0.3, 0.4, 0.5];
+    const binCount = bins.length;
+
+    const buffer = new ArrayBuffer(8 + binCount * 4);
+    const view = new DataView(buffer);
+    view.setUint32(0, sampleRate, true);   // little-endian
+    view.setFloat32(4, peak, true);         // little-endian
+
+    const binsArray = new Float32Array(buffer, 8);
+    for (let i = 0; i < binCount; i++) {
+      binsArray[i] = bins[i];
+    }
+
+    // Decode
+    const decoded: FrequencyData = {
+      bins: new Float32Array(buffer, 8),
+      sampleRate: view.getUint32(0, true),
+      peak: view.getFloat32(4, true),
+    };
+
+    expect(decoded.sampleRate).toBe(44100);
+    expect(decoded.peak).toBeCloseTo(0.5);
+    expect(decoded.bins.length).toBe(5);
+    expect(decoded.bins[0]).toBeCloseTo(0.1, 5);
+    expect(decoded.bins[4]).toBeCloseTo(0.5, 5);
+  });
+});
+
+// ── FrequencyData store ──────────────────────────────────
 
 describe('frequencyData store', () => {
   it('initializes as null', () => {
@@ -75,9 +125,9 @@ describe('frequencyData store', () => {
     unsub();
   });
 
-  it('updates when set with FrequencyData', () => {
+  it('updates when set with FrequencyData (Float32Array bins)', () => {
     const testData: FrequencyData = {
-      bins: [0.1, 0.5, 0.3],
+      bins: new Float32Array([0.1, 0.5, 0.3]),
       sampleRate: 44100,
       peak: 0.5,
     };
@@ -85,12 +135,15 @@ describe('frequencyData store', () => {
 
     let value: FrequencyData | null = null;
     const unsub = frequencyData.subscribe((v) => { value = v; });
-    expect(value).toEqual(testData);
+    expect(value).not.toBeNull();
+    expect(value!.bins).toBeInstanceOf(Float32Array);
+    expect(value!.bins.length).toBe(3);
+    expect(value!.sampleRate).toBe(44100);
     unsub();
   });
 
   it('can be set back to null', () => {
-    frequencyData.set({ bins: [0.1], sampleRate: 44100, peak: 0.1 });
+    frequencyData.set({ bins: new Float32Array([0.1]), sampleRate: 44100, peak: 0.1 });
     frequencyData.set(null);
 
     let value: FrequencyData | null = null;

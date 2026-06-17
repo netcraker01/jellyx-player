@@ -3,7 +3,6 @@
 //! `PlaybackEventEmitter` wraps `AppHandle` and provides typed methods
 //! for emitting playback events to the frontend.
 
-use crate::audio::fft::FrequencyData;
 use crate::errors::types::IPCError;
 use crate::models::track::Track;
 use crate::playback::models::ProgressTick;
@@ -16,8 +15,6 @@ pub const EVENT_TRACK_CHANGED: &str = "track-changed";
 pub const EVENT_STATE_CHANGED: &str = "state-changed";
 pub const EVENT_QUEUE_UPDATED: &str = "queue-updated";
 pub const EVENT_PROGRESS_TICK: &str = "progress-tick";
-#[allow(dead_code)]
-pub const EVENT_FREQUENCY_DATA: &str = "frequency-data";
 
 /// Emits typed playback events via Tauri's event system.
 pub struct PlaybackEventEmitter {
@@ -61,14 +58,6 @@ impl PlaybackEventEmitter {
             .map_err(|e| IPCError::CommandFailed(e.to_string()))
     }
 
-    /// Emit a frequency-data event with FFT analysis results.
-    #[allow(dead_code)]
-    pub fn emit_frequency_data(&self, data: &FrequencyData) -> Result<(), IPCError> {
-        self.app
-            .emit(EVENT_FREQUENCY_DATA, data)
-            .map_err(|e| IPCError::CommandFailed(e.to_string()))
-    }
-
     /// Clone the emitter for use in another thread.
     ///
     /// `AppHandle` is `Clone + Send + Sync`, so this is safe.
@@ -76,14 +65,6 @@ impl PlaybackEventEmitter {
         Self {
             app: self.app.clone(),
         }
-    }
-
-    /// Get a reference to the inner AppHandle.
-    ///
-    /// Used by code that needs to create other Tauri-aware components
-    /// (e.g., FftBridge) from a different thread.
-    pub fn app_handle(&self) -> AppHandle {
-        self.app.clone()
     }
 }
 
@@ -97,6 +78,5 @@ mod tests {
         assert_eq!(EVENT_STATE_CHANGED, "state-changed");
         assert_eq!(EVENT_QUEUE_UPDATED, "queue-updated");
         assert_eq!(EVENT_PROGRESS_TICK, "progress-tick");
-        assert_eq!(EVENT_FREQUENCY_DATA, "frequency-data");
     }
 }

@@ -158,6 +158,30 @@ fn compute_fft(
     }
 }
 
+/// Encode `FrequencyData` into a binary frame for IPC transfer.
+///
+/// Frame layout (all little-endian):
+/// - Bytes 0-3: `sample_rate` as `u32` LE
+/// - Bytes 4-7: `peak` as `f32` LE
+/// - Bytes 8+: `bins` as `N * f32` LE (N = bins.len())
+///
+/// Total frame size = 8 + bins.len() * 4 bytes.
+pub fn encode_frequency_data_binary(data: &FrequencyData) -> Vec<u8> {
+    let bin_count = data.bins.len();
+    let mut buf = Vec::with_capacity(8 + bin_count * 4);
+
+    // sample_rate: u32 LE
+    buf.extend_from_slice(&data.sample_rate.to_le_bytes());
+    // peak: f32 LE
+    buf.extend_from_slice(&data.peak.to_le_bytes());
+    // bins: N * f32 LE
+    for &bin in &data.bins {
+        buf.extend_from_slice(&bin.to_le_bytes());
+    }
+
+    buf
+}
+
 impl AudioAnalyzer {
     #[allow(dead_code)]
     pub fn new(fft_size: usize) -> Self {
@@ -281,6 +305,89 @@ mod tests {
 
         // Buffer should be capped at 2 * fft_size = 512
         assert!(engine.buffer_len() <= 512, "Buffer should be capped at 2 * fft_size, got {}", engine.buffer_len());
+    }
+
+    #[test]
+    fn encode_binary_frame_layout_correct() {
+        let data = FrequencyData {
+            bins: vec![0.1, 0.2, 0.3],
+            sample_rate: 44100,
+            peak: 0.3,
+        };
+
+        let frame = encode_frequency_data_binary(&data);
+
+        // Total size: 8 header + 3 bins * 4 = 20 bytes
+        assert_eq!(frame.len(), 20, "Frame size should be 8 + bins.len() * 4");
+
+        // sample_rate at offset 0 (u32 LE)
+        let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
+        assert_eq!(sr, 44100, "sample_rate should be at offset 0");
+
+        // peak at offset 4 (f32 LE)
+        let pk = f32::from_le_bytes(frame[4..8].try_into().unwrap());
+        assert!((pk - 0.3).abs() < f32::EPSILON, "peak should be at offset 4");
+
+        // bins start at offset 8
+        let bin0 = f32::from_le_bytes(frame[8..12].try_into().unwrap());
+        let bin1 = f32::from_le_bytes(frame[12..16].try_into().unwrap());
+        let bin2 = f32::from_le_bytes(frame[16..20].try_into().unwrap());
+        assert!((bin0 - 0.1).abs() < 1e-6, "bin[0] should be at offset 8");
+        assert!((bin1 - 0.2).abs() < 1e-6, "bin[1] should be at offset 12");
+        assert!((bin2 - 0.3).abs() < 1e-6, "bin[2] should be at offset 16");
+    }
+
+    #[test]
+    fn encode_binary_empty_bins() {
+        let data = FrequencyData {
+            bins: vec![],
+            sample_rate: 48000,
+            peak: 0.0,
+        };
+
+        let frame = encode_frequency_data_binary(&data);
+        assert_eq!(frame.len(), 8, "Empty bins should produce 8-byte header only");
+
+        let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
+        assert_eq!(sr, 48000);
+        let pk = f32::from_le_bytes(frame[4..8].try_into().unwrap());
+        assert!((pk - 0.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn encode_binary_large_fft() {
+        let data = FrequencyData {
+            bins: vec![0.5; 512],
+            sample_rate: 44100,
+            peak: 0.5,
+        };
+
+        let frame = encode_frequency_data_binary(&data);
+        assert_eq!(frame.len(), 8 + 512 * 4, "512 bins should produce 2056-byte frame");
+    }
+
+    #[test]
+    fn encode_binary_roundtrip_values() {
+        let data = FrequencyData {
+            bins: vec![0.001, 0.999, -0.5, 1.0],
+            sample_rate: 96000,
+            peak: 1.0,
+        };
+
+        let frame = encode_frequency_data_binary(&data);
+
+        // Decode and verify
+        let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
+        assert_eq!(sr, 96000);
+
+        let pk = f32::from_le_bytes(frame[4..8].try_into().unwrap());
+        assert!((pk - 1.0).abs() < f32::EPSILON);
+
+        for (i, expected) in data.bins.iter().enumerate() {
+            let offset = 8 + i * 4;
+            let val = f32::from_le_bytes(frame[offset..offset + 4].try_into().unwrap());
+            assert!((val - expected).abs() < 1e-6, "bin[{}] roundtrip failed", i);
+        }
     }
 
     #[test]
