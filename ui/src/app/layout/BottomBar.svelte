@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize, Minimize } from 'lucide-svelte';
+  import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize, Minimize, Shuffle, Repeat, Repeat1 } from 'lucide-svelte';
   import { t } from '@i18n';
   import {
     currentTrack,
@@ -7,9 +7,13 @@
     progress,
     volume,
     modoCineActive,
+    shuffle,
+    repeatMode,
     togglePlayPause,
     nextTrack,
     previousTrack,
+    toggleShuffle,
+    cycleRepeat,
     seekTo,
     setVolume,
   } from '@features/player/stores/player';
@@ -19,6 +23,8 @@
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
+
+  $: repeatLabel = $repeatMode === 'One' ? $t('player.repeat_one') : $repeatMode === 'All' ? $t('player.repeat_all') : $t('player.repeat_off');
 
   function handleProgressClick(e: MouseEvent): void {
     const bar = e.currentTarget as HTMLElement;
@@ -64,6 +70,14 @@
 
   <div class="controls-center">
     <div class="controls">
+      <button
+        class="control-btn mode-btn"
+        class:active={$shuffle}
+        aria-label={$t('player.shuffle')}
+        on:click={toggleShuffle}
+      >
+        <Shuffle size={16} />
+      </button>
       <button class="control-btn" aria-label="Previous" on:click={previousTrack}>
         <SkipBack size={18} />
       </button>
@@ -76,6 +90,18 @@
       </button>
       <button class="control-btn" aria-label="Next" on:click={nextTrack}>
         <SkipForward size={18} />
+      </button>
+      <button
+        class="control-btn mode-btn"
+        class:active={$repeatMode !== 'Off'}
+        aria-label={repeatLabel}
+        on:click={cycleRepeat}
+      >
+        {#if $repeatMode === 'One'}
+          <Repeat1 size={16} />
+        {:else}
+          <Repeat size={16} />
+        {/if}
       </button>
     </div>
     <div class="progress-section">
@@ -222,6 +248,14 @@
   .play-btn:hover {
     opacity: 0.9;
     color: white;
+  }
+
+  .mode-btn {
+    color: var(--text-secondary, #9ca3af);
+  }
+
+  .mode-btn.active {
+    color: var(--color-accent, #6366f1);
   }
 
   .progress-section {

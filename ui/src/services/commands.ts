@@ -7,7 +7,7 @@
  */
 
 import { invokeCommand } from './tauri';
-import type { Track, FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry, ScanResult } from '@shared/types/models';
+import type { Track, QueueState, FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry, ScanResult } from '@shared/types/models';
 
 // ── Playback commands ──────────────────────────────────────────────
 
@@ -47,12 +47,37 @@ export function addToQueue(trackId: string): Promise<void> {
   return invokeCommand<void>('add_to_queue', { trackId });
 }
 
-export function getQueue(): Promise<Track[]> {
-  return invokeCommand<Track[]>('get_queue');
+export function getQueue(): Promise<QueueState> {
+  return invokeCommand<QueueState>('get_queue');
 }
 
 export function getVersion(): Promise<string> {
   return invokeCommand<string>('get_version');
+}
+
+/** Toggle favorite state for a track. Returns true if now favorited, false if removed. */
+export function toggleFavorite(trackId: string): Promise<boolean> {
+  return invokeCommand<boolean>('toggle_favorite', { trackId });
+}
+
+/** Check whether a track is currently favorited. */
+export function isFavorite(trackId: string): Promise<boolean> {
+  return invokeCommand<boolean>('is_favorite', { trackId });
+}
+
+/** Set shuffle mode on or off. */
+export function setShuffle(enabled: boolean): Promise<void> {
+  return invokeCommand<void>('set_shuffle', { enabled });
+}
+
+/** Set repeat mode by name ("Off", "All", or "One"). */
+export function setRepeat(mode: string): Promise<void> {
+  return invokeCommand<void>('set_repeat', { mode });
+}
+
+/** Cycle repeat mode Off -> All -> One -> Off. Returns the new mode name. */
+export function cycleRepeat(): Promise<string> {
+  return invokeCommand<string>('cycle_repeat');
 }
 
 // ── Library commands ────────────────────────────────────────────────
@@ -72,7 +97,7 @@ export function removeFavorite(trackId: string): Promise<void> {
   return invokeCommand<void>('remove_favorite', { trackId });
 }
 
-/** Get play history, ordered by most recent first (max 50). */
+/** Get play history, ordered by most recent first (max 100). */
 export function getHistory(): Promise<HistoryEntry[]> {
   return invokeCommand<HistoryEntry[]>('get_history');
 }

@@ -6,6 +6,7 @@
 //! It owns the pipeline lifecycle and emits events to the frontend.
 //! Commands delegate here — never directly to AudioBackend.
 
+use rand::prelude::SliceRandom;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -17,20 +18,21 @@ use crate::audio::output::CpalBackend;
 use crate::audio::pipeline::PcmBus;
 use crate::audio::{AudioBackend, PlaybackState};
 use crate::errors::types::{AppError, PlaybackError, ValidationError};
+use crate::library::LibraryService;
 use crate::models::track::Track;
+use crate::persistence::db::Database;
 use crate::playback::events::PlaybackEventEmitter;
-use crate::playback::state::QueueState;
+use crate::playback::state::{QueueState, RepeatMode};
 use crate::sources::local::LocalResolver;
 use crate::sources::soundcloud::SoundCloudResolver;
 use crate::sources::youtube::YouTubeResolver;
 use crate::sources::SourceRegistry;
 use crate::visualizer::fft_bridge::FftChannel;
-use crate::persistence::db::Database;
 
 /// How often (in ms) progress-tick events are emitted during playback.
 const PROGRESS_TICK_INTERVAL_MS: u64 = 250;
 
-/// Facade that owns audio backend, queue, FFT bridge, and event emitter.
+/// Facade that owns audio backend, queue, FFT bridge, event emitter, and library service.
 ///
 /// All IPC commands go through this service. It manages the pipeline
 /// lifecycle: decoder thread, PCM bus, FFT engine, and progress timer.
@@ -47,6 +49,8 @@ pub struct PlaybackService {
     sources: SourceRegistry,
     /// Binary FFT streaming channel (shared with AppState.fft_channel).
     fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
+    /// Library service used to record play history when tracks start.
+    library: Arc<LibraryService>,
 }
 
 /// Internal state protected by the Mutex.
@@ -72,10 +76,16 @@ impl PlaybackService {
     ///
     /// The `app` handle is used for emitting events to the frontend.
     /// The `db` is used to register the LocalResolver in the source registry.
+    /// The `library` is used to record plays in history when tracks start.
     /// The `fft_channel` is shared with AppState for binary FFT streaming.
     /// The actual audio backend (CpalBackend) is created internally
     /// when `play_local()` is called, not at construction time.
-    pub fn new(app: tauri::AppHandle, db: Arc<Database>, fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>) -> Self {
+    pub fn new(
+        app: tauri::AppHandle,
+        db: Arc<Database>,
+        library: Arc<LibraryService>,
+        fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
+    ) -> Self {
         let mut sources = SourceRegistry::new();
         sources.register(Box::new(YouTubeResolver::new()));
         sources.register(Box::new(SoundCloudResolver::new()));
@@ -96,7 +106,15 @@ impl PlaybackService {
             emitter: PlaybackEventEmitter::new(app),
             sources,
             fft_channel,
+            library,
         }
+    }
+
+    /// Record a play event in history.
+    ///
+    /// Called exactly once per track start in `play_local()`.
+    fn record_history(&self, track: &Track) {
+        let _ = self.library.record_play(track);
     }
 
     /// Play a local audio file.
@@ -169,6 +187,15 @@ impl PlaybackService {
         // Store decoder and backend references for seek/volume
         let shared_decoder = self.decoder.clone();
         let shared_backend = self.backend.clone();
+        let self_clone = PlaybackService {
+            state: self.state.clone(),
+            decoder: shared_decoder.clone(),
+            backend: shared_backend.clone(),
+            emitter: self.emitter.clone_sender(),
+            sources: SourceRegistry::new(),
+            fft_channel: self.fft_channel.clone(),
+            library: self.library.clone(),
+        };
 
         // Spawn decoder thread
         let decoder_state = self.state.clone();
@@ -209,9 +236,8 @@ impl PlaybackService {
 
                 match result {
                     Ok(0) => {
-                        // End of stream — set state to Stopped
-                        let mut s = decoder_state.lock().unwrap();
-                        s.playback_state = PlaybackState::Stopped;
+                        // End of stream — apply repeat logic by delegating to `next()`.
+                        let _ = self_clone.next();
                         break;
                     }
                     Ok(samples_read) => {
@@ -265,6 +291,9 @@ impl PlaybackService {
             s.playback_state = PlaybackState::Playing;
         }
         let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+
+        // Record this track start in history exactly once per play.
+        self.record_history(&track);
 
         // Start FFT analysis timer (binary IPC via Channel)
         let fft_channel_arc = self.fft_channel.clone();
@@ -504,23 +533,188 @@ impl PlaybackService {
             queue.queue.current_index = Some(0);
         }
 
-        let tracks_snapshot = queue.queue.tracks.clone();
+        let _ = self.emitter.emit_queue_updated(&queue.queue.clone());
         drop(queue);
-
-        let _ = self.emitter.emit_queue_updated(&tracks_snapshot);
         Ok(())
     }
 
-    /// Get the current queue as a list of tracks.
-    pub fn get_queue(&self) -> Result<Vec<Track>, AppError> {
+    /// Get the current queue as a full QueueState snapshot.
+    pub fn get_queue(&self) -> Result<QueueState, AppError> {
         let s = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),
             details: Some("mutex lock".into()),
         })?;
-        Ok(s.queue.tracks.clone())
+        Ok(s.queue.clone())
     }
 
-    /// Skip to the next track in the queue.
+    /// Look up a track by Helix ID in the current queue or source registry.
+    ///
+    /// Used by IPC commands like `toggle_favorite` that only receive a track ID.
+    pub fn get_track_by_id(&self, track_id: &str) -> Result<Track, AppError> {
+        {
+            let s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            if let Some(track) = s.queue.tracks.iter().find(|t| t.id == track_id) {
+                return Ok(track.clone());
+            }
+        }
+
+        self.sources
+            .resolve_all(track_id)
+            .map_err(|e| match e {
+                crate::errors::types::SourceError::ResolveError(msg) => {
+                    AppError::from(crate::errors::types::SourceError::ResolveError(msg))
+                }
+                _ => AppError::from(crate::errors::types::SourceError::ResolveError(format!(
+                    "Could not resolve track: {}",
+                    track_id
+                ))),
+            })
+    }
+
+    /// Set shuffle mode and emit an updated queue snapshot.
+    pub fn set_shuffle(&self, enabled: bool) -> Result<(), AppError> {
+        let mut s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+        s.queue.shuffle = enabled;
+        if !enabled {
+            s.queue.played_indices.clear();
+        }
+        let snapshot = s.queue.clone();
+        drop(s);
+        let _ = self.emitter.emit_queue_updated(&snapshot);
+        Ok(())
+    }
+
+    /// Set repeat mode by string name and emit an updated queue snapshot.
+    ///
+    /// Accepts "Off", "All", or "One" (case-insensitive). Invalid input
+    /// returns a validation error so the frontend can map it.
+    pub fn set_repeat_from_string(&self, mode: &str) -> Result<(), AppError> {
+        let parsed = match mode.trim() {
+            "Off" | "off" | "OFF" => RepeatMode::Off,
+            "All" | "all" | "ALL" => RepeatMode::All,
+            "One" | "one" | "ONE" => RepeatMode::One,
+            _ => {
+                return Err(ValidationError::InvalidInput(format!(
+                    "invalid repeat mode: {}. Expected Off, All, or One",
+                    mode
+                ))
+                .into());
+            }
+        };
+        self.set_repeat(parsed)
+    }
+
+    /// Set repeat mode directly and emit an updated queue snapshot.
+    pub fn set_repeat(&self, mode: RepeatMode) -> Result<(), AppError> {
+        let mut s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+        s.queue.repeat_mode = mode;
+        let snapshot = s.queue.clone();
+        drop(s);
+        let _ = self.emitter.emit_queue_updated(&snapshot);
+        Ok(())
+    }
+
+    /// Cycle repeat mode Off -> All -> One -> Off and emit queue snapshot.
+    pub fn cycle_repeat(&self) -> Result<RepeatMode, AppError> {
+        let mut s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+        s.queue.repeat_mode = match s.queue.repeat_mode {
+            RepeatMode::Off => RepeatMode::All,
+            RepeatMode::All => RepeatMode::One,
+            RepeatMode::One => RepeatMode::Off,
+        };
+        let mode = s.queue.repeat_mode;
+        let snapshot = s.queue.clone();
+        drop(s);
+        let _ = self.emitter.emit_queue_updated(&snapshot);
+        Ok(mode)
+    }
+
+    /// Choose the next track index when shuffle mode is enabled.
+    ///
+    /// Returns the index to play next and updates `played_indices`. The
+    /// queue order is not modified; only the selection changes.
+    fn shuffle_next_track(queue: &mut QueueState) -> Option<usize> {
+        let len = queue.tracks.len();
+        if len == 0 {
+            return None;
+        }
+
+        let current = queue.current_index.unwrap_or(0);
+        let unplayed: Vec<usize> = (0..len)
+            .filter(|i| *i != current && !queue.played_indices.contains(i))
+            .collect();
+
+        if unplayed.is_empty() {
+            if queue.repeat_mode == RepeatMode::All {
+                queue.played_indices.clear();
+                queue.played_indices.push(current);
+                let next = (0..len)
+                    .filter(|i| *i != current)
+                    .collect::<Vec<_>>()
+                    .choose(&mut rand::thread_rng())
+                    .copied();
+                if let Some(idx) = next {
+                    queue.played_indices.push(idx);
+                }
+                return next;
+            }
+            return None;
+        }
+
+        let next = unplayed.choose(&mut rand::thread_rng()).copied();
+        if let Some(idx) = next {
+            queue.played_indices.push(idx);
+        }
+        next
+    }
+
+    /// Compute the next track index, applying shuffle and repeat modes.
+    ///
+    /// Returns `None` when playback should stop (end of queue with repeat off).
+    fn compute_next_index(queue: &mut QueueState) -> Option<usize> {
+        let len = queue.tracks.len();
+        if len == 0 {
+            return None;
+        }
+
+        let current = queue.current_index.unwrap_or(0);
+        if queue.shuffle {
+            Self::shuffle_next_track(queue)
+        } else {
+            Self::sequential_next_index(current, len, queue.repeat_mode)
+        }
+    }
+
+    /// Pick the next sequential index, applying repeat-all and repeat-one logic.
+    fn sequential_next_index(current: usize, len: usize, repeat: RepeatMode) -> Option<usize> {
+        match repeat {
+            RepeatMode::One => Some(current),
+            _ => {
+                let candidate = current + 1;
+                if candidate < len {
+                    Some(candidate)
+                } else if repeat == RepeatMode::All {
+                    Some(0)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Skip to the next track in the queue, applying shuffle and repeat modes.
     pub fn next(&self) -> Result<(), AppError> {
         let mut s = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),
@@ -531,32 +725,42 @@ impl PlaybackService {
             return Err(PlaybackError::QueueEmpty.into());
         }
 
-        let current = s.queue.current_index.unwrap_or(0);
-        let next_index = current + 1;
-        if next_index < s.queue.tracks.len() {
-            s.queue.current_index = Some(next_index);
-            let track = s.queue.tracks[next_index].clone();
-            drop(s);
-
-            let _ = self.emitter.emit_track_changed(&track);
-            let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
-
-            // If the track has a local_path, play it
-            if let Some(ref local_path) = track.local_path {
-                return self.play_local(local_path);
+        let next_index = match Self::compute_next_index(&mut s.queue) {
+            Some(idx) => idx,
+            None => {
+                drop(s);
+                return self.stop();
             }
+        };
 
-            let mut s = self.state.lock().map_err(|_| AppError {
-                code: "UNKNOWN_ERROR".into(),
-                details: Some("mutex lock".into()),
-            })?;
-            s.current_track = Some(track);
+        s.queue.current_index = Some(next_index);
+        let track = s.queue.tracks[next_index].clone();
+        drop(s);
+
+        let _ = self.emitter.emit_track_changed(&track);
+        let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+
+        if let Some(ref local_path) = track.local_path {
+            return self.play_local(local_path);
         }
+
+        // For remote tracks (YouTube/SoundCloud), record history here
+        // since play_local() won't be called.
+        self.record_history(&track);
+
+        let mut s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+        s.current_track = Some(track);
 
         Ok(())
     }
 
     /// Go to the previous track in the queue.
+    ///
+    /// Previous ignores shuffle (user intentionally stepping back) and respects
+    /// repeat-all by wrapping to the end when at the first track.
     pub fn previous(&self) -> Result<(), AppError> {
         let mut s = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),
@@ -567,25 +771,38 @@ impl PlaybackService {
             return Err(PlaybackError::QueueEmpty.into());
         }
 
+        let len = s.queue.tracks.len();
         let current = s.queue.current_index.unwrap_or(0);
-        if current > 0 {
-            s.queue.current_index = Some(current - 1);
-            let track = s.queue.tracks[current - 1].clone();
-            drop(s);
-
-            let _ = self.emitter.emit_track_changed(&track);
-            let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
-
-            if let Some(ref local_path) = track.local_path {
-                return self.play_local(local_path);
+        let previous_index = if current == 0 {
+            if s.queue.repeat_mode == RepeatMode::All {
+                len.saturating_sub(1)
+            } else {
+                0
             }
+        } else {
+            current - 1
+        };
 
-            let mut s = self.state.lock().map_err(|_| AppError {
-                code: "UNKNOWN_ERROR".into(),
-                details: Some("mutex lock".into()),
-            })?;
-            s.current_track = Some(track);
+        s.queue.current_index = Some(previous_index);
+        let track = s.queue.tracks[previous_index].clone();
+        drop(s);
+
+        let _ = self.emitter.emit_track_changed(&track);
+        let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+
+        if let Some(ref local_path) = track.local_path {
+            return self.play_local(local_path);
         }
+
+        // For remote tracks (YouTube/SoundCloud), record history here
+        // since play_local() won't be called.
+        self.record_history(&track);
+
+        let mut s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+        s.current_track = Some(track);
 
         Ok(())
     }
@@ -753,7 +970,129 @@ mod tests {
     }
 
     #[test]
-    fn internal_state_default_values() {
+    fn repeat_mode_cycles_off_all_one_off() {
+        let mode = RepeatMode::Off;
+        let next = match mode {
+            RepeatMode::Off => RepeatMode::All,
+            RepeatMode::All => RepeatMode::One,
+            RepeatMode::One => RepeatMode::Off,
+        };
+        assert_eq!(next, RepeatMode::All);
+
+        let next = match next {
+            RepeatMode::Off => RepeatMode::All,
+            RepeatMode::All => RepeatMode::One,
+            RepeatMode::One => RepeatMode::Off,
+        };
+        assert_eq!(next, RepeatMode::One);
+
+        let next = match next {
+            RepeatMode::Off => RepeatMode::All,
+            RepeatMode::All => RepeatMode::One,
+            RepeatMode::One => RepeatMode::Off,
+        };
+        assert_eq!(next, RepeatMode::Off);
+    }
+
+    #[test]
+    fn sequential_next_index_respects_repeat_modes() {
+        // 3 tracks, current = 1
+        assert_eq!(
+            PlaybackService::sequential_next_index(1, 3, RepeatMode::Off),
+            Some(2)
+        );
+        assert_eq!(
+            PlaybackService::sequential_next_index(1, 3, RepeatMode::One),
+            Some(1)
+        );
+        assert_eq!(
+            PlaybackService::sequential_next_index(2, 3, RepeatMode::All),
+            Some(0)
+        );
+        assert_eq!(
+            PlaybackService::sequential_next_index(2, 3, RepeatMode::Off),
+            None
+        );
+    }
+
+    #[test]
+    fn shuffle_next_track_picks_unplayed_indices() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests("t1"),
+                sample_track_for_tests("t2"),
+            ],
+            current_index: Some(0),
+            shuffle: true,
+            played_indices: vec![0],
+            repeat_mode: RepeatMode::Off,
+        };
+
+        let next = PlaybackService::shuffle_next_track(&mut queue);
+        assert!(next.is_some());
+        let idx = next.unwrap();
+        assert!(idx == 1 || idx == 2, "Should pick an unplayed track");
+        assert!(queue.played_indices.contains(&idx));
+    }
+
+    #[test]
+    fn shuffle_next_track_clears_played_when_repeat_all_exhausted() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests("t1"),
+                sample_track_for_tests("t2"),
+            ],
+            current_index: Some(0),
+            shuffle: true,
+            played_indices: vec![1, 2],
+            repeat_mode: RepeatMode::All,
+        };
+
+        let next = PlaybackService::shuffle_next_track(&mut queue);
+        assert!(next.is_some(), "Should wrap and pick a new unplayed track");
+        let idx = next.unwrap();
+        assert!(idx == 1 || idx == 2, "Should pick an unplayed track after reset");
+        assert!(queue.played_indices.contains(&idx));
+        assert!(queue.played_indices.contains(&0), "Current index should be recorded");
+    }
+
+    #[test]
+    fn shuffle_next_track_returns_none_when_exhausted_and_repeat_off() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests("t1"),
+            ],
+            current_index: Some(0),
+            shuffle: true,
+            played_indices: vec![1],
+            repeat_mode: RepeatMode::Off,
+        };
+
+        let next = PlaybackService::shuffle_next_track(&mut queue);
+        assert!(next.is_none());
+    }
+
+fn sample_track_for_tests(id: &str) -> Track {
+    Track {
+        id: id.to_string(),
+        source: crate::models::source::Source::Local,
+        source_id: format!("local-{}", id),
+        title: format!("Song {}", id),
+        artist: "Artist".to_string(),
+        album: None,
+        duration: Some(180.0),
+        thumbnail: None,
+        stream_url: None,
+        local_path: Some(format!("/music/{}.mp3", id)),
+        metadata: std::collections::HashMap::new(),
+    }
+}
+
+#[test]
+fn internal_state_default_values() {
         // Verify InternalState defaults match PlaybackService::new()
         // (We can't construct InternalState directly since it's private,
         //  but we verify the state values that PlaybackService exposes)

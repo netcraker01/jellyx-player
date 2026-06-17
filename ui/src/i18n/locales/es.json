@@ -12,7 +12,14 @@
     "volume": "Volumen",
     "now_playing": "Reproduciendo ahora",
     "queue": "Cola",
-    "no_track": "Ninguna canción seleccionada"
+    "no_track": "Ninguna canción seleccionada",
+    "shuffle": "Aleatorio",
+    "repeat": "Repetir",
+    "repeat_all": "Repetir todo",
+    "repeat_one": "Repetir una",
+    "repeat_off": "No repetir",
+    "add_to_favorites": "Añadir a favoritos",
+    "remove_from_favorites": "Eliminar de favoritos"
   },
   "home": {
     "recently_played": "Reproducido recientemente",

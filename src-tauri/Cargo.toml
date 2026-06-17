@@ -31,4 +31,5 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5"
 walkdir = "2"
 tauri-plugin-dialog = "2"
+rand = "0.8"
 sha2 = "0.10"

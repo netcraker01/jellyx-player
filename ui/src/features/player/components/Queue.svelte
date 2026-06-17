@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { Play, X } from 'lucide-svelte';
+  import { Play, Shuffle } from 'lucide-svelte';
   import { t } from '@i18n';
-  import { queue, currentTrack, playTrack } from '../stores/player';
+  import { queue, currentIndex, shuffle, playTrack } from '../stores/player';
   import type { Track } from '@shared/types/models';
 
   function formatDuration(seconds?: number): string {
@@ -20,27 +20,42 @@
   }
 </script>
 
-<div class="queue">
-  <h3 class="queue-title">{$t('now_playing.queue_title')}</h3>
-  {#if $queue.length === 0}
-    <p class="queue-empty">{$t('now_playing.queue_empty')}</p>
-  {:else}
-    <ul class="queue-list">
-      {#each $queue as track, i (track.id)}
-        <li class="queue-item" class:current={$currentTrack?.id === track.id}>
-          <button class="play-btn" on:click={() => handlePlay(track)} aria-label="Play {track.title}">
-            <Play size={12} />
-          </button>
-          <div class="track-info">
-            <span class="track-title">{track.title}</span>
-            <span class="track-artist">{track.artist}</span>
-          </div>
-          <span class="track-duration">{formatDuration(track.duration)}</span>
-        </li>
-      {/each}
-    </ul>
-  {/if}
-</div>
+  <div class="queue">
+    <div class="queue-header">
+      <h3 class="queue-title">{$t('now_playing.queue_title')}</h3>
+      {#if $shuffle}
+        <span class="shuffle-badge">
+          <Shuffle size={12} />
+          {$t('player.shuffle')}
+        </span>
+      {/if}
+    </div>
+    {#if $queue.length === 0}
+      <p class="queue-empty">{$t('now_playing.queue_empty')}</p>
+    {:else}
+      <ul class="queue-list">
+        {#each $queue as track, i (track.id)}
+          <li class="queue-item" class:current={$currentIndex === i}>
+            <span class="track-number">
+              {#if $currentIndex === i}
+                <Play size={12} />
+              {:else}
+                {i + 1}
+              {/if}
+            </span>
+            <button class="play-btn" on:click={() => handlePlay(track)} aria-label="Play {track.title}">
+              <Play size={12} />
+            </button>
+            <div class="track-info">
+              <span class="track-title">{track.title}</span>
+              <span class="track-artist">{track.artist}</span>
+            </div>
+            <span class="track-duration">{formatDuration(track.duration)}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
 
 <style>
   .queue {
@@ -51,7 +66,22 @@
     color: var(--text-secondary, #9ca3af);
     font-size: 0.9rem;
     font-weight: 500;
-    margin: 0 0 0.5rem 0;
+    margin: 0;
+  }
+
+  .queue-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+  }
+
+  .shuffle-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.75rem;
+    color: var(--color-accent, #6366f1);
   }
 
   .queue-empty {
@@ -100,6 +130,17 @@
 
   .play-btn:hover {
     color: var(--color-accent, #6366f1);
+  }
+
+  .track-number {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
   }
 
   .track-info {

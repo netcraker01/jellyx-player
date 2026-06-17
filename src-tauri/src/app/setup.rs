@@ -33,13 +33,13 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             let fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>> =
                 Arc::new(Mutex::new(None));
 
-            let playback = PlaybackService::new(app.handle().clone(), db.clone(), fft_channel.clone());
-            let library = LibraryService::new(db.clone());
+            let library = Arc::new(LibraryService::new(db.clone()));
+            let playback = PlaybackService::new(app.handle().clone(), db.clone(), library.clone(), fft_channel.clone());
             let scanner = ScannerService::new(db);
 
             app.manage(AppState {
                 playback: Arc::new(playback),
-                library: Arc::new(library),
+                library,
                 scanner: Arc::new(scanner),
                 fft_channel,
             });
@@ -64,6 +64,11 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::remove_favorite,
             crate::ipc::commands::get_history,
             crate::ipc::commands::clear_history,
+            crate::ipc::commands::toggle_favorite,
+            crate::ipc::commands::is_favorite,
+            crate::ipc::commands::set_shuffle,
+            crate::ipc::commands::set_repeat,
+            crate::ipc::commands::cycle_repeat,
             // Local Scanner commands
             crate::ipc::commands::scan_folder,
             crate::ipc::commands::get_local_tracks,

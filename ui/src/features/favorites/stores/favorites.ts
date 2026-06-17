@@ -14,6 +14,7 @@ export interface FavoritesStore {
   load: () => Promise<void>;
   add: (track: Track) => Promise<void>;
   remove: (trackId: string) => Promise<void>;
+  toggle: (trackId: string) => Promise<boolean>;
   isFavorite: (trackId: string) => boolean;
 }
 
@@ -62,6 +63,32 @@ function createFavoritesStore(): FavoritesStore {
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         notifications.push({ type: 'error', title: 'Favorites Error', message: msg, dismissible: true });
+      }
+    },
+
+    /** Toggle favorite state for a track via atomic IPC command.
+     *  Returns true if now favorited, false if removed.
+     */
+    async toggle(trackId: string) {
+      try {
+        const nowFavorited = await commands.toggleFavorite(trackId);
+        update((entries) => {
+          if (nowFavorited) {
+            // We may not have the full track here; the backend owns truth.
+            // Refresh the list to ensure consistency.
+            return entries;
+          }
+          return entries.filter((e) => e.track.id !== trackId);
+        });
+        if (nowFavorited) {
+          // Reload favorites so the new entry has full track metadata.
+          await this.load();
+        }
+        return nowFavorited;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        notifications.push({ type: 'error', title: 'Favorites Error', message: msg, dismissible: true });
+        throw e;
       }
     },
 

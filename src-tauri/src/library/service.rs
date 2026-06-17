@@ -58,7 +58,26 @@ impl LibraryService {
         self.db.insert_history(track).map_err(AppError::from)
     }
 
-    /// Get play history, ordered by most recent first (max 50 entries).
+    /// Toggle a track's favorite state.
+    ///
+    /// If the track is already favorited it is removed and `false` is returned.
+    /// If it is not favorited it is added and `true` is returned.
+    pub fn toggle_favorite(&self, track: &Track) -> Result<bool, AppError> {
+        if self.db.favorite_exists(&track.id).map_err(AppError::from)? {
+            self.db.remove_favorite(&track.id).map_err(AppError::from)?;
+            Ok(false)
+        } else {
+            self.db.insert_favorite(track).map_err(AppError::from)?;
+            Ok(true)
+        }
+    }
+
+    /// Check whether a track is currently favorited by its Helix ID.
+    pub fn favorite_exists(&self, track_id: &str) -> Result<bool, AppError> {
+        self.db.favorite_exists(track_id).map_err(AppError::from)
+    }
+
+    /// Get play history, ordered by most recent first (max 100 entries).
     pub fn get_history(&self) -> Result<Vec<HistoryEntry>, AppError> {
         self.db.get_history().map_err(AppError::from)
     }
@@ -171,5 +190,34 @@ mod tests {
         let svc = setup_service();
         assert_eq!(svc.get_favorites().unwrap().len(), 0);
         assert_eq!(svc.get_history().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn toggle_favorite_adds_when_not_favorited() {
+        let svc = setup_service();
+        let track = sample_track("t1");
+        let result = svc.toggle_favorite(&track).unwrap();
+        assert!(result, "Should return true when adding");
+        assert_eq!(svc.get_favorites().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn toggle_favorite_removes_when_favorited() {
+        let svc = setup_service();
+        let track = sample_track("t1");
+        svc.add_favorite(track.clone()).unwrap();
+        let result = svc.toggle_favorite(&track).unwrap();
+        assert!(!result, "Should return false when removing");
+        assert_eq!(svc.get_favorites().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn toggle_favorite_twice_returns_to_initial_state() {
+        let svc = setup_service();
+        let track = sample_track("t1");
+        assert!(svc.toggle_favorite(&track).unwrap());
+        assert!(!svc.toggle_favorite(&track).unwrap());
+        assert!(svc.toggle_favorite(&track).unwrap());
+        assert_eq!(svc.get_favorites().unwrap().len(), 1);
     }
 }

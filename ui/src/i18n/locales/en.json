@@ -12,7 +12,14 @@
     "volume": "Volume",
     "now_playing": "Now Playing",
     "queue": "Queue",
-    "no_track": "No track selected"
+    "no_track": "No track selected",
+    "shuffle": "Shuffle",
+    "repeat": "Repeat",
+    "repeat_all": "Repeat all",
+    "repeat_one": "Repeat one",
+    "repeat_off": "Repeat off",
+    "add_to_favorites": "Add to favorites",
+    "remove_from_favorites": "Remove from favorites"
   },
   "home": {
     "recently_played": "Recently Played",

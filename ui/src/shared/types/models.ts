@@ -78,6 +78,24 @@ export interface HistoryEntry {
 }
 
 /**
+ * Repeat mode values matching the Rust `RepeatMode` enum.
+ * Serialized as PascalCase ("Off", "All", "One").
+ */
+export type RepeatMode = 'Off' | 'All' | 'One';
+
+/**
+ * Full queue snapshot from the Rust backend.
+ * Matches the Rust `QueueState` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface QueueState {
+  tracks: Track[];
+  currentIndex: number | null;
+  shuffle: boolean;
+  repeatMode: RepeatMode;
+  playedIndices: number[];
+}
+
+/**
  * A watched folder for the local file scanner.
  * Matches the Rust `WatchedFolder` struct with `serde(rename_all = "camelCase")`.
  */

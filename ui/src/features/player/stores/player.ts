@@ -5,11 +5,12 @@
  * and provides action methods that call Tauri commands.
  * Rust is the Source of Truth — Svelte is a dumb client.
  */
-import { writable } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 import * as events from '@services/events';
 import * as commands from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
-import type { Track, FrequencyData } from '@shared/types/models';
+import { favorites } from '@features/favorites/stores/favorites';
+import type { Track, QueueState, FrequencyData } from '@shared/types/models';
 
 // ── Stores ────────────────────────────────────────────────────────
 
@@ -22,8 +23,26 @@ export const isPlaying = writable(false);
 /** Current playback progress: { position: seconds, duration: seconds }. */
 export const progress = writable<{ position: number; duration: number }>({ position: 0, duration: 0 });
 
-/** Current playback queue (ordered list of tracks). */
-export const queue = writable<Track[]>([]);
+/** Full queue snapshot from the Rust backend. */
+export const queueState = writable<QueueState>({
+  tracks: [],
+  currentIndex: null,
+  shuffle: false,
+  repeatMode: 'Off',
+  playedIndices: [],
+});
+
+/** Current playback queue tracks (kept in original order). */
+export const queue = derived(queueState, ($state) => $state.tracks);
+
+/** Index of the current track within the queue. */
+export const currentIndex = derived(queueState, ($state) => $state.currentIndex);
+
+/** Whether shuffle mode is enabled. */
+export const shuffle = writable(false);
+
+/** Current repeat mode: Off, All, or One. */
+export const repeatMode = writable<QueueState['repeatMode']>('Off');
 
 /** Current volume level (0-100). */
 export const volume = writable(80);
@@ -33,6 +52,15 @@ export const frequencyData = writable<FrequencyData | null>(null);
 
 /** Whether Modo Cine (immersive fullscreen visualizer) is active. */
 export const modoCineActive = writable<boolean>(false);
+
+/** Whether the current track is favorited. */
+export const isCurrentTrackFavorited = derived(
+  [currentTrack, favorites],
+  ([$currentTrack, $favorites]) => {
+    if (!$currentTrack) return false;
+    return $favorites.some((entry) => entry.track.id === $currentTrack.id);
+  },
+);
 
 // ── Event Initialization ──────────────────────────────────────────
 
@@ -57,9 +85,11 @@ export async function initPlayerEvents(): Promise<void> {
     isPlaying.set(state === 'Playing');
   });
 
-  // Queue updated — update full queue
-  await events.onQueueUpdated((newQueue: Track[]) => {
-    queue.set(newQueue);
+  // Queue updated — update full queue snapshot and derived mode state
+  await events.onQueueUpdated((state: QueueState) => {
+    queueState.set(state);
+    shuffle.set(state.shuffle);
+    repeatMode.set(state.repeatMode);
   });
 
   // Progress tick — update position and duration
@@ -149,5 +179,27 @@ export async function togglePlayPause(): Promise<void> {
     await pauseTrack();
   } else {
     await resumeTrack();
+  }
+}
+
+/** Toggle shuffle mode. */
+export async function toggleShuffle(): Promise<void> {
+  let enabled = false;
+  shuffle.subscribe((v) => (enabled = v))();
+  try {
+    await commands.setShuffle(!enabled);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
+  }
+}
+
+/** Cycle repeat mode: Off -> All -> One -> Off. */
+export async function cycleRepeat(): Promise<void> {
+  try {
+    await commands.cycleRepeat();
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }

@@ -87,6 +87,22 @@ impl SourceRegistry {
         }
         Err(SourceError::UnsupportedSource)
     }
+
+    /// Try to resolve a track ID through every registered resolver.
+    ///
+    /// This is a fallback used when the source type is unknown; it returns the
+    /// first successful resolution.
+    pub fn resolve_all(&self, id: &str) -> Result<Track, SourceError> {
+        for resolver in &self.resolvers {
+            if let Ok(track) = resolver.resolve(id) {
+                return Ok(track);
+            }
+        }
+        Err(SourceError::ResolveError(format!(
+            "Could not resolve track: {}",
+            id
+        )))
+    }
 }
 
 impl Default for SourceRegistry {

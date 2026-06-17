@@ -1,9 +1,17 @@
 <script lang="ts">
+  import { Heart } from 'lucide-svelte';
   import { t } from '@i18n';
   import { albumArtUrl } from '@shared/utils/assetUrl';
+  import { isCurrentTrackFavorited } from '../stores/player';
+  import { favorites } from '@features/favorites/stores/favorites';
   import type { Track } from '@shared/types/models';
 
   export let track: Track | null = null;
+
+  async function handleFavoriteToggle() {
+    if (!track?.id) return;
+    await favorites.toggle(track.id);
+  }
 </script>
 
 <div class="now-playing-info">
@@ -15,7 +23,17 @@
         <div class="album-art-placeholder"></div>
       {/if}
       <div class="track-details">
-        <h2 class="track-title">{track.title}</h2>
+        <div class="title-row">
+          <h2 class="track-title">{track.title}</h2>
+          <button
+            class="favorite-btn"
+            class:active={$isCurrentTrackFavorited}
+            on:click={handleFavoriteToggle}
+            aria-label={$isCurrentTrackFavorited ? $t('player.remove_from_favorites') : $t('player.add_to_favorites')}
+          >
+            <Heart size={20} fill={$isCurrentTrackFavorited ? 'currentColor' : 'none'} />
+          </button>
+        </div>
         <span class="track-artist">{track.artist}</span>
         {#if track.album}
           <span class="track-album">{track.album}</span>
@@ -64,11 +82,43 @@
     gap: 0.25rem;
   }
 
+  .title-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
   .track-title {
     color: var(--text-primary, #e0e0e0);
     font-size: 1.25rem;
     font-weight: 600;
     margin: 0;
+  }
+
+  .favorite-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #9ca3af);
+    cursor: pointer;
+    padding: 0.25rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, transform 0.1s;
+  }
+
+  .favorite-btn:hover {
+    color: var(--color-accent, #6366f1);
+  }
+
+  .favorite-btn.active {
+    color: var(--color-favorite, #ef4444);
+  }
+
+  .favorite-btn:active {
+    transform: scale(0.95);
   }
 
   .track-artist {

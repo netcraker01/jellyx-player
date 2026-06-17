@@ -75,8 +75,9 @@ pub fn add_to_queue(state: tauri::State<AppState>, track_id: &str) -> Result<(),
     state.playback.add_to_queue(track_id)
 }
 
+/// Get the current queue as a full QueueState snapshot.
 #[tauri::command]
-pub fn get_queue(state: tauri::State<AppState>) -> Result<Vec<Track>, AppError> {
+pub fn get_queue(state: tauri::State<AppState>) -> Result<crate::playback::state::QueueState, AppError> {
     state.playback.get_queue()
 }
 
@@ -106,7 +107,7 @@ pub fn remove_favorite(state: tauri::State<AppState>, track_id: &str) -> Result<
     state.library.remove_favorite(track_id)
 }
 
-/// Get play history, ordered by most recent first (max 50 entries).
+/// Get play history, ordered by most recent first (max 100 entries).
 #[tauri::command]
 pub fn get_history(state: tauri::State<AppState>) -> Result<Vec<HistoryEntry>, AppError> {
     state.library.get_history()
@@ -116,6 +117,42 @@ pub fn get_history(state: tauri::State<AppState>) -> Result<Vec<HistoryEntry>, A
 #[tauri::command]
 pub fn clear_history(state: tauri::State<AppState>) -> Result<(), AppError> {
     state.library.clear_history()
+}
+
+/// Toggle a track's favorite state by its Helix track ID.
+///
+/// The command first tries to find the track in the current queue so the full
+/// Track payload is available. If the track is not queued, it falls back to
+/// resolving it from the source registry.
+#[tauri::command]
+pub fn toggle_favorite(state: tauri::State<AppState>, track_id: String) -> Result<bool, AppError> {
+    let track = state.playback.get_track_by_id(&track_id)?;
+    state.library.toggle_favorite(&track)
+}
+
+/// Check whether a track is currently favorited.
+#[tauri::command]
+pub fn is_favorite(state: tauri::State<AppState>, track_id: String) -> Result<bool, AppError> {
+    state.library.favorite_exists(&track_id).map_err(AppError::from)
+}
+
+/// Set shuffle mode on or off.
+#[tauri::command]
+pub fn set_shuffle(state: tauri::State<AppState>, enabled: bool) -> Result<(), AppError> {
+    state.playback.set_shuffle(enabled)
+}
+
+/// Set repeat mode by name ("Off", "All", or "One").
+#[tauri::command]
+pub fn set_repeat(state: tauri::State<AppState>, mode: String) -> Result<(), AppError> {
+    state.playback.set_repeat_from_string(&mode)
+}
+
+/// Cycle repeat mode Off -> All -> One -> Off.
+#[tauri::command]
+pub fn cycle_repeat(state: tauri::State<AppState>) -> Result<String, AppError> {
+    let mode = state.playback.cycle_repeat()?;
+    Ok(format!("{:?}", mode))
 }
 
 // ── Local Scanner commands ──────────────────────────────────────────

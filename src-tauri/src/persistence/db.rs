@@ -21,7 +21,7 @@ use crate::persistence::models::{FavoriteEntry, HistoryEntry, WatchedFolder, Loc
 const SCHEMA_VERSION: u32 = 2;
 
 /// Default history query limit.
-const HISTORY_LIMIT: u32 = 50;
+const HISTORY_LIMIT: u32 = 100;
 
 /// SQLite-backed database for Helix library data.
 ///
@@ -253,6 +253,9 @@ impl Database {
     }
 
     /// Record a play event in history.
+    ///
+    /// Evicts the oldest entry when history exceeds `HISTORY_LIMIT` entries
+    /// so the table stays bounded to the 100 most recent plays.
     pub fn insert_history(&self, track: &Track) -> Result<(), PersistenceError> {
         let track_json = serde_json::to_string(track).map_err(|e| {
             PersistenceError::WriteError(format!("failed to serialize track: {}", e))
@@ -268,6 +271,19 @@ impl Database {
             )
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to insert history: {}", e))
+            })?;
+
+        // Evict oldest entries if we've exceeded the limit.
+        conn.execute(
+                "DELETE FROM history WHERE id IN (
+                    SELECT id FROM history ORDER BY played_at ASC LIMIT (
+                        SELECT MAX(0, COUNT(*) - ?1) FROM history
+                    )
+                )",
+                params![HISTORY_LIMIT],
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to evict history: {}", e))
             })?;
 
         Ok(())
@@ -811,6 +827,45 @@ mod tests {
 
         let history = db.get_history_with_limit(3).unwrap();
         assert_eq!(history.len(), 3, "Should respect limit");
+    }
+
+    #[test]
+    fn history_evicts_oldest_at_101st_entry() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn.lock().unwrap();
+        for i in 0..100 {
+            let track = sample_track(&format!("t{}", i));
+            let track_json = serde_json::to_string(&track).unwrap();
+            let played_at = format!("2026-01-01 10:{:02}:{:02}", i / 60, i % 60);
+            conn.execute(
+                "INSERT INTO history (track_id, track_json, played_at) VALUES (?1, ?2, ?3)",
+                params![format!("t{}", i), track_json, played_at],
+            ).unwrap();
+        }
+        drop(conn);
+        assert_eq!(db.get_history().unwrap().len(), 100, "Should keep first 100 entries");
+
+        db.insert_history(&sample_track("newest")).unwrap();
+        let history = db.get_history().unwrap();
+        assert_eq!(history.len(), 100, "Should still be 100 after 101st insert");
+        assert!(
+            history.iter().find(|e| e.track.id == "t0").is_none(),
+            "Oldest entry t0 should be evicted"
+        );
+        assert!(
+            history.iter().find(|e| e.track.id == "newest").is_some(),
+            "Newest entry should be kept"
+        );
+    }
+
+    #[test]
+    fn history_default_limit_is_100() {
+        let db = Database::open_in_memory().unwrap();
+        for i in 0..120 {
+            db.insert_history(&sample_track(&format!("t{}", i))).unwrap();
+        }
+        let history = db.get_history().unwrap();
+        assert_eq!(history.len(), 100, "Default history should cap at 100");
     }
 
     #[test]

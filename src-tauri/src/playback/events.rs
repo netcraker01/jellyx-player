@@ -6,7 +6,7 @@
 use crate::errors::types::IPCError;
 use crate::models::track::Track;
 use crate::playback::models::ProgressTick;
-use crate::playback::state::PlaybackState;
+use crate::playback::state::{PlaybackState, QueueState};
 use tauri::{AppHandle, Emitter};
 
 /// Event name constants for playback events.
@@ -40,8 +40,8 @@ impl PlaybackEventEmitter {
             .map_err(|e| IPCError::CommandFailed(e.to_string()))
     }
 
-    /// Emit a queue-updated event with the full queue as payload.
-    pub fn emit_queue_updated(&self, queue: &[Track]) -> Result<(), IPCError> {
+    /// Emit a queue-updated event with the full queue snapshot as payload.
+    pub fn emit_queue_updated(&self, queue: &QueueState) -> Result<(), IPCError> {
         self.app
             .emit(EVENT_QUEUE_UPDATED, queue)
             .map_err(|e| IPCError::CommandFailed(e.to_string()))

@@ -8,7 +8,7 @@
 
 import { subscribeEvent } from './tauri';
 import { invokeCommand } from './tauri';
-import type { Track, FrequencyData } from '@shared/types/models';
+import type { Track, FrequencyData, QueueState } from '@shared/types/models';
 
 type UnlistenFn = () => void;
 
@@ -26,8 +26,8 @@ export function onStateChanged(cb: (state: string) => void): Promise<UnlistenFn>
   return subscribeEvent<string>('state-changed', cb);
 }
 
-export function onQueueUpdated(cb: (queue: Track[]) => void): Promise<UnlistenFn> {
-  return subscribeEvent<Track[]>('queue-updated', cb);
+export function onQueueUpdated(cb: (state: QueueState) => void): Promise<UnlistenFn> {
+  return subscribeEvent<QueueState>('queue-updated', cb);
 }
 
 export function onProgressTick(cb: (progress: ProgressTick) => void): Promise<UnlistenFn> {

@@ -1,12 +1,24 @@
 <script lang="ts">
-  import { Play, Pause, SkipForward, SkipBack } from 'lucide-svelte';
+  import { Play, Pause, SkipForward, SkipBack, Shuffle, Repeat, Repeat1 } from 'lucide-svelte';
   import { t } from '@i18n';
-  import { isPlaying, togglePlayPause, nextTrack, previousTrack } from '../stores/player';
+  import { isPlaying, shuffle, repeatMode, togglePlayPause, nextTrack, previousTrack, toggleShuffle, cycleRepeat } from '../stores/player';
 
   export let disabled = false;
+
+  $: repeatLabel = $repeatMode === 'One' ? $t('player.repeat_one') : $repeatMode === 'All' ? $t('player.repeat_all') : $t('player.repeat_off');
 </script>
 
 <div class="controls">
+  <button
+    class="control-btn mode-btn"
+    class:active={$shuffle}
+    aria-label={$t('player.shuffle')}
+    on:click={toggleShuffle}
+    disabled={disabled}
+  >
+    <Shuffle size={18} />
+  </button>
+
   <button class="control-btn" aria-label="Previous" on:click={previousTrack} disabled={disabled}>
     <SkipBack size={20} />
   </button>
@@ -19,6 +31,20 @@
   </button>
   <button class="control-btn" aria-label="Next" on:click={nextTrack} disabled={disabled}>
     <SkipForward size={20} />
+  </button>
+
+  <button
+    class="control-btn mode-btn"
+    class:active={$repeatMode !== 'Off'}
+    aria-label={repeatLabel}
+    on:click={cycleRepeat}
+    disabled={disabled}
+  >
+    {#if $repeatMode === 'One'}
+      <Repeat1 size={18} />
+    {:else}
+      <Repeat size={18} />
+    {/if}
   </button>
 </div>
 
@@ -67,5 +93,17 @@
   .play-btn:hover:not(:disabled) {
     opacity: 0.9;
     color: white;
+  }
+
+  .mode-btn {
+    color: var(--text-secondary, #9ca3af);
+  }
+
+  .mode-btn.active {
+    color: var(--color-accent, #6366f1);
+  }
+
+  .mode-btn:hover:not(:disabled) {
+    color: var(--color-accent, #6366f1);
   }
 </style>
