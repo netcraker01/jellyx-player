@@ -71,6 +71,14 @@ pub enum IPCError {
     SerializationError(String),
 }
 
+/// Scanner operation errors.
+#[derive(Debug)]
+pub enum ScannerError {
+    WalkError(String),
+    MetadataError(String),
+    DatabaseError(String),
+}
+
 /// Structured error with a translatable code + optional details.
 /// Frontend maps `code` to a localized string and can use `details` for params.
 #[derive(Debug, Serialize)]
@@ -214,6 +222,25 @@ impl From<IPCError> for AppError {
             },
             IPCError::SerializationError(msg) => AppError {
                 code: "IPC_ERROR".into(),
+                details: Some(msg),
+            },
+        }
+    }
+}
+
+impl From<ScannerError> for AppError {
+    fn from(e: ScannerError) -> Self {
+        match e {
+            ScannerError::WalkError(msg) => AppError {
+                code: "SCANNER_ERROR".into(),
+                details: Some(msg),
+            },
+            ScannerError::MetadataError(msg) => AppError {
+                code: "SCANNER_ERROR".into(),
+                details: Some(msg),
+            },
+            ScannerError::DatabaseError(msg) => AppError {
+                code: "PERSISTENCE_ERROR".into(),
                 details: Some(msg),
             },
         }

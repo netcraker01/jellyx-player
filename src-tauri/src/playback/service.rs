@@ -20,10 +20,12 @@ use crate::errors::types::{AppError, PlaybackError, ValidationError};
 use crate::models::track::Track;
 use crate::playback::events::PlaybackEventEmitter;
 use crate::playback::state::QueueState;
+use crate::sources::local::LocalResolver;
 use crate::sources::soundcloud::SoundCloudResolver;
 use crate::sources::youtube::YouTubeResolver;
 use crate::sources::SourceRegistry;
 use crate::visualizer::fft_bridge::FftBridge;
+use crate::persistence::db::Database;
 
 /// How often (in ms) progress-tick events are emitted during playback.
 const PROGRESS_TICK_INTERVAL_MS: u64 = 250;
@@ -67,12 +69,14 @@ impl PlaybackService {
     /// Create a new PlaybackService.
     ///
     /// The `app` handle is used for emitting events to the frontend.
+    /// The `db` is used to register the LocalResolver in the source registry.
     /// The actual audio backend (CpalBackend) is created internally
     /// when `play_local()` is called, not at construction time.
-    pub fn new(app: tauri::AppHandle) -> Self {
+    pub fn new(app: tauri::AppHandle, db: Arc<Database>) -> Self {
         let mut sources = SourceRegistry::new();
         sources.register(Box::new(YouTubeResolver::new()));
         sources.register(Box::new(SoundCloudResolver::new()));
+        sources.register(Box::new(LocalResolver::new(db)));
 
         Self {
             state: Arc::new(Mutex::new(InternalState {

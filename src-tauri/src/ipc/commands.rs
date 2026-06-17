@@ -8,15 +8,18 @@ use std::sync::Arc;
 use crate::errors::types::AppError;
 use crate::library::LibraryService;
 use crate::models::track::Track;
-use crate::persistence::models::{FavoriteEntry, HistoryEntry};
+use crate::persistence::models::{FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry};
 use crate::playback::service::PlaybackService;
+use crate::sources::local::{ScannerService, ScanResult};
 
 /// Application state shared across Tauri commands.
 /// PlaybackService is the single authority for all playback operations.
 /// LibraryService manages favorites and history.
+/// ScannerService manages local file scanning.
 pub struct AppState {
     pub playback: Arc<PlaybackService>,
     pub library: Arc<LibraryService>,
+    pub scanner: Arc<ScannerService>,
 }
 
 #[tauri::command]
@@ -110,4 +113,30 @@ pub fn get_history(state: tauri::State<AppState>) -> Result<Vec<HistoryEntry>, A
 #[tauri::command]
 pub fn clear_history(state: tauri::State<AppState>) -> Result<(), AppError> {
     state.library.clear_history()
+}
+
+// ── Local Scanner commands ──────────────────────────────────────────
+
+/// Scan a folder for audio files and add to local library.
+#[tauri::command]
+pub fn scan_folder(state: tauri::State<AppState>, folder_path: &str) -> Result<ScanResult, AppError> {
+    state.scanner.scan_folder(folder_path)
+}
+
+/// Get all local tracks, optionally filtered by folder path.
+#[tauri::command]
+pub fn get_local_tracks(state: tauri::State<AppState>, folder_path: Option<&str>) -> Result<Vec<LocalTrackEntry>, AppError> {
+    state.scanner.get_tracks(folder_path)
+}
+
+/// Get all watched folders.
+#[tauri::command]
+pub fn get_watched_folders(state: tauri::State<AppState>) -> Result<Vec<WatchedFolder>, AppError> {
+    state.scanner.get_watched_folders()
+}
+
+/// Remove a watched folder and its associated tracks.
+#[tauri::command]
+pub fn remove_watched_folder(state: tauri::State<AppState>, folder_path: &str) -> Result<(), AppError> {
+    state.scanner.remove_folder(folder_path)
 }

@@ -7,7 +7,7 @@
  */
 
 import { invokeCommand } from './tauri';
-import type { Track, FavoriteEntry, HistoryEntry } from '@shared/types/models';
+import type { Track, FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry, ScanResult } from '@shared/types/models';
 
 // ── Playback commands ──────────────────────────────────────────────
 
@@ -80,4 +80,26 @@ export function getHistory(): Promise<HistoryEntry[]> {
 /** Clear all play history. */
 export function clearHistory(): Promise<void> {
   return invokeCommand<void>('clear_history');
+}
+
+// ── Local Scanner commands ──────────────────────────────────────────
+
+/** Scan a folder for audio files and add to local library. */
+export function scanFolder(folderPath: string): Promise<ScanResult> {
+  return invokeCommand<ScanResult>('scan_folder', { folderPath });
+}
+
+/** Get all local tracks, optionally filtered by folder path. */
+export function getLocalTracks(folderPath?: string): Promise<LocalTrackEntry[]> {
+  return invokeCommand<LocalTrackEntry[]>('get_local_tracks', { folderPath: folderPath ?? null });
+}
+
+/** Get all watched folders. */
+export function getWatchedFolders(): Promise<WatchedFolder[]> {
+  return invokeCommand<WatchedFolder[]>('get_watched_folders');
+}
+
+/** Remove a watched folder and its associated tracks. */
+export function removeWatchedFolder(folderPath: string): Promise<void> {
+  return invokeCommand<void>('remove_watched_folder', { folderPath });
 }

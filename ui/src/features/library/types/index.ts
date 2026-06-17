@@ -1,6 +1,4 @@
 /**
  * Library types index.
- * Will be populated during library feature development.
  */
-
-export type { Track, Album, Artist } from '@shared/types/models';
+export type { Track, Album, Artist, WatchedFolder, LocalTrackEntry, ScanResult } from '@shared/types/models';

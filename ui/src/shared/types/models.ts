@@ -70,3 +70,37 @@ export interface HistoryEntry {
   track: Track;
   playedAt: string;
 }
+
+/**
+ * A watched folder for the local file scanner.
+ * Matches the Rust `WatchedFolder` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface WatchedFolder {
+  path: string;
+  lastScannedAt?: string;
+  addedAt: string;
+}
+
+/**
+ * A local track entry from the file scanner.
+ * Matches the Rust `LocalTrackEntry` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface LocalTrackEntry {
+  track: Track;
+  filePath: string;
+  folderPath: string;
+  fileModifiedAt?: string;
+}
+
+/**
+ * Result of a folder scan operation.
+ * Matches the Rust `ScanResult` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface ScanResult {
+  folderPath: string;
+  filesScanned: number;
+  filesAdded: number;
+  filesUpdated: number;
+  filesSkipped: number;
+  errors: number;
+}

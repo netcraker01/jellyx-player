@@ -11,24 +11,28 @@ use crate::ipc::commands::AppState;
 use crate::library::LibraryService;
 use crate::persistence::db::Database;
 use crate::playback::service::PlaybackService;
+use crate::sources::local::ScannerService;
 
 /// Build and configure the Tauri application.
 ///
-/// Creates the AppState with PlaybackService and LibraryService,
+/// Creates the AppState with PlaybackService, LibraryService, and ScannerService,
 /// registers all command handlers, and returns a Tauri Builder ready to run.
 pub fn build_app() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let playback = PlaybackService::new(app.handle().clone());
-
             // Initialize SQLite database at XDG data dir
             let db_path = database_path();
-            let db = Database::open(&db_path).expect("failed to initialize database");
-            let library = LibraryService::new(Arc::new(db));
+            let db = Arc::new(Database::open(&db_path).expect("failed to initialize database"));
+
+            let playback = PlaybackService::new(app.handle().clone(), db.clone());
+            let library = LibraryService::new(db.clone());
+            let scanner = ScannerService::new(db);
 
             app.manage(AppState {
                 playback: Arc::new(playback),
                 library: Arc::new(library),
+                scanner: Arc::new(scanner),
             });
             Ok(())
         })
@@ -51,6 +55,11 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::remove_favorite,
             crate::ipc::commands::get_history,
             crate::ipc::commands::clear_history,
+            // Local Scanner commands
+            crate::ipc::commands::scan_folder,
+            crate::ipc::commands::get_local_tracks,
+            crate::ipc::commands::get_watched_folders,
+            crate::ipc::commands::remove_watched_folder,
         ])
 }
 

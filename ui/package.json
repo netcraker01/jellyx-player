@@ -11,10 +11,11 @@
     "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "svelte": "^4.0.0",
-    "svelte-routing": "^2.0.0",
     "@tauri-apps/api": "^2.0.0",
-    "lucide-svelte": "^0.400.0"
+    "@tauri-apps/plugin-dialog": "^2.7.1",
+    "lucide-svelte": "^0.400.0",
+    "svelte": "^4.0.0",
+    "svelte-routing": "^2.0.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^3.0.0",
