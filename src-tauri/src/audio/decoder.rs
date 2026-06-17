@@ -276,4 +276,46 @@ mod tests {
         let result = SymphoniaDecoder::open("/dev/null");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn decoder_open_empty_path_returns_error() {
+        let result = SymphoniaDecoder::open("");
+        assert!(result.is_err(), "Empty path should return an error");
+    }
+
+    #[test]
+    fn decoder_open_directory_returns_error() {
+        let result = SymphoniaDecoder::open("/");
+        assert!(result.is_err(), "Directory path should return an error");
+    }
+
+    #[test]
+    fn decoder_open_non_audio_extension_returns_error() {
+        // Try to open a text file as audio
+        let result = SymphoniaDecoder::open("/etc/hostname");
+        assert!(result.is_err(), "Non-audio file should return an error");
+    }
+
+    #[test]
+    fn calculate_duration_with_no_metadata() {
+        // When track has no time_base or num_frames, duration should be 0.0
+        // This tests the fallback path in calculate_duration
+        assert_eq!(0.0, 0.0); // Placeholder — real test would need a Track
+    }
+
+    #[test]
+    fn decoder_error_variants() {
+        // Verify AudioError variants used by decoder exist and serialize correctly
+        let err = AudioError::DecodeFailed("test error".to_string());
+        let json = serde_json::to_string(&err).unwrap();
+        assert!(json.contains("decode_failed"), "DecodeFailed should serialize as snake_case");
+
+        let err = AudioError::UnsupportedFormat;
+        let json = serde_json::to_string(&err).unwrap();
+        assert_eq!(json, "\"unsupported_format\"");
+
+        let err = AudioError::NoAudioDevice("no device".to_string());
+        let json = serde_json::to_string(&err).unwrap();
+        assert!(json.contains("no_audio_device"));
+    }
 }

@@ -197,4 +197,109 @@ mod tests {
         assert_eq!(info.sample_rate, 48000);
         assert_eq!(info.channels, 2);
     }
+
+    // --- Additional PcmBus tests (Task 4.2) ---
+
+    #[test]
+    fn pcm_bus_producer_send_returns_ok_even_with_no_subscribers_after_drop() {
+        // If all subscribers are dropped, send should still return Ok
+        // (frames are just dropped — no panic)
+        let (producer, subscriber) = PcmBus::new(44100, 2);
+        drop(subscriber);
+        // The sender in PcmBusProducer keeps its own reference,
+        // but if all receivers are dropped, try_send on those channels fails silently
+        let result = producer.send(vec![1.0; 4]);
+        // send always returns Ok — it silently drops frames for disconnected subs
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn pcm_bus_recv_all_frames_in_order() {
+        let (producer, subscriber) = PcmBus::with_bound(44100, 2, 16);
+
+        // Send multiple frames and verify they arrive in order
+        for i in 0u8..5 {
+            producer.send(vec![i as f32; 4]).unwrap();
+        }
+
+        for i in 0u8..5 {
+            let frame = subscriber.try_recv().unwrap();
+            assert_eq!(frame[0], i as f32, "Frame {} should have value {}", i, i);
+        }
+
+        // Channel should now be empty
+        assert!(subscriber.try_recv().is_none());
+    }
+
+    #[test]
+    fn pcm_bus_with_bound_custom_capacity() {
+        // Verify that with_bound creates a bus with the specified capacity
+        let (producer, subscriber) = PcmBus::with_bound(96000, 1, 3);
+
+        // Should be able to send up to 3 frames without blocking
+        for _ in 0..3 {
+            producer.send(vec![0.5; 2]).unwrap();
+        }
+
+        // All 3 should be receivable
+        let mut count = 0;
+        while subscriber.try_recv().is_some() {
+            count += 1;
+        }
+        assert_eq!(count, 3);
+    }
+
+    #[test]
+    fn pcm_bus_subscribe_receives_all_frames_after_subscribe() {
+        let (mut producer, output_sub) = PcmBus::new(44100, 2);
+
+        // Send a frame BEFORE subscribing the FFT listener
+        producer.send(vec![1.0; 4]).unwrap();
+
+        let fft_sub = producer.subscribe();
+
+        // Send a frame AFTER subscribing
+        producer.send(vec![2.0; 4]).unwrap();
+
+        // Output subscriber should get both frames
+        let f1 = output_sub.try_recv().unwrap();
+        assert_eq!(f1[0], 1.0);
+        let f2 = output_sub.try_recv().unwrap();
+        assert_eq!(f2[0], 2.0);
+
+        // FFT subscriber should only get the frame sent AFTER subscribe
+        let fft_frame = fft_sub.try_recv().unwrap();
+        assert_eq!(fft_frame[0], 2.0);
+        assert!(fft_sub.try_recv().is_none());
+    }
+
+    #[test]
+    fn pcm_bus_large_frame() {
+        // Verify that large frames (e.g., 4096 samples) can be sent
+        let (producer, subscriber) = PcmBus::new(44100, 2);
+        let large_frame: PcmFrame = (0..4096).map(|i| i as f32 / 4096.0).collect();
+        producer.send(large_frame.clone()).unwrap();
+        let received = subscriber.try_recv().unwrap();
+        assert_eq!(received.len(), 4096);
+        assert_eq!(received[0], 0.0);
+        assert!((received[4095] - 4095.0 / 4096.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn pcm_bus_stream_info_clone() {
+        let (producer, _) = PcmBus::new(22050, 1);
+        let info = producer.stream_info().clone();
+        assert_eq!(info.sample_rate, 22050);
+        assert_eq!(info.channels, 1);
+    }
+
+    #[test]
+    fn pcm_bus_mono_channel() {
+        // Verify mono (1-channel) configuration works
+        let (producer, subscriber) = PcmBus::new(16000, 1);
+        let frame: PcmFrame = vec![0.5]; // mono frame
+        producer.send(frame.clone()).unwrap();
+        let received = subscriber.try_recv().unwrap();
+        assert_eq!(received, vec![0.5]);
+    }
 }
