@@ -7,7 +7,9 @@
  */
 
 import { invokeCommand } from './tauri';
-import type { Track } from '@shared/types/models';
+import type { Track, FavoriteEntry, HistoryEntry } from '@shared/types/models';
+
+// ── Playback commands ──────────────────────────────────────────────
 
 export function play(url: string): Promise<void> {
   return invokeCommand<void>('play', { url });
@@ -51,4 +53,31 @@ export function getQueue(): Promise<Track[]> {
 
 export function getVersion(): Promise<string> {
   return invokeCommand<string>('get_version');
+}
+
+// ── Library commands ────────────────────────────────────────────────
+
+/** Get all favorited tracks, ordered by most recently added first. */
+export function getFavorites(): Promise<FavoriteEntry[]> {
+  return invokeCommand<FavoriteEntry[]>('get_favorites');
+}
+
+/** Add a track to favorites. */
+export function addFavorite(track: Track): Promise<void> {
+  return invokeCommand<void>('add_favorite', { track });
+}
+
+/** Remove a track from favorites by its Helix track ID. */
+export function removeFavorite(trackId: string): Promise<void> {
+  return invokeCommand<void>('remove_favorite', { trackId });
+}
+
+/** Get play history, ordered by most recent first (max 50). */
+export function getHistory(): Promise<HistoryEntry[]> {
+  return invokeCommand<HistoryEntry[]>('get_history');
+}
+
+/** Clear all play history. */
+export function clearHistory(): Promise<void> {
+  return invokeCommand<void>('clear_history');
 }

@@ -51,3 +51,22 @@ export interface FrequencyData {
   sampleRate: number;   // u32, matches Rust serde camelCase
   peak: number;         // f32, max bin value for amplitude reference
 }
+
+/**
+ * A favorited track with metadata about when it was added.
+ * Matches the Rust `FavoriteEntry` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface FavoriteEntry {
+  track: Track;
+  addedAt: string;
+}
+
+/**
+ * A play history entry with timestamp.
+ * Matches the Rust `HistoryEntry` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface HistoryEntry {
+  id: number;
+  track: Track;
+  playedAt: string;
+}

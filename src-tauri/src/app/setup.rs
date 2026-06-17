@@ -8,19 +8,27 @@ use std::sync::Arc;
 use tauri::Manager;
 
 use crate::ipc::commands::AppState;
+use crate::library::LibraryService;
+use crate::persistence::db::Database;
 use crate::playback::service::PlaybackService;
 
 /// Build and configure the Tauri application.
 ///
-/// Creates the AppState with a PlaybackService (which internally manages
-/// the audio pipeline), registers all command handlers, and returns
-/// a Tauri Builder ready to run.
+/// Creates the AppState with PlaybackService and LibraryService,
+/// registers all command handlers, and returns a Tauri Builder ready to run.
 pub fn build_app() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .setup(|app| {
             let playback = PlaybackService::new(app.handle().clone());
+
+            // Initialize SQLite database at XDG data dir
+            let db_path = database_path();
+            let db = Database::open(&db_path).expect("failed to initialize database");
+            let library = LibraryService::new(Arc::new(db));
+
             app.manage(AppState {
                 playback: Arc::new(playback),
+                library: Arc::new(library),
             });
             Ok(())
         })
@@ -37,5 +45,22 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::add_to_queue,
             crate::ipc::commands::get_queue,
             crate::ipc::commands::get_version,
+            // Library commands
+            crate::ipc::commands::get_favorites,
+            crate::ipc::commands::add_favorite,
+            crate::ipc::commands::remove_favorite,
+            crate::ipc::commands::get_history,
+            crate::ipc::commands::clear_history,
         ])
+}
+
+/// Resolve the database file path using XDG data directory convention.
+///
+/// On Linux: `~/.local/share/helix/helix.db`
+/// Falls back to current directory if XDG dirs are unavailable.
+fn database_path() -> std::path::PathBuf {
+    let data_dir = dirs::data_local_dir().unwrap_or_else(|| {
+        std::path::PathBuf::from(".")
+    });
+    data_dir.join("helix").join("helix.db")
 }

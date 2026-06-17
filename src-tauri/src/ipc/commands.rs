@@ -1,18 +1,22 @@
 //! Tauri command handlers — the IPC bridge between Svelte frontend and Rust backend.
 //!
-//! All `#[tauri::command]` functions delegate to PlaybackService.
-//! AppState holds an Arc<PlaybackService> shared across commands.
+//! All `#[tauri::command]` functions delegate to PlaybackService or LibraryService.
+//! AppState holds Arc<PlaybackService> and Arc<LibraryService> shared across commands.
 
 use std::sync::Arc;
 
 use crate::errors::types::AppError;
+use crate::library::LibraryService;
 use crate::models::track::Track;
+use crate::persistence::models::{FavoriteEntry, HistoryEntry};
 use crate::playback::service::PlaybackService;
 
 /// Application state shared across Tauri commands.
 /// PlaybackService is the single authority for all playback operations.
+/// LibraryService manages favorites and history.
 pub struct AppState {
     pub playback: Arc<PlaybackService>,
+    pub library: Arc<LibraryService>,
 }
 
 #[tauri::command]
@@ -74,4 +78,36 @@ pub fn get_queue(state: tauri::State<AppState>) -> Result<Vec<Track>, AppError> 
 #[tauri::command]
 pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+// ── Library commands ────────────────────────────────────────────────
+
+/// Get all favorited tracks, ordered by most recently added first.
+#[tauri::command]
+pub fn get_favorites(state: tauri::State<AppState>) -> Result<Vec<FavoriteEntry>, AppError> {
+    state.library.get_favorites()
+}
+
+/// Add a track to favorites. Expects a Track object in the payload.
+#[tauri::command]
+pub fn add_favorite(state: tauri::State<AppState>, track: Track) -> Result<(), AppError> {
+    state.library.add_favorite(track)
+}
+
+/// Remove a track from favorites by its Helix track ID.
+#[tauri::command]
+pub fn remove_favorite(state: tauri::State<AppState>, track_id: &str) -> Result<(), AppError> {
+    state.library.remove_favorite(track_id)
+}
+
+/// Get play history, ordered by most recent first (max 50 entries).
+#[tauri::command]
+pub fn get_history(state: tauri::State<AppState>) -> Result<Vec<HistoryEntry>, AppError> {
+    state.library.get_history()
+}
+
+/// Clear all play history.
+#[tauri::command]
+pub fn clear_history(state: tauri::State<AppState>) -> Result<(), AppError> {
+    state.library.clear_history()
 }

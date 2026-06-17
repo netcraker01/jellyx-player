@@ -27,3 +27,5 @@ cpal = "0.15"
 crossbeam-channel = "0.5"
 rustfft = "6"
 uuid = { version = "1", features = ["v4"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+dirs = "5"
