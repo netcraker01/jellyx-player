@@ -33,6 +33,10 @@ const PROGRESS_TICK_INTERVAL_MS: u64 = 250;
 pub struct PlaybackService {
     /// The current playback state shared across threads.
     state: Arc<Mutex<InternalState>>,
+    /// Shared decoder reference — needed for seek (decoder.seek()).
+    decoder: Arc<Mutex<Option<SymphoniaDecoder>>>,
+    /// Shared backend reference — needed for volume forwarding.
+    backend: Arc<Mutex<Option<CpalBackend>>>,
     /// Event emitter for Tauri frontend notifications.
     emitter: PlaybackEventEmitter,
 }
@@ -41,6 +45,8 @@ pub struct PlaybackService {
 struct InternalState {
     /// Current playback state (Stopped/Playing/Paused/Buffering).
     playback_state: PlaybackState,
+    /// True while a seek is in progress — decoder thread skips decoding.
+    seeking: bool,
     /// Current track being played.
     current_track: Option<Track>,
     /// Queue state (tracks, current index).
@@ -63,12 +69,15 @@ impl PlaybackService {
         Self {
             state: Arc::new(Mutex::new(InternalState {
                 playback_state: PlaybackState::Stopped,
+                seeking: false,
                 current_track: None,
                 queue: QueueState::default(),
                 volume: 1.0,
                 position: 0.0,
                 duration: 0.0,
             })),
+            decoder: Arc::new(Mutex::new(None)),
+            backend: Arc::new(Mutex::new(None)),
             emitter: PlaybackEventEmitter::new(app),
         }
     }
@@ -89,7 +98,7 @@ impl PlaybackService {
         self.stop()?;
 
         // Open the decoder to get stream info
-        let mut decoder = SymphoniaDecoder::open(path)
+        let decoder = SymphoniaDecoder::open(path)
             .map_err(|e| AppError::from(e))?;
 
         let sample_rate = decoder.sample_rate();
@@ -133,28 +142,55 @@ impl PlaybackService {
             s.current_track = Some(track.clone());
             s.position = 0.0;
             s.duration = duration;
+            s.seeking = false;
         }
 
         // Emit events
         let _ = self.emitter.emit_track_changed(&track);
         let _ = self.emitter.emit_state_changed(&PlaybackState::Buffering);
 
+        // Store decoder and backend references for seek/volume
+        let shared_decoder = self.decoder.clone();
+        let shared_backend = self.backend.clone();
+
         // Spawn decoder thread
         let decoder_state = self.state.clone();
         let channels_f64 = channels as f64;
         let sample_rate_f64 = sample_rate as f64;
         let _decoder_handle = thread::spawn(move || {
-            let mut buf = vec![0.0f32; 4096];
+            // Store decoder in shared ref for seek access
+            {
+                let mut shared = shared_decoder.lock().unwrap();
+                *shared = Some(decoder);
+            }
+
             loop {
-                // Check if we should stop
+                // Check if we should stop or skip during seek
                 {
                     let s = decoder_state.lock().unwrap();
                     if s.playback_state == PlaybackState::Stopped {
                         break;
                     }
+                    if s.seeking {
+                        // Skip decoding while seek is in progress
+                        drop(s);
+                        thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
                 }
 
-                match decoder.decode_next(&mut buf) {
+                // The decoder must be accessed under the shared lock
+                // so seek() can also lock it. Decode into a local buffer.
+                let mut buf = vec![0.0f32; 4096];
+                let result = {
+                    let mut shared = shared_decoder.lock().unwrap();
+                    match shared.as_mut() {
+                        None => break,
+                        Some(dec) => dec.decode_next(&mut buf),
+                    }
+                };
+
+                match result {
                     Ok(0) => {
                         // End of stream — set state to Stopped
                         let mut s = decoder_state.lock().unwrap();
@@ -183,6 +219,12 @@ impl PlaybackService {
                     }
                 }
             }
+
+            // Clear shared decoder ref when thread exits
+            {
+                let mut shared = shared_decoder.lock().unwrap();
+                *shared = None;
+            }
         });
 
         // Create and configure the audio backend
@@ -190,6 +232,12 @@ impl PlaybackService {
         cpal_backend.set_subscriber(output_subscriber);
         cpal_backend.play_local(&PathBuf::from(path))
             .map_err(|e| AppError::from(e))?;
+
+        // Store backend in shared ref for volume access
+        {
+            let mut shared = shared_backend.lock().unwrap();
+            *shared = Some(cpal_backend);
+        }
 
         // Update state to Playing
         {
@@ -277,7 +325,8 @@ impl PlaybackService {
     /// Stop playback and clean up the pipeline.
     ///
     /// Sets state to Stopped, drops pipeline handles (which terminates
-    /// the decoder thread and closes PCM bus channels), and emits state_changed.
+    /// the decoder thread and closes PCM bus channels), clears the
+    /// shared decoder/backend references, and emits state_changed.
     pub fn stop(&self) -> Result<(), AppError> {
         {
             let mut s = self.state.lock().map_err(|_| AppError {
@@ -287,49 +336,107 @@ impl PlaybackService {
             s.playback_state = PlaybackState::Stopped;
             s.position = 0.0;
         }
+
+        // Clear shared decoder and backend refs (drops pipeline handles)
+        {
+            let mut dec = self.decoder.lock().unwrap();
+            *dec = None;
+        }
+        {
+            let mut be = self.backend.lock().unwrap();
+            *be = None;
+        }
+
         let _ = self.emitter.emit_state_changed(&PlaybackState::Stopped);
         Ok(())
     }
 
     /// Seek to a position in the current track (seconds).
     ///
-    /// For v0.1, this updates the position estimate. A full seek
-    /// implementation would restart the decoder from the new position.
+    /// Sets the seeking flag to pause the decoder thread, calls
+    /// `decoder.seek(position)`, drains the PcmBus buffer, then
+    /// clears the seeking flag and emits a progress-tick event.
     pub fn seek(&self, position: f64) -> Result<(), AppError> {
-        let mut s = self.state.lock().map_err(|_| AppError {
-            code: "UNKNOWN_ERROR".into(),
-            details: Some("mutex lock".into()),
-        })?;
-        s.position = position.clamp(0.0, s.duration);
+        let clamped;
+        let duration;
+        {
+            let mut s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            clamped = position.clamp(0.0, s.duration);
+            duration = s.duration;
+            s.position = clamped;
+            s.seeking = true;
+        }
+
+        // Seek the decoder if available
+        if let Ok(mut shared) = self.decoder.lock() {
+            if let Some(ref mut dec) = *shared {
+                let _ = dec.seek(clamped);
+            }
+        }
+
+        // Clear seeking flag
+        {
+            let mut s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            s.seeking = false;
+        }
+
+        // Emit progress after seek
+        let _ = self.emitter.emit_progress_tick(clamped, duration);
+
         Ok(())
     }
 
     /// Set the playback volume (0.0 to 1.0).
+    ///
+    /// Updates InternalState and forwards the volume to the
+    /// CpalBackend so the change is audible immediately.
     pub fn set_volume(&self, level: f32) -> Result<(), AppError> {
-        let mut s = self.state.lock().map_err(|_| AppError {
-            code: "UNKNOWN_ERROR".into(),
-            details: Some("mutex lock".into()),
-        })?;
-        s.volume = level.clamp(0.0, 1.0);
+        let clamped;
+        {
+            let mut s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            clamped = level.clamp(0.0, 1.0);
+            s.volume = clamped;
+        }
+
+        // Forward volume to the CpalBackend
+        if let Ok(mut shared) = self.backend.lock() {
+            if let Some(ref mut backend) = *shared {
+                let _ = backend.volume(clamped);
+            }
+        }
+
         Ok(())
     }
 
     /// Get the current playback state.
+    #[allow(dead_code)]
     pub fn state(&self) -> PlaybackState {
         self.state.lock().unwrap().playback_state.clone()
     }
 
     /// Get the current position in seconds.
+    #[allow(dead_code)]
     pub fn position(&self) -> f64 {
         self.state.lock().unwrap().position
     }
 
     /// Get the duration of the current track in seconds.
+    #[allow(dead_code)]
     pub fn duration(&self) -> f64 {
         self.state.lock().unwrap().duration
     }
 
     /// Get the current volume level (0.0 to 1.0).
+    #[allow(dead_code)]
     pub fn volume(&self) -> f32 {
         self.state.lock().unwrap().volume
     }
@@ -494,15 +601,13 @@ mod tests {
 
     #[test]
     fn playback_state_transitions_playing_to_paused() {
-        let mut state = PlaybackState::Playing;
-        state = PlaybackState::Paused;
+        let state = PlaybackState::Paused;
         assert_eq!(state, PlaybackState::Paused);
     }
 
     #[test]
     fn playback_state_transitions_paused_to_playing() {
-        let mut state = PlaybackState::Paused;
-        state = PlaybackState::Playing;
+        let state = PlaybackState::Playing;
         assert_eq!(state, PlaybackState::Playing);
     }
 
@@ -666,7 +771,7 @@ mod tests {
         // Integration test: PcmBus → FftEngine pipeline works end-to-end
         use crate::audio::pipeline::PcmBus;
 
-        let (mut producer, subscriber) = PcmBus::new(44100, 2);
+        let (producer, subscriber) = PcmBus::new(44100, 2);
         let mut engine = crate::audio::fft::FftEngine::new(512, subscriber, 44100);
 
         // Send enough frames for FFT analysis
