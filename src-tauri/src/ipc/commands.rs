@@ -21,6 +21,11 @@ pub fn play(state: tauri::State<AppState>, url: &str) -> Result<(), AppError> {
 }
 
 #[tauri::command]
+pub fn play_local(state: tauri::State<AppState>, path: &str) -> Result<(), AppError> {
+    state.playback.play_local(path)
+}
+
+#[tauri::command]
 pub fn pause(state: tauri::State<AppState>) -> Result<(), AppError> {
     state.playback.pause()
 }

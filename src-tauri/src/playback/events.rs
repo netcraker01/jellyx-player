@@ -66,6 +66,23 @@ impl PlaybackEventEmitter {
             .emit(EVENT_FREQUENCY_DATA, data)
             .map_err(|e| IPCError::CommandFailed(e.to_string()))
     }
+
+    /// Clone the emitter for use in another thread.
+    ///
+    /// `AppHandle` is `Clone + Send + Sync`, so this is safe.
+    pub fn clone_sender(&self) -> Self {
+        Self {
+            app: self.app.clone(),
+        }
+    }
+
+    /// Get a reference to the inner AppHandle.
+    ///
+    /// Used by code that needs to create other Tauri-aware components
+    /// (e.g., FftBridge) from a different thread.
+    pub fn app_handle(&self) -> AppHandle {
+        self.app.clone()
+    }
 }
 
 #[cfg(test)]
