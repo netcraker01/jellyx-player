@@ -3,12 +3,14 @@
 //! `CpalBackend` is the desktop audio output implementation.
 //! Mobile platforms will have their own implementations behind the `AudioBackend` trait.
 
-use super::{AudioBackend, AudioError, PlaybackState};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+use super::{AudioBackend, AudioError, PlaybackState};
 
 pub struct CpalBackend {
     state: Arc<Mutex<PlaybackState>>,
-    // TODO: real implementation
+    // TODO: real cpal Stream will be added in Phase 2
 }
 
 impl CpalBackend {
@@ -21,7 +23,12 @@ impl CpalBackend {
 
 impl AudioBackend for CpalBackend {
     fn play(&mut self, _url: &str) -> Result<(), AudioError> {
-        // TODO: implement full pipeline
+        // TODO: implement streaming URL playback (future)
+        Ok(())
+    }
+
+    fn play_local(&mut self, _path: &PathBuf) -> Result<(), AudioError> {
+        // TODO: implement in Phase 2 — will start decoder thread + cpal stream
         Ok(())
     }
 

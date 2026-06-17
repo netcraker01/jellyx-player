@@ -3,13 +3,15 @@
 //! Platform-agnostic audio backend trait.
 //! Desktop uses `cpal + symphonia`. Mobile will use platform backends.
 
-pub mod fft;
 pub mod decoder;
+pub mod fft;
 pub mod output;
 pub mod pipeline;
 
 // Re-export PlaybackState from the playback module — it is the Source of Truth.
 pub use crate::playback::state::PlaybackState;
+
+use std::path::PathBuf;
 
 /// Trait that abstracts the audio backend for cross-platform support.
 ///
@@ -17,7 +19,14 @@ pub use crate::playback::state::PlaybackState;
 /// Android → Oboe backend
 /// iOS → AVAudioEngine backend
 pub trait AudioBackend {
+    /// Play audio from a URL (streaming source).
+    /// Reserved for future use (YouTube, SoundCloud streams).
     fn play(&mut self, url: &str) -> Result<(), AudioError>;
+
+    /// Play a local audio file.
+    /// The primary playback method for v0.1 (local-file pipeline).
+    fn play_local(&mut self, path: &PathBuf) -> Result<(), AudioError>;
+
     fn pause(&mut self) -> Result<(), AudioError>;
     fn resume(&mut self) -> Result<(), AudioError>;
     fn stop(&mut self) -> Result<(), AudioError>;
@@ -34,6 +43,8 @@ pub enum AudioError {
     DeviceError(String),
     UnsupportedFormat,
     PlatformNotSupported,
+    NoAudioDevice(String),
+    DecodeFailed(String),
 }
 
 #[cfg(test)]
@@ -88,5 +99,19 @@ mod tests {
     fn audio_error_platform_not_supported_serializes_snake_case() {
         let json = serde_json::to_string(&AudioError::PlatformNotSupported).unwrap();
         assert_eq!(json, "\"platform_not_supported\"");
+    }
+
+    #[test]
+    fn audio_error_no_audio_device_serializes_snake_case() {
+        let err = AudioError::NoAudioDevice("No output device found".to_string());
+        let json = serde_json::to_string(&err).unwrap();
+        assert!(json.contains("\"no_audio_device\""), "AudioError NoAudioDevice should serialize as snake_case");
+    }
+
+    #[test]
+    fn audio_error_decode_failed_serializes_snake_case() {
+        let err = AudioError::DecodeFailed("codec error".to_string());
+        let json = serde_json::to_string(&err).unwrap();
+        assert!(json.contains("\"decode_failed\""), "AudioError DecodeFailed should serialize as snake_case");
     }
 }

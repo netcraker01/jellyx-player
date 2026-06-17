@@ -29,6 +29,8 @@ pub enum PlaybackError {
     AlreadyStopped,
     QueueEmpty,
     NoCurrentTrack,
+    NoAudioDevice(String),
+    DecodeFailed(String),
 }
 
 /// Library operation errors.
@@ -105,6 +107,14 @@ impl From<AudioError> for AppError {
                 code: "PLAYBACK_ERROR".into(),
                 details: Some("platform not supported".into()),
             },
+            AudioError::NoAudioDevice(msg) => AppError {
+                code: "DEVICE_NOT_FOUND".into(),
+                details: Some(msg),
+            },
+            AudioError::DecodeFailed(msg) => AppError {
+                code: "PLAYBACK_ERROR".into(),
+                details: Some(format!("decode: {}", msg)),
+            },
         }
     }
 }
@@ -123,6 +133,14 @@ impl From<PlaybackError> for AppError {
             PlaybackError::NoCurrentTrack => AppError {
                 code: "PLAYBACK_ERROR".into(),
                 details: Some("no current track".into()),
+            },
+            PlaybackError::NoAudioDevice(msg) => AppError {
+                code: "DEVICE_NOT_FOUND".into(),
+                details: Some(msg),
+            },
+            PlaybackError::DecodeFailed(msg) => AppError {
+                code: "PLAYBACK_ERROR".into(),
+                details: Some(format!("decode: {}", msg)),
             },
         }
     }
@@ -302,5 +320,33 @@ mod tests {
         let err = AppError::from(IPCError::SerializationError("bad json".into()));
         assert_eq!(err.code, "IPC_ERROR");
         assert_eq!(err.details, Some("bad json".to_string()));
+    }
+
+    #[test]
+    fn playback_error_no_audio_device() {
+        let err = AppError::from(PlaybackError::NoAudioDevice("no output".into()));
+        assert_eq!(err.code, "DEVICE_NOT_FOUND");
+        assert_eq!(err.details, Some("no output".to_string()));
+    }
+
+    #[test]
+    fn playback_error_decode_failed() {
+        let err = AppError::from(PlaybackError::DecodeFailed("corrupt header".into()));
+        assert_eq!(err.code, "PLAYBACK_ERROR");
+        assert!(err.details.as_ref().unwrap().contains("decode: corrupt header"));
+    }
+
+    #[test]
+    fn audio_error_no_audio_device() {
+        let err = AppError::from(AudioError::NoAudioDevice("not found".into()));
+        assert_eq!(err.code, "DEVICE_NOT_FOUND");
+        assert_eq!(err.details, Some("not found".to_string()));
+    }
+
+    #[test]
+    fn audio_error_decode_failed() {
+        let err = AppError::from(AudioError::DecodeFailed("codec error".into()));
+        assert_eq!(err.code, "PLAYBACK_ERROR");
+        assert!(err.details.as_ref().unwrap().contains("decode: codec error"));
     }
 }
