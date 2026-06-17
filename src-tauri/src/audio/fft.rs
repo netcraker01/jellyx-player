@@ -13,6 +13,8 @@ pub struct AudioAnalyzer {
     // TODO: circular buffer for real-time data
 }
 
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FrequencyData {
     pub bins: Vec<f32>,
     pub sample_rate: u32,
@@ -53,5 +55,37 @@ impl AudioAnalyzer {
             sample_rate,
             peak,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frequency_data_serializes_camel_case() {
+        let data = FrequencyData {
+            bins: vec![0.1, 0.5, 0.3],
+            sample_rate: 44100,
+            peak: 0.5,
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        assert!(json.contains("\"sampleRate\""), "sample_rate should serialize as camelCase");
+        assert!(json.contains("\"bins\""), "bins should be present");
+        assert!(json.contains("\"peak\""), "peak should be present");
+    }
+
+    #[test]
+    fn frequency_data_all_fields_present() {
+        let data = FrequencyData {
+            bins: vec![1.0, 2.0],
+            sample_rate: 48000,
+            peak: 2.0,
+        };
+        let json = serde_json::to_string(&data).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed.get("bins").is_some(), "bins field must be present");
+        assert!(parsed.get("sampleRate").is_some(), "sampleRate field must be present");
+        assert!(parsed.get("peak").is_some(), "peak field must be present");
     }
 }
