@@ -5,6 +5,6 @@
 
 // Re-export event name constants and PlaybackEventEmitter for convenience.
 pub use crate::playback::events::{
-    PlaybackEventEmitter, EVENT_PROGRESS_TICK, EVENT_QUEUE_UPDATED, EVENT_STATE_CHANGED,
-    EVENT_TRACK_CHANGED,
+    PlaybackEventEmitter, EVENT_FREQUENCY_DATA, EVENT_PROGRESS_TICK, EVENT_QUEUE_UPDATED,
+    EVENT_STATE_CHANGED, EVENT_TRACK_CHANGED,
 };
