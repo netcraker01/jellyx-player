@@ -56,6 +56,9 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::set_volume,
             crate::ipc::commands::search,
             crate::ipc::commands::add_to_queue,
+            crate::ipc::commands::remove_from_queue,
+            crate::ipc::commands::clear_queue,
+            crate::ipc::commands::play_next,
             crate::ipc::commands::get_queue,
             crate::ipc::commands::get_version,
             // Library commands

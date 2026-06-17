@@ -75,6 +75,24 @@ pub fn add_to_queue(state: tauri::State<AppState>, track_id: &str) -> Result<(),
     state.playback.add_to_queue(track_id)
 }
 
+/// Remove a track from the queue by its Helix track ID.
+#[tauri::command]
+pub fn remove_from_queue(state: tauri::State<AppState>, track_id: &str) -> Result<(), AppError> {
+    state.playback.remove_from_queue(track_id)
+}
+
+/// Clear the entire queue and stop playback.
+#[tauri::command]
+pub fn clear_queue(state: tauri::State<AppState>) -> Result<(), AppError> {
+    state.playback.clear_queue()
+}
+
+/// Insert a selected track immediately after the current queue position.
+#[tauri::command]
+pub fn play_next(state: tauri::State<AppState>, track_id: &str) -> Result<(), AppError> {
+    state.playback.play_next(track_id)
+}
+
 /// Get the current queue as a full QueueState snapshot.
 #[tauri::command]
 pub fn get_queue(state: tauri::State<AppState>) -> Result<crate::playback::state::QueueState, AppError> {

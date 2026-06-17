@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { Play, Plus, Heart } from 'lucide-svelte';
+  import { Play, Plus, Heart, PlayCircle } from 'lucide-svelte';
   import { t } from '@i18n';
-  import { playTrack, addToQueueAction } from '@shared/utils/actions';
+  import { playTrack, addToQueueAction, playNextAction } from '@shared/utils/actions';
   import { favorites } from '@features/favorites/stores/favorites';
   import type { Track } from '@shared/types/models';
 
@@ -27,6 +27,10 @@
 
   async function handleAddToQueue(track: Track) {
     await addToQueueAction(track.id);
+  }
+
+  async function handlePlayNext(track: Track) {
+    await playNextAction(track.id);
   }
 
   async function handleAddToFavorites(track: Track) {
@@ -62,10 +66,13 @@
           <span class="track-source">{track.source}</span>
         </div>
         <div class="track-actions">
-          <button class="action-btn" on:click={() => handleAddToQueue(track)} title={$t('search.add_to_queue')}>
+          <button class="action-btn" on:click={() => handlePlayNext(track)} title={$t('search.play_next')} aria-label={$t('search.play_next')}>
+            <PlayCircle size={14} />
+          </button>
+          <button class="action-btn" on:click={() => handleAddToQueue(track)} title={$t('search.add_to_queue')} aria-label={$t('search.add_to_queue')}>
             <Plus size={14} />
           </button>
-          <button class="action-btn fav-btn" on:click={() => handleAddToFavorites(track)} title={$t('search.add_to_favorites')}>
+          <button class="action-btn fav-btn" on:click={() => handleAddToFavorites(track)} title={$t('search.add_to_favorites')} aria-label={$t('search.add_to_favorites')}>
             <Heart size={14} />
           </button>
         </div>

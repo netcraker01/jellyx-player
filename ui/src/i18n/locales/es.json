@@ -31,12 +31,15 @@
     "loading": "Buscando...",
     "no_results": "No se encontraron resultados.",
     "add_to_queue": "Añadir a la cola",
+    "play_next": "Reproducir después",
     "add_to_favorites": "Añadir a favoritos"
   },
   "now_playing": {
     "no_track": "Nada está reproduciéndose",
     "queue_title": "Siguientes",
-    "queue_empty": "La cola está vacía"
+    "queue_empty": "La cola está vacía",
+    "remove_from_queue": "Eliminar de la cola",
+    "clear_queue": "Vaciar cola"
   },
   "library": {
     "favorites": "Favoritos",
@@ -91,6 +94,8 @@
     "favorite_removed": "Eliminado de favoritos",
     "scan_completed": "Escaneo completado: {count} archivos añadidos",
     "track_added_to_queue": "Pista añadida a la cola",
+    "play_next_set": "Pista añadida para reproducir después",
+    "queue_cleared": "Cola vaciada",
     "yt_dlp_missing": "yt-dlp no está instalado. Instálalo para buscar y reproducir desde YouTube."
   }
 }

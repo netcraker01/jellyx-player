@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { Play, Plus, Heart } from 'lucide-svelte';
+  import { Play, Plus, Heart, PlayCircle } from 'lucide-svelte';
   import { favorites } from '@features/favorites/stores/favorites';
-  import { playTrack, addToQueueAction } from '@shared/utils/actions';
+  import { playTrack, addToQueueAction, playNextAction } from '@shared/utils/actions';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import type { Track } from '@shared/types/models';
 
@@ -27,6 +27,10 @@
 
   async function handleAddToQueue(track: Track) {
     await addToQueueAction(track.id);
+  }
+
+  async function handlePlayNext(track: Track) {
+    await playNextAction(track.id);
   }
 
   async function handleAddToFavorites(track: Track) {
@@ -63,6 +67,9 @@
       </div>
       {#if showActions}
         <div class="track-actions">
+          <button class="action-btn" on:click={() => handlePlayNext(entry.track)} title="Play next">
+            <PlayCircle size={14} />
+          </button>
           <button class="action-btn" on:click={() => handleAddToQueue(entry.track)} title="Add to queue">
             <Plus size={14} />
           </button>

@@ -31,12 +31,15 @@
     "loading": "Searching...",
     "no_results": "No results found.",
     "add_to_queue": "Add to Queue",
+    "play_next": "Play Next",
     "add_to_favorites": "Add to Favorites"
   },
   "now_playing": {
     "no_track": "Nothing is playing",
     "queue_title": "Up Next",
-    "queue_empty": "Queue is empty"
+    "queue_empty": "Queue is empty",
+    "remove_from_queue": "Remove from queue",
+    "clear_queue": "Clear queue"
   },
   "library": {
     "favorites": "Favorites",
@@ -91,6 +94,8 @@
     "favorite_removed": "Removed from favorites",
     "scan_completed": "Scan completed: {count} files added",
     "track_added_to_queue": "Track added to queue",
+    "play_next_set": "Track set to play next",
+    "queue_cleared": "Queue cleared",
     "yt_dlp_missing": "yt-dlp is not installed. Please install it to search and play from YouTube."
   }
 }

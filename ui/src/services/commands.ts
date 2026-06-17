@@ -47,6 +47,21 @@ export function addToQueue(trackId: string): Promise<void> {
   return invokeCommand<void>('add_to_queue', { trackId });
 }
 
+/** Remove a track from the queue by its Helix track ID. */
+export function removeFromQueue(trackId: string): Promise<void> {
+  return invokeCommand<void>('remove_from_queue', { trackId });
+}
+
+/** Clear the entire queue and stop playback. */
+export function clearQueue(): Promise<void> {
+  return invokeCommand<void>('clear_queue');
+}
+
+/** Insert a selected track immediately after the current queue position. */
+export function playNext(trackId: string): Promise<void> {
+  return invokeCommand<void>('play_next', { trackId });
+}
+
 export function getQueue(): Promise<QueueState> {
   return invokeCommand<QueueState>('get_queue');
 }

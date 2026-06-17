@@ -1,7 +1,14 @@
 <script lang="ts">
-  import { Play, Shuffle } from 'lucide-svelte';
+  import { Play, Shuffle, Trash2, ListX } from 'lucide-svelte';
   import { t } from '@i18n';
-  import { queue, currentIndex, shuffle, playTrack } from '../stores/player';
+  import {
+    queue,
+    currentIndex,
+    shuffle,
+    playTrack,
+    removeTrack,
+    clearQueue,
+  } from '../stores/player';
   import type { Track } from '@shared/types/models';
 
   function formatDuration(seconds?: number): string {
@@ -23,12 +30,24 @@
   <div class="queue">
     <div class="queue-header">
       <h3 class="queue-title">{$t('now_playing.queue_title')}</h3>
-      {#if $shuffle}
-        <span class="shuffle-badge">
-          <Shuffle size={12} />
-          {$t('player.shuffle')}
-        </span>
-      {/if}
+      <div class="queue-header-actions">
+        {#if $shuffle}
+          <span class="shuffle-badge">
+            <Shuffle size={12} />
+            {$t('player.shuffle')}
+          </span>
+        {/if}
+        {#if $queue.length > 0}
+          <button
+            class="clear-btn"
+            on:click={() => clearQueue()}
+            title={$t('now_playing.clear_queue')}
+            aria-label={$t('now_playing.clear_queue')}
+          >
+            <ListX size={14} />
+          </button>
+        {/if}
+      </div>
     </div>
     {#if $queue.length === 0}
       <p class="queue-empty">{$t('now_playing.queue_empty')}</p>
@@ -51,6 +70,14 @@
               <span class="track-artist">{track.artist}</span>
             </div>
             <span class="track-duration">{formatDuration(track.duration)}</span>
+            <button
+              class="remove-btn"
+              on:click={() => removeTrack(track.id)}
+              title={$t('now_playing.remove_from_queue')}
+              aria-label="Remove {track.title} from queue"
+            >
+              <Trash2 size={14} />
+            </button>
           </li>
         {/each}
       </ul>
@@ -132,6 +159,30 @@
     color: var(--color-accent, #6366f1);
   }
 
+  .queue-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .clear-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #9ca3af);
+    cursor: pointer;
+    padding: 0.2rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, background 0.15s;
+  }
+
+  .clear-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+  }
+
   .track-number {
     display: flex;
     align-items: center;
@@ -172,5 +223,29 @@
     font-size: 0.75rem;
     font-variant-numeric: tabular-nums;
     flex-shrink: 0;
+  }
+
+  .remove-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #9ca3af);
+    cursor: pointer;
+    padding: 0.2rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: color 0.15s, background 0.15s, opacity 0.15s;
+  }
+
+  .queue-item:hover .remove-btn {
+    opacity: 1;
+  }
+
+  .remove-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
   }
 </style>

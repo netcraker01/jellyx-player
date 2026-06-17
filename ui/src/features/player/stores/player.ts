@@ -5,10 +5,11 @@
  * and provides action methods that call Tauri commands.
  * Rust is the Source of Truth — Svelte is a dumb client.
  */
-import { writable, derived } from 'svelte/store';
+import { writable, derived, get } from 'svelte/store';
 import * as events from '@services/events';
 import * as commands from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
+import { t } from '@i18n';
 import { favorites } from '@features/favorites/stores/favorites';
 import type { Track, QueueState, FrequencyData } from '@shared/types/models';
 
@@ -201,5 +202,37 @@ export async function cycleRepeat(): Promise<void> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
+  }
+}
+
+/** Remove a track from the queue by its Helix track ID. */
+export async function removeTrack(trackId: string): Promise<void> {
+  try {
+    await commands.removeFromQueue(trackId);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Queue Error', message: msg, dismissible: true });
+  }
+}
+
+/** Clear the entire queue and stop playback. */
+export async function clearQueue(): Promise<void> {
+  try {
+    await commands.clearQueue();
+    notifications.push({ type: 'info', title: 'Queue', message: get(t)('toasts.queue_cleared'), dismissible: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Queue Error', message: msg, dismissible: true });
+  }
+}
+
+/** Insert a selected track immediately after the current track. */
+export async function playNext(trackId: string): Promise<void> {
+  try {
+    await commands.playNext(trackId);
+    notifications.push({ type: 'info', title: 'Queue', message: get(t)('toasts.play_next_set'), dismissible: true });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Queue Error', message: msg, dismissible: true });
   }
 }

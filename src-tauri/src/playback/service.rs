@@ -512,16 +512,7 @@ impl PlaybackService {
             return Err(ValidationError::InvalidInput("track_id must not be empty".into()).into());
         }
 
-        // Try to resolve from YouTube first, then SoundCloud
-        let track = if let Ok(t) = self.sources.resolve(&crate::models::source::Source::YouTube, track_id) {
-            t
-        } else if let Ok(t) = self.sources.resolve(&crate::models::source::Source::SoundCloud, track_id) {
-            t
-        } else {
-            return Err(crate::errors::types::SourceError::ResolveError(
-                format!("Could not resolve track: {}", track_id)
-            ).into());
-        };
+        let track = self.resolve_track(track_id)?;
 
         let mut queue = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),
@@ -545,6 +536,148 @@ impl PlaybackService {
             details: Some("mutex lock".into()),
         })?;
         Ok(s.queue.clone())
+    }
+
+    /// Remove a track from the queue by ID and emit a full queue snapshot.
+    ///
+    /// If the removed track was the current track, playback stops, the current
+    /// track is cleared, and `current_index` becomes `None`. Removing a track
+    /// before the current index decrements the index by one; removing after it
+    /// leaves the index unchanged. Played indices are rebased to stay valid.
+    pub fn remove_from_queue(&self, track_id: &str) -> Result<(), AppError> {
+        if track_id.trim().is_empty() {
+            return Err(ValidationError::InvalidInput("track_id must not be empty".into()).into());
+        }
+
+        let mut s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+
+        let position = s.queue.tracks.iter().position(|t| t.id == track_id);
+        let removed_index = match position {
+            Some(idx) => idx,
+            None => return Err(PlaybackError::NoCurrentTrack.into()),
+        };
+
+        let was_current = s.queue.current_index == Some(removed_index);
+        let was_before_current = s
+            .queue
+            .current_index
+            .map(|ci| removed_index < ci)
+            .unwrap_or(false);
+
+        s.queue.tracks.remove(removed_index);
+        Self::rebase_played_indices(&mut s.queue.played_indices, removed_index);
+
+        let snapshot;
+        if s.queue.tracks.is_empty() || was_current {
+            s.queue.current_index = None;
+            s.current_track = None;
+            snapshot = s.queue.clone();
+            drop(s);
+            if was_current {
+                self.stop()?;
+            }
+        } else {
+            if was_before_current {
+                s.queue.current_index = s.queue.current_index.map(|ci| ci.saturating_sub(1));
+            }
+            snapshot = s.queue.clone();
+            drop(s);
+        }
+
+        let _ = self.emitter.emit_queue_updated(&snapshot);
+        Ok(())
+    }
+
+    /// Clear the entire queue, stop playback, and emit an empty snapshot.
+    pub fn clear_queue(&self) -> Result<(), AppError> {
+        let mut s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+
+        s.queue.tracks.clear();
+        s.queue.current_index = None;
+        s.queue.played_indices.clear();
+        s.current_track = None;
+
+        let snapshot = s.queue.clone();
+        drop(s);
+
+        let _ = self.stop();
+        let _ = self.emitter.emit_queue_updated(&snapshot);
+        Ok(())
+    }
+
+    /// Insert a selected track immediately after the current queue position.
+    ///
+    /// The inserted track becomes the new current track (index = old current + 1).
+    /// If no current index exists but the queue has tracks, the track is appended.
+    /// Sequential play-next requests keep the newest choice next-up: a previous
+    /// play-next insertion at `current_index + 1` is replaced by the new one.
+    pub fn play_next(&self, track_id: &str) -> Result<(), AppError> {
+        if track_id.trim().is_empty() {
+            return Err(ValidationError::InvalidInput("track_id must not be empty".into()).into());
+        }
+
+        let track = self.resolve_track(track_id)?;
+
+        let mut s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+
+        let insert_index = match s.queue.current_index {
+            Some(ci) => {
+                let target = ci + 1;
+                // Replace any prior play-next insertion at the target slot so
+                // the newest choice is always next-up.
+                if target < s.queue.tracks.len() && s.queue.tracks[target].id.starts_with("__play_next__") {
+                    s.queue.tracks.remove(target);
+                    Self::rebase_played_indices(&mut s.queue.played_indices, target);
+                }
+                target.min(s.queue.tracks.len())
+            }
+            None => s.queue.tracks.len(),
+        };
+
+        s.queue.tracks.insert(insert_index, track);
+        s.queue.current_index = Some(insert_index);
+
+        let snapshot = s.queue.clone();
+        drop(s);
+        let _ = self.emitter.emit_queue_updated(&snapshot);
+        Ok(())
+    }
+
+    /// Rebase played indices after a queue item at `removed_index` is removed.
+    ///
+    /// Removes any played entry equal to `removed_index` and shifts higher
+    /// indices down by one. This keeps shuffle history valid after mutations.
+    fn rebase_played_indices(played_indices: &mut Vec<usize>, removed_index: usize) {
+        played_indices.retain(|&i| i != removed_index);
+        for i in played_indices.iter_mut() {
+            if *i > removed_index {
+                *i -= 1;
+            }
+        }
+    }
+
+    /// Resolve a track ID from the source registry (YouTube, then SoundCloud).
+    ///
+    /// Shared helper used by add_to_queue and play_next.
+    fn resolve_track(&self, track_id: &str) -> Result<Track, AppError> {
+        if let Ok(t) = self.sources.resolve(&crate::models::source::Source::YouTube, track_id) {
+            Ok(t)
+        } else if let Ok(t) = self.sources.resolve(&crate::models::source::Source::SoundCloud, track_id) {
+            Ok(t)
+        } else {
+            Err(crate::errors::types::SourceError::ResolveError(
+                format!("Could not resolve track: {}", track_id)
+            ).into())
+        }
     }
 
     /// Look up a track by Helix ID in the current queue or source registry.
@@ -735,8 +868,10 @@ impl PlaybackService {
 
         s.queue.current_index = Some(next_index);
         let track = s.queue.tracks[next_index].clone();
+        let snapshot = s.queue.clone();
         drop(s);
 
+        let _ = self.emitter.emit_queue_updated(&snapshot);
         let _ = self.emitter.emit_track_changed(&track);
         let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
 
@@ -785,8 +920,10 @@ impl PlaybackService {
 
         s.queue.current_index = Some(previous_index);
         let track = s.queue.tracks[previous_index].clone();
+        let snapshot = s.queue.clone();
         drop(s);
 
+        let _ = self.emitter.emit_queue_updated(&snapshot);
         let _ = self.emitter.emit_track_changed(&track);
         let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
 
@@ -1075,9 +1212,23 @@ mod tests {
         assert!(next.is_none());
     }
 
-fn sample_track_for_tests(id: &str) -> Track {
+    #[test]
+    fn rebase_played_indices_drops_removed_and_shifts_higher() {
+        let mut played = vec![0, 2, 3, 5];
+        PlaybackService::rebase_played_indices(&mut played, 2);
+        assert_eq!(played, vec![0, 2, 4]);
+    }
+
+    #[test]
+    fn rebase_played_indices_handles_empty_vec() {
+        let mut played: Vec<usize> = vec![];
+        PlaybackService::rebase_played_indices(&mut played, 0);
+        assert!(played.is_empty());
+    }
+
+fn sample_track_for_tests_with_id_prefix(id: &str, prefix: &str) -> Track {
     Track {
-        id: id.to_string(),
+        id: format!("{}{}", prefix, id),
         source: crate::models::source::Source::Local,
         source_id: format!("local-{}", id),
         title: format!("Song {}", id),
@@ -1089,6 +1240,10 @@ fn sample_track_for_tests(id: &str) -> Track {
         local_path: Some(format!("/music/{}.mp3", id)),
         metadata: std::collections::HashMap::new(),
     }
+}
+
+fn sample_track_for_tests(id: &str) -> Track {
+    sample_track_for_tests_with_id_prefix(id, "")
 }
 
 #[test]
@@ -1120,6 +1275,175 @@ fn internal_state_default_values() {
 
         let volume: f32 = 0.7_f32.clamp(0.0, 1.0);
         assert!((volume - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn remove_from_queue_before_current_decrements_index() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests("t1"),
+                sample_track_for_tests("t2"),
+            ],
+            current_index: Some(2),
+            shuffle: false,
+            played_indices: vec![0, 2],
+            repeat_mode: RepeatMode::Off,
+        };
+
+        let removed = queue.tracks[0].id.clone();
+        let removed_index = 0usize;
+        queue.tracks.remove(removed_index);
+        PlaybackService::rebase_played_indices(&mut queue.played_indices, removed_index);
+        queue.current_index = queue.current_index.map(|ci| ci.saturating_sub(1));
+
+        assert_eq!(queue.tracks.len(), 2);
+        assert_eq!(queue.current_index, Some(1));
+        assert_eq!(queue.played_indices, vec![1]);
+        assert!(!queue.tracks.iter().any(|t| t.id == removed));
+    }
+
+    #[test]
+    fn remove_from_queue_current_clears_index() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests("t1"),
+                sample_track_for_tests("t2"),
+            ],
+            current_index: Some(1),
+            shuffle: false,
+            played_indices: vec![0, 1],
+            repeat_mode: RepeatMode::Off,
+        };
+
+        let removed_index = 1usize;
+        queue.tracks.remove(removed_index);
+        PlaybackService::rebase_played_indices(&mut queue.played_indices, removed_index);
+        queue.current_index = None;
+
+        assert_eq!(queue.tracks.len(), 2);
+        assert_eq!(queue.current_index, None);
+        assert_eq!(queue.played_indices, vec![0]);
+    }
+
+    #[test]
+    fn remove_from_queue_after_current_keeps_index() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests("t1"),
+                sample_track_for_tests("t2"),
+            ],
+            current_index: Some(0),
+            shuffle: false,
+            played_indices: vec![0],
+            repeat_mode: RepeatMode::Off,
+        };
+
+        let removed_index = 2usize;
+        queue.tracks.remove(removed_index);
+        PlaybackService::rebase_played_indices(&mut queue.played_indices, removed_index);
+
+        assert_eq!(queue.tracks.len(), 2);
+        assert_eq!(queue.current_index, Some(0));
+        assert_eq!(queue.played_indices, vec![0]);
+    }
+
+    #[test]
+    fn clear_queue_resets_everything() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests("t1"),
+            ],
+            current_index: Some(0),
+            shuffle: true,
+            played_indices: vec![0],
+            repeat_mode: RepeatMode::All,
+        };
+
+        queue.tracks.clear();
+        queue.current_index = None;
+        queue.played_indices.clear();
+
+        assert!(queue.tracks.is_empty());
+        assert!(queue.current_index.is_none());
+        assert!(queue.played_indices.is_empty());
+    }
+
+    #[test]
+    fn play_next_inserts_after_current_index() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests("t2"),
+            ],
+            current_index: Some(0),
+            shuffle: false,
+            played_indices: vec![0],
+            repeat_mode: RepeatMode::Off,
+        };
+
+        let new_track = sample_track_for_tests_with_id_prefix("t1", "__play_next__");
+        let insert_index = 1usize;
+        queue.tracks.insert(insert_index, new_track);
+        queue.current_index = Some(insert_index);
+
+        assert_eq!(queue.tracks.len(), 3);
+        assert_eq!(queue.current_index, Some(1));
+        assert_eq!(queue.tracks[1].id, "__play_next__t1");
+    }
+
+    #[test]
+    fn play_next_sequential_requests_replace_previous_insertion() {
+        let mut queue = QueueState {
+            tracks: vec![
+                sample_track_for_tests("t0"),
+                sample_track_for_tests_with_id_prefix("old", "__play_next__"),
+                sample_track_for_tests("t2"),
+            ],
+            current_index: Some(1),
+            shuffle: false,
+            played_indices: vec![0, 1],
+            repeat_mode: RepeatMode::Off,
+        };
+
+        // Current is the previous play-next insertion at index 1; old current
+        // track is at index 0. A new play-next should land at index 1 and
+        // replace the prior insertion.
+        let prior_index = 1usize;
+        if queue.tracks[prior_index].id.starts_with("__play_next__") {
+            queue.tracks.remove(prior_index);
+            PlaybackService::rebase_played_indices(&mut queue.played_indices, prior_index);
+        }
+        let insert_index = 1usize.min(queue.tracks.len());
+        let new_track = sample_track_for_tests_with_id_prefix("new", "__play_next__");
+        queue.tracks.insert(insert_index, new_track);
+        queue.current_index = Some(insert_index);
+
+        assert_eq!(queue.tracks.len(), 3);
+        assert_eq!(queue.current_index, Some(1));
+        assert_eq!(queue.tracks[1].id, "__play_next__new");
+        assert!(!queue.tracks.iter().any(|t| t.id == "__play_next__old"));
+    }
+
+    #[test]
+    fn queue_state_snapshot_includes_all_fields() {
+        let queue = QueueState {
+            tracks: vec![sample_track_for_tests("t0")],
+            current_index: Some(0),
+            shuffle: false,
+            played_indices: vec![0],
+            repeat_mode: RepeatMode::All,
+        };
+
+        let json = serde_json::to_string(&queue).unwrap();
+        assert!(json.contains("\"tracks\""));
+        assert!(json.contains("\"currentIndex\""));
+        assert!(json.contains("\"shuffle\""));
+        assert!(json.contains("\"playedIndices\""));
+        assert!(json.contains("\"repeatMode\""));
     }
 
     #[test]
