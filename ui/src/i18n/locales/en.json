@@ -14,6 +14,23 @@
     "queue": "Queue",
     "no_track": "No track selected"
   },
+  "home": {
+    "recently_played": "Recently Played",
+    "empty": "No listening history yet.",
+    "go_search": "Search for music to get started"
+  },
+  "search": {
+    "placeholder": "Search for songs, artists, albums...",
+    "loading": "Searching...",
+    "no_results": "No results found.",
+    "add_to_queue": "Add to Queue",
+    "add_to_favorites": "Add to Favorites"
+  },
+  "now_playing": {
+    "no_track": "Nothing is playing",
+    "queue_title": "Up Next",
+    "queue_empty": "Queue is empty"
+  },
   "library": {
     "favorites": "Favorites",
     "playlists": "Playlists",
@@ -59,6 +76,7 @@
     "save": "Save",
     "delete": "Delete",
     "close": "Close",
-    "search": "Search"
+    "search": "Search",
+    "play": "Play"
   }
 }
