@@ -11,6 +11,7 @@ use crate::ipc::commands::AppState;
 use crate::library::LibraryService;
 use crate::persistence::db::Database;
 use crate::playback::service::PlaybackService;
+use crate::shared::utils::ensure_art_cache_dir;
 use crate::sources::local::ScannerService;
 
 /// Build and configure the Tauri application.
@@ -21,6 +22,9 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Ensure art cache directory exists before any scanning
+            ensure_art_cache_dir();
+
             // Initialize SQLite database at XDG data dir
             let db_path = database_path();
             let db = Arc::new(Database::open(&db_path).expect("failed to initialize database"));

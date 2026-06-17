@@ -13,11 +13,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
+use sha2::{Sha256, Digest};
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::io::MediaSourceStream;
-use symphonia::core::meta::MetadataOptions;
-use symphonia::core::meta::StandardTag;
+use symphonia::core::meta::{MetadataOptions, StandardTag, StandardVisualKey, Visual};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -26,6 +26,7 @@ use crate::models::source::Source;
 use crate::models::track::Track;
 use crate::persistence::db::Database;
 use crate::persistence::models::{LocalTrackEntry, WatchedFolder};
+use crate::shared::utils::art_cache_dir;
 
 /// Supported audio file extensions for scanning.
 const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "ogg", "wav", "aac", "m4a"];
@@ -74,6 +75,8 @@ impl ScannerService {
     ///
     /// Returns a Track with tags populated from the file's metadata.
     /// Falls back to filename-based metadata when tags are unavailable.
+    /// Consumes ALL metadata revisions via `pop()` loop to collect tags
+    /// and extract embedded album art (FrontCover visual).
     fn extract_metadata(path: &Path) -> Result<Track, ScannerError> {
         let file = File::open(path).map_err(|e| {
             ScannerError::MetadataError(format!("failed to open file {:?}: {}", path, e))
@@ -100,26 +103,47 @@ impl ScannerService {
         let mut artist: Option<String> = None;
         let mut album: Option<String> = None;
         let mut duration: Option<f64> = None;
+        let mut thumbnail: Option<String> = None;
 
-        // Extract metadata from tags
-        let metadata = format_reader.metadata();
-        if let Some(revision) = metadata.current() {
-            for tag in &revision.media.tags {
-                if let Some(ref std_tag) = tag.std {
-                    match std_tag {
-                        StandardTag::TrackTitle(t) => {
-                            title = Some(t.to_string());
+        // Consume ALL metadata revisions via pop() loop.
+        // `current()` returns only the oldest revision; many files (e.g. FLAC
+        // with ID3v2 + VorbisComment) store tags and art in newer revisions.
+        // We iterate every revision, merging tags (later overwrites earlier)
+        // and collecting the first FrontCover visual found.
+        let mut metadata = format_reader.metadata();
+        loop {
+            if let Some(revision) = metadata.current() {
+                for tag in &revision.media.tags {
+                    if let Some(ref std_tag) = tag.std {
+                        match std_tag {
+                            StandardTag::TrackTitle(t) => {
+                                title = Some(t.to_string());
+                            }
+                            StandardTag::Album(a) => {
+                                album = Some(a.to_string());
+                            }
+                            StandardTag::Artist(a) => {
+                                artist = Some(a.to_string());
+                            }
+                            _ => {}
                         }
-                        StandardTag::Album(a) => {
-                            album = Some(a.to_string());
+                    }
+                }
+
+                // Extract FrontCover visual if not already found
+                if thumbnail.is_none() {
+                    if let Some((data, media_type)) = extract_visual(&revision.media.visuals) {
+                        if let Ok(cache_path) = cache_art(data, media_type) {
+                            thumbnail = Some(cache_path.to_string_lossy().to_string());
                         }
-                        StandardTag::Artist(a) => {
-                            artist = Some(a.to_string());
-                        }
-                        _ => {}
                     }
                 }
             }
+
+            if metadata.is_latest() {
+                break;
+            }
+            metadata.pop();
         }
 
         // Extract duration from track info
@@ -155,7 +179,7 @@ impl ScannerService {
             artist: final_artist,
             album: final_album,
             duration,
-            thumbnail: None,
+            thumbnail,
             stream_url: None,
             local_path: Some(path_str.clone()),
             metadata: HashMap::new(),
@@ -291,6 +315,59 @@ impl ScannerService {
     }
 }
 
+/// Derive a file extension from a visual's media type.
+///
+/// - `image/jpeg` or `image/jpg` → `"jpg"`
+/// - `image/png` → `"png"`
+/// - Anything else (including `None`) → `"bin"`
+fn media_type_to_ext(media_type: &Option<String>) -> &'static str {
+    match media_type.as_deref() {
+        Some("image/jpeg") | Some("image/jpg") => "jpg",
+        Some("image/png") => "png",
+        _ => "bin",
+    }
+}
+
+/// Find the first `FrontCover` visual in a list of visuals.
+///
+/// Returns a reference to the visual's data bytes and media type,
+/// or `None` if no FrontCover is found.
+fn extract_visual(visuals: &[Visual]) -> Option<(&Box<[u8]>, &Option<String>)> {
+    visuals.iter()
+        .find(|v| v.usage == Some(StandardVisualKey::FrontCover))
+        .map(|v| (&v.data, &v.media_type))
+}
+
+/// Write art bytes to the filesystem cache keyed by SHA-256 content hash.
+///
+/// The file is written to `~/.local/share/helix/art/{sha256_hash}.{ext}`.
+/// If a file with the same hash already exists, it is NOT overwritten (dedup).
+/// Returns the cache file path on success.
+fn cache_art(data: &[u8], media_type: &Option<String>) -> Result<std::path::PathBuf, ScannerError> {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let hash = hasher.finalize();
+    let hash_hex = format!("{:x}", hash);
+
+    let ext = media_type_to_ext(media_type);
+    let file_name = format!("{}.{}", hash_hex, ext);
+    let cache_path = art_cache_dir().join(&file_name);
+
+    // Skip write if file already exists (same content hash = dedup)
+    if cache_path.exists() {
+        return Ok(cache_path);
+    }
+
+    std::fs::write(&cache_path, data).map_err(|e| {
+        ScannerError::MetadataError(format!(
+            "failed to write art cache file {:?}: {}",
+            cache_path, e
+        ))
+    })?;
+
+    Ok(cache_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -377,5 +454,127 @@ mod tests {
         let service = ScannerService::new(Arc::new(db));
         let folders = service.get_watched_folders().unwrap();
         assert!(folders.is_empty());
+    }
+
+    // ── Album art extraction unit tests ────────────────────────────────
+
+    #[test]
+    fn media_type_to_ext_jpeg() {
+        assert_eq!(media_type_to_ext(&Some("image/jpeg".to_string())), "jpg");
+    }
+
+    #[test]
+    fn media_type_to_ext_jpg_alias() {
+        assert_eq!(media_type_to_ext(&Some("image/jpg".to_string())), "jpg");
+    }
+
+    #[test]
+    fn media_type_to_ext_png() {
+        assert_eq!(media_type_to_ext(&Some("image/png".to_string())), "png");
+    }
+
+    #[test]
+    fn media_type_to_ext_unknown_falls_back_to_bin() {
+        assert_eq!(media_type_to_ext(&Some("image/webp".to_string())), "bin");
+    }
+
+    #[test]
+    fn media_type_to_ext_none_falls_back_to_bin() {
+        assert_eq!(media_type_to_ext(&None), "bin");
+    }
+
+    #[test]
+    fn extract_visual_finds_front_cover() {
+        let visuals = vec![
+            Visual {
+                usage: Some(StandardVisualKey::BackCover),
+                media_type: Some("image/jpeg".to_string()),
+                data: Box::new([0xAA]),
+                dimensions: None,
+                color_mode: None,
+                tags: vec![],
+            },
+            Visual {
+                usage: Some(StandardVisualKey::FrontCover),
+                media_type: Some("image/jpeg".to_string()),
+                data: Box::new([0xFF, 0xD8, 0xFF]),
+                dimensions: None,
+                color_mode: None,
+                tags: vec![],
+            },
+        ];
+        let result = extract_visual(&visuals);
+        assert!(result.is_some());
+        let (data, media_type) = result.unwrap();
+        assert_eq!(&**data, &[0xFF, 0xD8, 0xFF]);
+        assert_eq!(media_type.as_deref(), Some("image/jpeg"));
+    }
+
+    #[test]
+    fn extract_visual_returns_none_when_no_front_cover() {
+        let visuals = vec![
+            Visual {
+                usage: Some(StandardVisualKey::BackCover),
+                media_type: Some("image/jpeg".to_string()),
+                data: Box::new([0xAA]),
+                dimensions: None,
+                color_mode: None,
+                tags: vec![],
+            },
+        ];
+        let result = extract_visual(&visuals);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn extract_visual_returns_none_for_empty_visuals() {
+        let visuals: Vec<Visual> = vec![];
+        let result = extract_visual(&visuals);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn cache_art_writes_file_and_returns_path() {
+        // Use a temp directory as the art cache dir
+        let temp_dir = std::env::temp_dir().join("helix_test_cache_art");
+        std::fs::create_dir_all(&temp_dir).unwrap();
+
+        // We can't easily override art_cache_dir() in tests, so we test
+        // by calling cache_art which uses the real art_cache_dir().
+        // Ensure the directory exists.
+        crate::shared::utils::ensure_art_cache_dir();
+
+        let data: &[u8] = b"test art data for cache";
+        let media_type = Some("image/jpeg".to_string());
+        let result = cache_art(data, &media_type);
+        assert!(result.is_ok());
+
+        let path = result.unwrap();
+        assert!(path.exists());
+        assert!(path.to_string_lossy().ends_with(".jpg"));
+
+        // Verify file contents match
+        let file_data = std::fs::read(&path).unwrap();
+        assert_eq!(file_data.as_slice(), data);
+
+        // Clean up
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn cache_art_dedup_same_hash_skips_overwrite() {
+        crate::shared::utils::ensure_art_cache_dir();
+
+        let data: &[u8] = b"dedup test data";
+        let media_type = Some("image/png".to_string());
+
+        let path1 = cache_art(data, &media_type).unwrap();
+        let path2 = cache_art(data, &media_type).unwrap();
+
+        assert_eq!(path1, path2, "same content hash should return same path");
+        assert!(path1.exists());
+
+        // Clean up
+        std::fs::remove_file(&path1).ok();
     }
 }

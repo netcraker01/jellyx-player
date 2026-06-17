@@ -2,6 +2,7 @@
   import { Play, Plus, Heart } from 'lucide-svelte';
   import { favorites } from '@features/favorites/stores/favorites';
   import { playTrack, addToQueueAction } from '@shared/utils/actions';
+  import { albumArtUrl } from '@shared/utils/assetUrl';
   import type { Track } from '@shared/types/models';
 
   export let tracks: { track: Track }[] = [];
@@ -42,6 +43,11 @@
       <button class="play-btn" on:click={() => handlePlay(entry.track)} aria-label="Play {entry.track.title}">
         <Play size={14} />
       </button>
+      {#if albumArtUrl(entry.track.thumbnail)}
+        <img class="track-thumb" src={albumArtUrl(entry.track.thumbnail)} alt="" />
+      {:else}
+        <div class="track-thumb-placeholder"></div>
+      {/if}
       <div class="track-info">
         <span class="track-title">{entry.track.title}</span>
         <span class="track-artist">{entry.track.artist}</span>
@@ -109,6 +115,22 @@
 
   .play-btn:hover {
     color: var(--color-accent, #6366f1);
+  }
+
+  .track-thumb {
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    object-fit: cover;
+    flex-shrink: 0;
+  }
+
+  .track-thumb-placeholder {
+    width: 36px;
+    height: 36px;
+    border-radius: 4px;
+    background: var(--bg-elevated, #1f2937);
+    flex-shrink: 0;
   }
 
   .track-info {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { t } from '@i18n';
+  import { albumArtUrl } from '@shared/utils/assetUrl';
   import type { Track } from '@shared/types/models';
 
   export let track: Track | null = null;
@@ -9,7 +10,7 @@
   {#if track}
     <div class="info-layout">
       {#if track.thumbnail}
-        <img class="album-art" src={track.thumbnail} alt={track.title} />
+        <img class="album-art" src={albumArtUrl(track.thumbnail)} alt={track.title} />
       {:else}
         <div class="album-art-placeholder"></div>
       {/if}
