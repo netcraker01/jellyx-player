@@ -40,3 +40,14 @@ export interface Album {
   sourceId: string;
   tracks: string[];
 }
+
+/**
+ * Frequency data payload from the Rust FFT engine.
+ * Matches the Rust `FrequencyData` struct with `serde(rename_all = "camelCase")`.
+ * Event: "frequency-data"
+ */
+export interface FrequencyData {
+  bins: number[];      // f32 array from FFT, length = fft_size/2
+  sampleRate: number;   // u32, matches Rust serde camelCase
+  peak: number;         // f32, max bin value for amplitude reference
+}

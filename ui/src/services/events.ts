@@ -6,7 +6,7 @@
  */
 
 import { subscribeEvent } from './tauri';
-import type { Track } from '@shared/types/models';
+import type { Track, FrequencyData } from '@shared/types/models';
 
 type UnlistenFn = () => void;
 
@@ -30,4 +30,9 @@ export function onQueueUpdated(cb: (queue: Track[]) => void): Promise<UnlistenFn
 
 export function onProgressTick(cb: (progress: ProgressTick) => void): Promise<UnlistenFn> {
   return subscribeEvent<ProgressTick>('progress-tick', cb);
+}
+
+/** Subscribe to frequency data events from the Rust FFT engine. */
+export function onFrequencyData(cb: (data: FrequencyData) => void): Promise<UnlistenFn> {
+  return subscribeEvent<FrequencyData>('frequency-data', cb);
 }
