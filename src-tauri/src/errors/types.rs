@@ -22,6 +22,7 @@ pub enum SourceError {
     #[allow(dead_code)]
     ResolveError(String),
     UnsupportedSource,
+    DependencyMissing(String),
 }
 
 /// Playback state errors.
@@ -92,6 +93,10 @@ impl From<SourceError> for AppError {
             SourceError::UnsupportedSource => AppError {
                 code: "UNKNOWN_ERROR".into(),
                 details: None,
+            },
+            SourceError::DependencyMissing(msg) => AppError {
+                code: "DEPENDENCY_MISSING".into(),
+                details: Some(msg),
             },
         }
     }
@@ -238,6 +243,13 @@ mod tests {
         let err = AppError::from(SourceError::UnsupportedSource);
         assert_eq!(err.code, "UNKNOWN_ERROR");
         assert!(err.details.is_none());
+    }
+
+    #[test]
+    fn source_error_dependency_missing_maps_to_code() {
+        let err = AppError::from(SourceError::DependencyMissing("yt-dlp".into()));
+        assert_eq!(err.code, "DEPENDENCY_MISSING");
+        assert_eq!(err.details, Some("yt-dlp".to_string()));
     }
 
     #[test]

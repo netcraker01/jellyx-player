@@ -20,7 +20,9 @@ use crate::errors::types::{AppError, PlaybackError, ValidationError};
 use crate::models::track::Track;
 use crate::playback::events::PlaybackEventEmitter;
 use crate::playback::state::QueueState;
-use crate::sources::SourceResolver;
+use crate::sources::soundcloud::SoundCloudResolver;
+use crate::sources::youtube::YouTubeResolver;
+use crate::sources::SourceRegistry;
 use crate::visualizer::fft_bridge::FftBridge;
 
 /// How often (in ms) progress-tick events are emitted during playback.
@@ -39,6 +41,8 @@ pub struct PlaybackService {
     backend: Arc<Mutex<Option<CpalBackend>>>,
     /// Event emitter for Tauri frontend notifications.
     emitter: PlaybackEventEmitter,
+    /// Registry of source resolvers (YouTube, SoundCloud, etc.).
+    sources: SourceRegistry,
 }
 
 /// Internal state protected by the Mutex.
@@ -66,6 +70,10 @@ impl PlaybackService {
     /// The actual audio backend (CpalBackend) is created internally
     /// when `play_local()` is called, not at construction time.
     pub fn new(app: tauri::AppHandle) -> Self {
+        let mut sources = SourceRegistry::new();
+        sources.register(Box::new(YouTubeResolver::new()));
+        sources.register(Box::new(SoundCloudResolver::new()));
+
         Self {
             state: Arc::new(Mutex::new(InternalState {
                 playback_state: PlaybackState::Stopped,
@@ -79,6 +87,7 @@ impl PlaybackService {
             decoder: Arc::new(Mutex::new(None)),
             backend: Arc::new(Mutex::new(None)),
             emitter: PlaybackEventEmitter::new(app),
+            sources,
         }
     }
 
@@ -441,23 +450,38 @@ impl PlaybackService {
         self.state.lock().unwrap().volume
     }
 
-    /// Search for tracks. Currently hardcodes YouTubeResolver for v0.1.
+    /// Search for tracks across all registered sources (YouTube, SoundCloud, etc.).
+    ///
+    /// Queries each source resolver registered in the SourceRegistry.
+    /// If a resolver fails (e.g., yt-dlp not installed), it is skipped
+    /// and results from other sources are still returned.
     pub fn search(&self, query: &str) -> Result<Vec<Track>, AppError> {
         if query.trim().is_empty() {
             return Err(ValidationError::EmptyQuery.into());
         }
-        let resolver = crate::sources::youtube::YouTubeResolver::new();
-        resolver.search(query).map_err(Into::into)
+        Ok(self.sources.search_all(query))
     }
 
-    /// Add a track to the queue by ID. Emits queue_updated.
+    /// Add a track to the queue by resolving it from the appropriate source.
+    ///
+    /// The track_id can be a YouTube video ID or SoundCloud URL/ID.
+    /// The registry tries each resolver to find the matching track.
+    /// Emits queue_updated.
     pub fn add_to_queue(&self, track_id: &str) -> Result<(), AppError> {
         if track_id.trim().is_empty() {
             return Err(ValidationError::InvalidInput("track_id must not be empty".into()).into());
         }
 
-        let resolver = crate::sources::youtube::YouTubeResolver::new();
-        let track = resolver.resolve(track_id)?;
+        // Try to resolve from YouTube first, then SoundCloud
+        let track = if let Ok(t) = self.sources.resolve(&crate::models::source::Source::YouTube, track_id) {
+            t
+        } else if let Ok(t) = self.sources.resolve(&crate::models::source::Source::SoundCloud, track_id) {
+            t
+        } else {
+            return Err(crate::errors::types::SourceError::ResolveError(
+                format!("Could not resolve track: {}", track_id)
+            ).into());
+        };
 
         let mut queue = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),

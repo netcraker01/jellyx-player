@@ -26,3 +26,4 @@ symphonia-codec-aac = "0.6"
 cpal = "0.15"
 crossbeam-channel = "0.5"
 rustfft = "6"
+uuid = { version = "1", features = ["v4"] }
