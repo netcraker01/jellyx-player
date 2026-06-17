@@ -5,6 +5,7 @@
 
 pub mod fft_bridge;
 
+#[allow(dead_code)]
 pub enum VisualizerMode {
     Spectrum,    // Classic bars
     Oscilloscope, // Waveform
@@ -12,6 +13,7 @@ pub enum VisualizerMode {
     Shader(String), // Custom GLSL shader
 }
 
+#[allow(dead_code)]
 pub struct VisualizerConfig {
     pub mode: VisualizerMode,
     pub bar_count: usize,
@@ -20,6 +22,7 @@ pub struct VisualizerConfig {
     pub fps: u32,
 }
 
+#[allow(dead_code)]
 pub struct ColorScheme {
     pub primary: [f32; 4],
     pub secondary: [f32; 4],

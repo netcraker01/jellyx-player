@@ -33,6 +33,7 @@ pub struct FftEngine {
 ///
 /// Used for one-shot analysis when you already have PCM samples.
 /// For real-time streaming, use `FftEngine` instead.
+#[allow(dead_code)]
 pub struct AudioAnalyzer {
     fft_size: usize,
     planner: FftPlanner<f64>,
@@ -101,6 +102,7 @@ impl FftEngine {
     ///
     /// Pads with zeros if fewer than fft_size samples are available.
     /// Useful for getting a partial spectrum on demand.
+    #[allow(dead_code)]
     pub fn analyze_partial(&mut self) -> FrequencyData {
         let available = self.buffer.len().min(self.fft_size);
         let samples: Vec<f32> = self.buffer.drain(..available).collect();
@@ -109,11 +111,13 @@ impl FftEngine {
     }
 
     /// Get the current buffer length (number of PCM samples pending analysis).
+    #[allow(dead_code)]
     pub fn buffer_len(&self) -> usize {
         self.buffer.len()
     }
 
     /// Get the sample rate.
+    #[allow(dead_code)]
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
@@ -155,6 +159,7 @@ fn compute_fft(
 }
 
 impl AudioAnalyzer {
+    #[allow(dead_code)]
     pub fn new(fft_size: usize) -> Self {
         Self {
             fft_size,
@@ -163,6 +168,7 @@ impl AudioAnalyzer {
     }
 
     /// Convert PCM samples to frequency spectrum bins (one-shot analysis).
+    #[allow(dead_code)]
     pub fn analyze(&mut self, samples: &[f32], sample_rate: u32) -> FrequencyData {
         compute_fft(samples, self.fft_size, &mut self.planner, sample_rate)
     }
@@ -203,7 +209,7 @@ mod tests {
     #[test]
     fn fft_engine_collects_frames_from_bus() {
         // Create a PcmBus and a subscriber
-        let (mut producer, subscriber) = PcmBus::new(44100, 2);
+        let (producer, subscriber) = PcmBus::new(44100, 2);
         let mut engine = FftEngine::new(256, subscriber, 44100);
 
         // Send some frames through the bus
@@ -219,7 +225,7 @@ mod tests {
 
     #[test]
     fn fft_engine_analyze_if_ready_when_enough_samples() {
-        let (mut producer, subscriber) = PcmBus::new(44100, 2);
+        let (producer, subscriber) = PcmBus::new(44100, 2);
         let mut engine = FftEngine::new(256, subscriber, 44100);
 
         // Send enough samples for one FFT window
@@ -262,7 +268,7 @@ mod tests {
 
     #[test]
     fn fft_engine_buffer_drops_oldest_when_over_capacity() {
-        let (mut producer, subscriber) = PcmBus::new(44100, 2);
+        let (producer, subscriber) = PcmBus::new(44100, 2);
         let mut engine = FftEngine::new(256, subscriber, 44100);
 
         // Send more than 2x fft_size samples

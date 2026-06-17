@@ -16,6 +16,7 @@ pub const EVENT_TRACK_CHANGED: &str = "track-changed";
 pub const EVENT_STATE_CHANGED: &str = "state-changed";
 pub const EVENT_QUEUE_UPDATED: &str = "queue-updated";
 pub const EVENT_PROGRESS_TICK: &str = "progress-tick";
+#[allow(dead_code)]
 pub const EVENT_FREQUENCY_DATA: &str = "frequency-data";
 
 /// Emits typed playback events via Tauri's event system.
@@ -61,6 +62,7 @@ impl PlaybackEventEmitter {
     }
 
     /// Emit a frequency-data event with FFT analysis results.
+    #[allow(dead_code)]
     pub fn emit_frequency_data(&self, data: &FrequencyData) -> Result<(), IPCError> {
         self.app
             .emit(EVENT_FREQUENCY_DATA, data)

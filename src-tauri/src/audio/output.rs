@@ -191,6 +191,7 @@ impl CpalBackend {
     }
 
     /// Stop the current audio stream.
+    #[allow(dead_code)]
     fn stop_stream(&self) -> Result<(), AudioError> {
         // Drop the stream — this stops playback
         let mut stream_guard = self.stream_drop.lock().unwrap();

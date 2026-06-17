@@ -5,9 +5,7 @@
 
 use super::SourceResolver;
 use crate::errors::types::SourceError;
-use crate::models::source::Source;
 use crate::models::track::Track;
-use std::collections::HashMap;
 use std::process::Command;
 
 pub struct YouTubeResolver;
@@ -30,7 +28,7 @@ impl SourceResolver for YouTubeResolver {
             .map_err(|e| SourceError::NetworkError(e.to_string()))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let mut tracks = Vec::new();
+        let tracks = Vec::new();
 
         for line in stdout.lines() {
             // TODO: parse JSON lines into Track structs

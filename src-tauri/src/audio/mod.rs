@@ -18,6 +18,7 @@ use std::path::PathBuf;
 /// Desktop → cpal backend
 /// Android → Oboe backend
 /// iOS → AVAudioEngine backend
+#[allow(dead_code)]
 pub trait AudioBackend {
     /// Play audio from a URL (streaming source).
     /// Reserved for future use (YouTube, SoundCloud streams).
@@ -39,6 +40,7 @@ pub trait AudioBackend {
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AudioError {
+    #[allow(dead_code)]
     DecodeError(String),
     DeviceError(String),
     UnsupportedFormat,

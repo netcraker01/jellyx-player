@@ -19,6 +19,7 @@ use serde::Serialize;
 #[derive(Debug)]
 pub enum SourceError {
     NetworkError(String),
+    #[allow(dead_code)]
     ResolveError(String),
     UnsupportedSource,
 }
@@ -26,24 +27,31 @@ pub enum SourceError {
 /// Playback state errors.
 #[derive(Debug)]
 pub enum PlaybackError {
+    #[allow(dead_code)]
     AlreadyStopped,
     QueueEmpty,
     NoCurrentTrack,
+    #[allow(dead_code)]
     NoAudioDevice(String),
+    #[allow(dead_code)]
     DecodeFailed(String),
 }
 
 /// Library operation errors.
 #[derive(Debug)]
 pub enum LibraryError {
+    #[allow(dead_code)]
     NotFound(String),
+    #[allow(dead_code)]
     AlreadyExists(String),
 }
 
 /// Persistence/storage errors.
 #[derive(Debug)]
 pub enum PersistenceError {
+    #[allow(dead_code)]
     DatabaseError(String),
+    #[allow(dead_code)]
     WriteError(String),
 }
 
@@ -58,6 +66,7 @@ pub enum ValidationError {
 #[derive(Debug)]
 pub enum IPCError {
     CommandFailed(String),
+    #[allow(dead_code)]
     SerializationError(String),
 }
 

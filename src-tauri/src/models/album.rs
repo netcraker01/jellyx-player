@@ -7,6 +7,7 @@ use crate::models::source::Source;
 /// A music album from a source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct Album {
     pub id: String,
     pub title: String,

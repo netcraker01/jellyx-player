@@ -28,13 +28,16 @@ pub type PcmFrame = Vec<f32>;
 /// and drops it (non-blocking backpressure).
 pub struct PcmBus {
     /// The sender side for the primary audio output consumer.
+    #[allow(dead_code)]
     output_tx: Sender<PcmFrame>,
     /// Shared metadata about the stream (sample rate, channels).
+    #[allow(dead_code)]
     stream_info: Arc<StreamInfo>,
 }
 
 /// Metadata about the audio stream being distributed through the bus.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct StreamInfo {
     pub sample_rate: u32,
     pub channels: u16,
@@ -48,6 +51,7 @@ pub struct PcmBusProducer {
     /// Senders for all subscribers (output + FFT + future consumers).
     subscribers: Vec<Sender<PcmFrame>>,
     /// Shared stream info.
+    #[allow(dead_code)]
     stream_info: Arc<StreamInfo>,
 }
 
@@ -94,6 +98,7 @@ impl PcmBus {
 
 impl PcmBusProducer {
     /// Get a reference to the stream info.
+    #[allow(dead_code)]
     pub fn stream_info(&self) -> &StreamInfo {
         &self.stream_info
     }
@@ -138,6 +143,7 @@ impl PcmBusSubscriber {
     ///
     /// Used by the audio output thread which must block to maintain
     /// continuous audio playback.
+    #[allow(dead_code)]
     pub fn recv(&self) -> Option<PcmFrame> {
         self.rx.recv().ok()
     }

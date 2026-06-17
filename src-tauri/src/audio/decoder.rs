@@ -31,7 +31,6 @@ pub struct SymphoniaDecoder {
     format_reader: Box<dyn FormatReader>,
     decoder: Box<dyn AudioDecoder>,
     track_id: u32,
-    channels: usize,
     sample_rate: u32,
     duration_secs: f64,
     /// Number of channels as u16 for PcmBus compatibility.
@@ -102,7 +101,6 @@ impl SymphoniaDecoder {
             format_reader: format,
             decoder,
             track_id,
-            channels,
             sample_rate,
             duration_secs,
             channels_u16: channels as u16,
