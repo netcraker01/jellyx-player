@@ -7,7 +7,18 @@
  */
 
 import { invokeCommand } from './tauri';
-import type { Track, QueueState, FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry, ScanResult } from '@shared/types/models';
+import type {
+  Track,
+  QueueState,
+  FavoriteEntry,
+  HistoryEntry,
+  WatchedFolder,
+  LocalTrackEntry,
+  ScanResult,
+  GroupedSearchResult,
+  ArtistDetail,
+  AlbumDetail,
+} from '@shared/types/models';
 
 // ── Playback commands ──────────────────────────────────────────────
 
@@ -41,6 +52,26 @@ export function setVolume(volume: number): Promise<void> {
 
 export function search(query: string): Promise<Track[]> {
   return invokeCommand<Track[]>('search', { query });
+}
+
+/** Search with grouped results (songs, artists, albums). Optional filter: songs, artists, albums, or none for all. */
+export function searchGrouped(query: string, filter?: string): Promise<GroupedSearchResult> {
+  return invokeCommand<GroupedSearchResult>('search_grouped', { query, filter: filter ?? null });
+}
+
+/** Get full artist detail by artist ID. */
+export function getArtistDetail(id: string): Promise<ArtistDetail> {
+  return invokeCommand<ArtistDetail>('get_artist_detail', { id });
+}
+
+/** Get full album detail by album ID. */
+export function getAlbumDetail(id: string): Promise<AlbumDetail> {
+  return invokeCommand<AlbumDetail>('get_album_detail', { id });
+}
+
+/** Play all tracks in an album, replacing the current queue. */
+export function playAlbum(albumId: string): Promise<void> {
+  return invokeCommand<void>('play_album', { albumId });
 }
 
 export function addToQueue(trackId: string): Promise<void> {

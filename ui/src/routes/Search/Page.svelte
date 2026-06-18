@@ -1,40 +1,49 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { t } from '@i18n';
   import SearchBar from '@features/search/components/SearchBar.svelte';
-  import ResultsList from '@features/search/components/ResultsList.svelte';
+  import GroupedResults from '@features/search/components/GroupedResults.svelte';
   import {
-    searchResults,
-    searchQuery,
-    isSearching,
-    searchError,
-  } from '@features/search/stores/search';
+    searchGrouped,
+    clearSearchGrouped,
+    groupedSearchResults,
+    isSearchingGrouped,
+    groupedSearchError,
+  } from '@features/search/stores/searchGrouped';
+  import type { SearchFilter } from '@shared/types/models';
 
   let hasSearched = false;
+  let currentQuery = '';
+  let currentFilter: SearchFilter | 'all' = 'all';
 
   function handleSearch(e: CustomEvent<{ query: string }>) {
     hasSearched = true;
-    searchQuery.set(e.detail.query);
-    searchResults.search(e.detail.query);
+    currentQuery = e.detail.query;
+    searchGrouped(currentQuery, currentFilter === 'all' ? undefined : currentFilter);
   }
 
-  let results: Track[] = [];
-  searchResults.subscribe((v) => { results = v; });
+  function handleFilter(filter: SearchFilter | 'all') {
+    currentFilter = filter;
+    if (currentQuery.trim()) {
+      searchGrouped(currentQuery, filter === 'all' ? undefined : filter);
+    }
+  }
 
-  import type { Track } from '@shared/types/models';
+  let result = null;
+  groupedSearchResults.subscribe((v) => { result = v; });
 </script>
 
 <div class="page-search">
   <h1>{$t('routes.search')}</h1>
   <div class="search-container">
-    <SearchBar on:search={handleSearch} disabled={$isSearching} />
+    <SearchBar on:search={handleSearch} disabled={$isSearchingGrouped} />
   </div>
   <div class="results-container">
-    <ResultsList
-      tracks={results}
-      loading={$isSearching}
-      error={$searchError}
-      {hasSearched}
+    <GroupedResults
+      {result}
+      filter={currentFilter}
+      loading={$isSearchingGrouped}
+      error={$groupedSearchError}
+      onFilter={handleFilter}
     />
   </div>
 </div>
