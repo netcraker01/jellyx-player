@@ -4,13 +4,13 @@
  * Follows the same pattern as the search store: loading flag, error state,
  * and a search action that calls commands.searchGrouped.
  */
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
 import { searchGrouped as searchGroupedCommand } from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
 import type { GroupedSearchResult, SearchFilter } from '@shared/types/models';
 
 export interface GroupedSearchStore {
-  subscribe: typeof writable<GroupedSearchResult | null>['subscribe'];
+  subscribe: Writable<GroupedSearchResult | null>['subscribe'];
   search: (query: string, filter?: SearchFilter) => Promise<void>;
   clear: () => void;
 }

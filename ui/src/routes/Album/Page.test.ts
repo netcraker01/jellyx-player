@@ -20,16 +20,16 @@ const mocks = vi.hoisted(() => ({
 }));
 
 const albumStoreMock = vi.hoisted(() => {
-  const createWritable = (initial: any) => {
+  const createWritable = <T>(initial: T) => {
     let value = initial;
-    const subs = new Set<(v: any) => void>();
+    const subs = new Set<(v: T) => void>();
     return {
-      subscribe(fn: (v: any) => void) {
+      subscribe(fn: (v: T) => void) {
         fn(value);
         subs.add(fn);
         return () => subs.delete(fn);
       },
-      set(v: any) {
+      set(v: T) {
         value = v;
         subs.forEach((fn) => fn(v));
       },

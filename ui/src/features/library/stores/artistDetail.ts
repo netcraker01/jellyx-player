@@ -1,13 +1,13 @@
 /**
  * Artist detail store — IPC-backed Svelte store for artist detail views.
  */
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
 import { getArtistDetail as getArtistDetailCommand } from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
 import type { ArtistDetail } from '@shared/types/models';
 
 export interface ArtistDetailStore {
-  subscribe: typeof writable<ArtistDetail | null>['subscribe'];
+  subscribe: Writable<ArtistDetail | null>['subscribe'];
   load: (id: string) => Promise<void>;
   clear: () => void;
 }

@@ -65,6 +65,7 @@ const trackWithoutArtist = {
   source: Source.Local,
   sourceId: 'local-3',
   title: 'Instrumental',
+  artist: '',
   duration: 180,
   metadata: {},
 };

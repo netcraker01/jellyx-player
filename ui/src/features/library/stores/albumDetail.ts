@@ -1,13 +1,13 @@
 /**
  * Album detail store — IPC-backed Svelte store for album detail views.
  */
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
 import { getAlbumDetail as getAlbumDetailCommand } from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
 import type { AlbumDetail } from '@shared/types/models';
 
 export interface AlbumDetailStore {
-  subscribe: typeof writable<AlbumDetail | null>['subscribe'];
+  subscribe: Writable<AlbumDetail | null>['subscribe'];
   load: (id: string) => Promise<void>;
   clear: () => void;
 }

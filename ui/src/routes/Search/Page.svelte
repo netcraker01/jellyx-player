@@ -9,7 +9,7 @@
     isSearchingGrouped,
     groupedSearchError,
   } from '@features/search/stores/searchGrouped';
-  import type { SearchFilter } from '@shared/types/models';
+  import type { GroupedSearchResult, SearchFilter } from '@shared/types/models';
 
   let hasSearched = false;
   let currentQuery = '';
@@ -28,7 +28,7 @@
     }
   }
 
-  let result = null;
+  let result: GroupedSearchResult | null = null;
   groupedSearchResults.subscribe((v) => { result = v; });
 </script>
 

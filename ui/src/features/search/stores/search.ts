@@ -4,13 +4,13 @@
  * Provides search action that calls commands.search and updates local state.
  * Follows the same pattern as the favorites store.
  */
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
 import * as commands from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
 import type { Track } from '@shared/types/models';
 
 export interface SearchStore {
-  subscribe: typeof writable<Track[]>['subscribe'];
+  subscribe: Writable<Track[]>['subscribe'];
   search: (query: string) => Promise<void>;
   clear: () => void;
 }
