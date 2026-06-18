@@ -81,6 +81,8 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::get_local_tracks,
             crate::ipc::commands::get_watched_folders,
             crate::ipc::commands::remove_watched_folder,
+            // Home snapshot
+            crate::ipc::commands::get_home_snapshot,
             // FFT binary streaming
             crate::ipc::commands::start_fft_stream,
         ])

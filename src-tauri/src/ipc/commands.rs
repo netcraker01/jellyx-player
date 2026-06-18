@@ -6,7 +6,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::errors::types::AppError;
-use crate::ipc::dto::{AlbumDetail, ArtistDetail, GroupedSearchResult, SearchFilter};
+use crate::ipc::dto::{AlbumDetail, ArtistDetail, GroupedSearchResult, HomeSnapshot, SearchFilter};
 use crate::library::LibraryService;
 use crate::models::track::Track;
 use crate::persistence::models::{FavoriteEntry, HistoryEntry, LocalTrackEntry, WatchedFolder};
@@ -232,6 +232,12 @@ pub fn get_local_tracks(state: tauri::State<AppState>, folder_path: Option<&str>
 #[tauri::command]
 pub fn get_watched_folders(state: tauri::State<AppState>) -> Result<Vec<WatchedFolder>, AppError> {
     state.scanner.get_watched_folders()
+}
+
+/// Get the Home snapshot with recently played tracks and recommendations.
+#[tauri::command]
+pub fn get_home_snapshot(state: tauri::State<AppState>) -> Result<HomeSnapshot, AppError> {
+    state.library.get_home_snapshot()
 }
 
 /// Remove a watched folder and its associated tracks.
