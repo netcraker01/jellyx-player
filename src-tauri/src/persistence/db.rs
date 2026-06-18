@@ -663,6 +663,126 @@ impl Database {
 
         Ok(count > 0)
     }
+
+    // ── Search / Detail Queries ────────────────────────────────────────
+
+    /// Get all local tracks for a specific artist, ordered by file path.
+    pub fn get_local_tracks_by_artist(&self, artist: &str) -> Result<Vec<Track>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let pattern = format!("%\"artist\":\"{}\"%", artist);
+        let mut stmt = conn
+            .prepare(
+                "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 ORDER BY file_path",
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare artist tracks query: {}",
+                    e
+                ))
+            })?;
+
+        let tracks = stmt
+            .query_map(params![pattern], |row| {
+                let track_json: String = row.get(0)?;
+                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        track_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(track)
+            })
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to query artist tracks: {}", e))
+            })?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        Ok(tracks)
+    }
+
+    /// Get all local tracks for a specific album (title + artist), ordered by file path.
+    pub fn get_local_tracks_by_album(
+        &self,
+        title: &str,
+        artist: &str,
+    ) -> Result<Vec<Track>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        // Match album and artist JSON substrings. This is intentionally simple
+        // to avoid schema changes; SQLite JSON1 is available in bundled builds.
+        let album_pattern = format!("%\"album\":\"{}\"%", title);
+        let artist_pattern = format!("%\"artist\":\"{}\"%", artist);
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 AND track_json LIKE ?2 ORDER BY file_path",
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare album tracks query: {}",
+                    e
+                ))
+            })?;
+
+        let tracks = stmt
+            .query_map(params![album_pattern, artist_pattern], |row| {
+                let track_json: String = row.get(0)?;
+                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        track_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(track)
+            })
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to query album tracks: {}", e))
+            })?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        Ok(tracks)
+    }
+
+    /// Count how many times each track ID appears in play history.
+    ///
+    /// Returns a map of track_id -> play count. Tracks with no plays are omitted.
+    pub fn get_track_play_counts(&self) -> Result<std::collections::HashMap<String, u32>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let mut stmt = conn
+            .prepare("SELECT track_id, COUNT(*) FROM history GROUP BY track_id")
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare play count query: {}",
+                    e
+                ))
+            })?;
+
+        let counts = stmt
+            .query_map([], |row| {
+                let track_id: String = row.get(0)?;
+                let count: u32 = row.get(1)?;
+                Ok((track_id, count))
+            })
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to query play counts: {}", e))
+            })?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        Ok(counts)
+    }
 }
 
 #[cfg(test)]

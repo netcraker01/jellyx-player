@@ -1,14 +1,22 @@
 <script lang="ts">
+  import { navigate } from 'svelte-routing';
   import { albumArtUrl } from '@shared/utils/assetUrl';
 
+  export let id: string;
   export let title: string = 'Unknown Album';
   export let artist: string = 'Unknown Artist';
-  export let thumbnail: string | undefined = undefined;
+  export let cover: string | undefined = undefined;
+  export let year: number | undefined = undefined;
+  export let trackCount: number = 0;
+
+  function handleClick() {
+    navigate(`/album/${encodeURIComponent(id)}`);
+  }
 </script>
 
-<div class="album-card">
-  {#if albumArtUrl(thumbnail)}
-    <img class="album-art" src={albumArtUrl(thumbnail)} alt={title} />
+<button class="album-card" on:click={handleClick} aria-label="View {title}">
+  {#if albumArtUrl(cover)}
+    <img class="album-art" src={albumArtUrl(cover)} alt={title} />
   {:else}
     <div class="album-art-placeholder">
       <span class="placeholder-text">♪</span>
@@ -17,8 +25,13 @@
   <div class="album-info">
     <span class="album-title">{title}</span>
     <span class="album-artist">{artist}</span>
+    {#if year}
+      <span class="album-meta">{year} • {trackCount} track{trackCount === 1 ? '' : 's'}</span>
+    {:else}
+      <span class="album-meta">{trackCount} track{trackCount === 1 ? '' : 's'}</span>
+    {/if}
   </div>
-</div>
+</button>
 
 <style>
   .album-card {

@@ -4,13 +4,13 @@
  * Loads favorites from the Rust backend on init.
  * Provides add/remove actions that update both backend and local state.
  */
-import { writable } from 'svelte/store';
+import { writable, type Writable } from 'svelte/store';
 import * as commands from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
 import type { FavoriteEntry, Track } from '@shared/types/models';
 
 export interface FavoritesStore {
-  subscribe: typeof writable<FavoriteEntry[]>['subscribe'];
+  subscribe: Writable<FavoriteEntry[]>['subscribe'];
   load: () => Promise<void>;
   add: (track: Track) => Promise<void>;
   remove: (trackId: string) => Promise<void>;

@@ -7,7 +7,7 @@ use crate::errors::types::IPCError;
 use crate::models::track::Track;
 use crate::playback::models::ProgressTick;
 use crate::playback::state::{PlaybackState, QueueState};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
 
 /// Event name constants for playback events.
 /// Using lowercase-hyphen format per design convention.
@@ -17,12 +17,12 @@ pub const EVENT_QUEUE_UPDATED: &str = "queue-updated";
 pub const EVENT_PROGRESS_TICK: &str = "progress-tick";
 
 /// Emits typed playback events via Tauri's event system.
-pub struct PlaybackEventEmitter {
-    app: AppHandle,
+pub struct PlaybackEventEmitter<R: Runtime = tauri::Wry> {
+    app: AppHandle<R>,
 }
 
-impl PlaybackEventEmitter {
-    pub fn new(app: AppHandle) -> Self {
+impl<R: Runtime> PlaybackEventEmitter<R> {
+    pub fn new(app: AppHandle<R>) -> Self {
         Self { app }
     }
 
@@ -64,6 +64,19 @@ impl PlaybackEventEmitter {
     pub fn clone_sender(&self) -> Self {
         Self {
             app: self.app.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl PlaybackEventEmitter<tauri::test::MockRuntime> {
+    /// Create a no-op emitter for unit tests using Tauri's mock runtime.
+    ///
+    /// Event emissions are swallowed by the mock runtime, so tests can focus
+    /// on state mutations without needing a real Tauri app.
+    pub fn test() -> Self {
+        Self {
+            app: tauri::test::mock_app().handle().clone(),
         }
     }
 }

@@ -36,7 +36,10 @@ const PROGRESS_TICK_INTERVAL_MS: u64 = 250;
 ///
 /// All IPC commands go through this service. It manages the pipeline
 /// lifecycle: decoder thread, PCM bus, FFT engine, and progress timer.
-pub struct PlaybackService {
+///
+/// Generic over Tauri runtime so unit tests can use `tauri::test::MockRuntime`
+/// while production code uses the default `Wry` runtime.
+pub struct PlaybackService<R: tauri::Runtime = tauri::Wry> {
     /// The current playback state shared across threads.
     state: Arc<Mutex<InternalState>>,
     /// Shared decoder reference — needed for seek (decoder.seek()).
@@ -44,7 +47,7 @@ pub struct PlaybackService {
     /// Shared backend reference — needed for volume forwarding.
     backend: Arc<Mutex<Option<CpalBackend>>>,
     /// Event emitter for Tauri frontend notifications.
-    emitter: PlaybackEventEmitter,
+    emitter: PlaybackEventEmitter<R>,
     /// Registry of source resolvers (YouTube, SoundCloud, etc.).
     sources: SourceRegistry,
     /// Binary FFT streaming channel (shared with AppState.fft_channel).
@@ -71,7 +74,7 @@ struct InternalState {
     duration: f64,
 }
 
-impl PlaybackService {
+impl<R: tauri::Runtime> PlaybackService<R> {
     /// Create a new PlaybackService.
     ///
     /// The `app` handle is used for emitting events to the frontend.
@@ -81,7 +84,7 @@ impl PlaybackService {
     /// The actual audio backend (CpalBackend) is created internally
     /// when `play_local()` is called, not at construction time.
     pub fn new(
-        app: tauri::AppHandle,
+        app: tauri::AppHandle<R>,
         db: Arc<Database>,
         library: Arc<LibraryService>,
         fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
@@ -117,9 +120,39 @@ impl PlaybackService {
         let _ = self.library.record_play(track);
     }
 
-    /// Play a local audio file.
+    /// Play a local audio file by path.
     ///
-    /// This is the primary playback method for v0.1. It:
+    /// This is the IPC entry point for v0.1. It builds a minimal track from
+    /// the path and delegates to `play_local_track`, which performs the real
+    /// pipeline setup and preserves the provided track metadata.
+    pub fn play_local(&self, path: &str) -> Result<(), AppError> {
+        let track_name = PathBuf::from(path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Unknown")
+            .to_string();
+
+        let track = Track {
+            id: format!("local-{}", path.len()),
+            source: crate::models::source::Source::Local,
+            source_id: path.to_string(),
+            title: track_name,
+            artist: String::new(),
+            album: None,
+            duration: None,
+            thumbnail: None,
+            stream_url: None,
+            local_path: Some(path.to_string()),
+            metadata: std::collections::HashMap::new(),
+        };
+
+        self.play_local_track(track)
+    }
+
+    /// Play a local track, preserving its metadata (id, title, artist, album).
+    ///
+    /// This is the shared implementation used by `play_local` and
+    /// `replace_queue_and_play`. It:
     /// 1. Opens the file with SymphoniaDecoder
     /// 2. Creates a PcmBus
     /// 3. Starts a decoder thread that pushes frames to the bus
@@ -128,7 +161,14 @@ impl PlaybackService {
     /// 6. Starts the cpal audio stream
     /// 7. Starts the FFT analysis timer
     /// 8. Starts the progress tick timer
-    pub fn play_local(&self, path: &str) -> Result<(), AppError> {
+    fn play_local_track(&self, track: Track) -> Result<(), AppError> {
+        let path = track
+            .local_path
+            .as_ref()
+            .ok_or_else(|| AppError::from(ValidationError::InvalidInput(
+                "track has no local path".into(),
+            )))?;
+
         // Stop any currently playing audio first
         self.stop()?;
 
@@ -145,27 +185,6 @@ impl PlaybackService {
 
         // Subscribe the FFT engine
         let fft_subscriber = bus_producer.subscribe();
-
-        // Create a track object for the event
-        let track_name = PathBuf::from(path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("Unknown")
-            .to_string();
-
-        let track = Track {
-            id: format!("local-{}", path.len()),
-            source: crate::models::source::Source::Local,
-            source_id: path.to_string(),
-            title: track_name,
-            artist: String::new(),
-            album: None,
-            duration: Some(duration),
-            thumbnail: None,
-            stream_url: None,
-            local_path: Some(path.to_string()),
-            metadata: std::collections::HashMap::new(),
-        };
 
         // Update state
         {
@@ -187,7 +206,7 @@ impl PlaybackService {
         // Store decoder and backend references for seek/volume
         let shared_decoder = self.decoder.clone();
         let shared_backend = self.backend.clone();
-        let self_clone = PlaybackService {
+        let self_clone = PlaybackService::<R> {
             state: self.state.clone(),
             decoder: shared_decoder.clone(),
             backend: shared_backend.clone(),
@@ -529,6 +548,55 @@ impl PlaybackService {
         Ok(())
     }
 
+    /// Replace the current queue with the given tracks and start playback from the first track.
+    ///
+    /// This is the shared implementation used by `play_album` and any future bulk-replace
+    /// commands. It emits queue-updated and track-changed events, and records history.
+    fn replace_queue_and_play(&self, tracks: Vec<Track>) -> Result<(), AppError> {
+        if tracks.is_empty() {
+            return Err(PlaybackError::QueueEmpty.into());
+        }
+
+        let first_track = tracks[0].clone();
+
+        {
+            let mut s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            s.queue.tracks = tracks;
+            s.queue.current_index = Some(0);
+            s.queue.played_indices.clear();
+        }
+
+        let queue_snapshot = self.get_queue()?;
+        let _ = self.emitter.emit_queue_updated(&queue_snapshot);
+        let _ = self.emitter.emit_track_changed(&first_track);
+        let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+
+        if let Some(ref _local_path) = first_track.local_path {
+            return self.play_local_track(first_track.clone());
+        }
+
+        self.record_history(&first_track);
+        {
+            let mut s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            s.current_track = Some(first_track);
+            s.playback_state = PlaybackState::Playing;
+        }
+
+        Ok(())
+    }
+
+    /// Play all tracks in an album, replacing the current queue in album order.
+    pub fn play_album(&self, album_id: &str) -> Result<(), AppError> {
+        let album = self.library.get_album_detail(album_id)?;
+        self.replace_queue_and_play(album.tracks)
+    }
+
     /// Get the current queue as a full QueueState snapshot.
     pub fn get_queue(&self) -> Result<QueueState, AppError> {
         let s = self.state.lock().map_err(|_| AppError {
@@ -536,6 +604,15 @@ impl PlaybackService {
             details: Some("mutex lock".into()),
         })?;
         Ok(s.queue.clone())
+    }
+
+    /// Get the current track, if any.
+    pub fn get_current_track(&self) -> Result<Option<Track>, AppError> {
+        let s = self.state.lock().map_err(|_| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some("mutex lock".into()),
+        })?;
+        Ok(s.current_track.clone())
     }
 
     /// Remove a track from the queue by ID and emit a full queue snapshot.
@@ -1135,19 +1212,19 @@ mod tests {
     fn sequential_next_index_respects_repeat_modes() {
         // 3 tracks, current = 1
         assert_eq!(
-            PlaybackService::sequential_next_index(1, 3, RepeatMode::Off),
+            PlaybackService::<tauri::Wry>::sequential_next_index(1, 3, RepeatMode::Off),
             Some(2)
         );
         assert_eq!(
-            PlaybackService::sequential_next_index(1, 3, RepeatMode::One),
+            PlaybackService::<tauri::Wry>::sequential_next_index(1, 3, RepeatMode::One),
             Some(1)
         );
         assert_eq!(
-            PlaybackService::sequential_next_index(2, 3, RepeatMode::All),
+            PlaybackService::<tauri::Wry>::sequential_next_index(2, 3, RepeatMode::All),
             Some(0)
         );
         assert_eq!(
-            PlaybackService::sequential_next_index(2, 3, RepeatMode::Off),
+            PlaybackService::<tauri::Wry>::sequential_next_index(2, 3, RepeatMode::Off),
             None
         );
     }
@@ -1166,7 +1243,7 @@ mod tests {
             repeat_mode: RepeatMode::Off,
         };
 
-        let next = PlaybackService::shuffle_next_track(&mut queue);
+        let next = PlaybackService::<tauri::Wry>::shuffle_next_track(&mut queue);
         assert!(next.is_some());
         let idx = next.unwrap();
         assert!(idx == 1 || idx == 2, "Should pick an unplayed track");
@@ -1187,7 +1264,7 @@ mod tests {
             repeat_mode: RepeatMode::All,
         };
 
-        let next = PlaybackService::shuffle_next_track(&mut queue);
+        let next = PlaybackService::<tauri::Wry>::shuffle_next_track(&mut queue);
         assert!(next.is_some(), "Should wrap and pick a new unplayed track");
         let idx = next.unwrap();
         assert!(idx == 1 || idx == 2, "Should pick an unplayed track after reset");
@@ -1208,21 +1285,21 @@ mod tests {
             repeat_mode: RepeatMode::Off,
         };
 
-        let next = PlaybackService::shuffle_next_track(&mut queue);
+        let next = PlaybackService::<tauri::Wry>::shuffle_next_track(&mut queue);
         assert!(next.is_none());
     }
 
     #[test]
     fn rebase_played_indices_drops_removed_and_shifts_higher() {
         let mut played = vec![0, 2, 3, 5];
-        PlaybackService::rebase_played_indices(&mut played, 2);
+        PlaybackService::<tauri::Wry>::rebase_played_indices(&mut played, 2);
         assert_eq!(played, vec![0, 2, 4]);
     }
 
     #[test]
     fn rebase_played_indices_handles_empty_vec() {
         let mut played: Vec<usize> = vec![];
-        PlaybackService::rebase_played_indices(&mut played, 0);
+        PlaybackService::<tauri::Wry>::rebase_played_indices(&mut played, 0);
         assert!(played.is_empty());
     }
 
@@ -1294,7 +1371,7 @@ fn internal_state_default_values() {
         let removed = queue.tracks[0].id.clone();
         let removed_index = 0usize;
         queue.tracks.remove(removed_index);
-        PlaybackService::rebase_played_indices(&mut queue.played_indices, removed_index);
+        PlaybackService::<tauri::Wry>::rebase_played_indices(&mut queue.played_indices, removed_index);
         queue.current_index = queue.current_index.map(|ci| ci.saturating_sub(1));
 
         assert_eq!(queue.tracks.len(), 2);
@@ -1319,7 +1396,7 @@ fn internal_state_default_values() {
 
         let removed_index = 1usize;
         queue.tracks.remove(removed_index);
-        PlaybackService::rebase_played_indices(&mut queue.played_indices, removed_index);
+        PlaybackService::<tauri::Wry>::rebase_played_indices(&mut queue.played_indices, removed_index);
         queue.current_index = None;
 
         assert_eq!(queue.tracks.len(), 2);
@@ -1343,7 +1420,7 @@ fn internal_state_default_values() {
 
         let removed_index = 2usize;
         queue.tracks.remove(removed_index);
-        PlaybackService::rebase_played_indices(&mut queue.played_indices, removed_index);
+        PlaybackService::<tauri::Wry>::rebase_played_indices(&mut queue.played_indices, removed_index);
 
         assert_eq!(queue.tracks.len(), 2);
         assert_eq!(queue.current_index, Some(0));
@@ -1415,7 +1492,7 @@ fn internal_state_default_values() {
         let prior_index = 1usize;
         if queue.tracks[prior_index].id.starts_with("__play_next__") {
             queue.tracks.remove(prior_index);
-            PlaybackService::rebase_played_indices(&mut queue.played_indices, prior_index);
+            PlaybackService::<tauri::Wry>::rebase_played_indices(&mut queue.played_indices, prior_index);
         }
         let insert_index = 1usize.min(queue.tracks.len());
         let new_track = sample_track_for_tests_with_id_prefix("new", "__play_next__");
@@ -1483,5 +1560,163 @@ fn internal_state_default_values() {
         let data = result.unwrap();
         assert_eq!(data.sample_rate, 44100);
         assert!(!data.bins.is_empty());
+    }
+
+    /// Write a minimal valid PCM WAV file so `SymphoniaDecoder::open` succeeds.
+    fn write_test_wav(path: &std::path::Path, seconds: u32) {
+        use std::fs::File;
+        use std::io::Write;
+
+        let sample_rate: u32 = 44100;
+        let channels: u16 = 2;
+        let bits_per_sample: u16 = 16;
+        let byte_depth = (bits_per_sample / 8) as u32;
+        let data_size = seconds * sample_rate * channels as u32 * byte_depth;
+        let file_size = 36 + data_size;
+
+        let mut file = File::create(path).expect("failed to create test wav");
+        file.write_all(b"RIFF").unwrap();
+        file.write_all(&file_size.to_le_bytes()).unwrap();
+        file.write_all(b"WAVE").unwrap();
+        file.write_all(b"fmt ").unwrap();
+        file.write_all(&16u32.to_le_bytes()).unwrap(); // SubChunk1Size
+        file.write_all(&1u16.to_le_bytes()).unwrap(); // AudioFormat = PCM
+        file.write_all(&channels.to_le_bytes()).unwrap();
+        file.write_all(&sample_rate.to_le_bytes()).unwrap();
+        file.write_all(&(sample_rate * channels as u32 * byte_depth).to_le_bytes())
+            .unwrap(); // ByteRate
+        file.write_all(&(channels * byte_depth as u16).to_le_bytes()).unwrap(); // BlockAlign
+        file.write_all(&bits_per_sample.to_le_bytes()).unwrap();
+        file.write_all(b"data").unwrap();
+        file.write_all(&data_size.to_le_bytes()).unwrap();
+        file.write_all(&vec![0u8; data_size as usize]).unwrap();
+    }
+
+    fn test_album_track(
+        id: &str,
+        title: &str,
+        artist: &str,
+        album: &str,
+        path: &std::path::Path,
+    ) -> Track {
+        Track {
+            id: id.to_string(),
+            source: crate::models::source::Source::Local,
+            source_id: path.to_string_lossy().to_string(),
+            title: title.to_string(),
+            artist: artist.to_string(),
+            album: Some(album.to_string()),
+            duration: Some(1.0),
+            thumbnail: None,
+            stream_url: None,
+            local_path: Some(path.to_string_lossy().to_string()),
+            metadata: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn play_album_replaces_queue_and_starts_at_first_track() {
+        // REQ-AL-2: playing an album must replace the queue with the album
+        // tracks in order and set the current track to the first song.
+        use crate::ipc::dto::normalize_album_id;
+        use crate::library::LibraryService;
+        use crate::persistence::db::Database;
+        use std::sync::Arc;
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "helix-playback-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("failed to create temp dir");
+
+        let album = "Discovery";
+        let artist = "Daft Punk";
+        let album_id = normalize_album_id(album, artist);
+
+        let paths = [
+            temp_dir.join("01-one.mp3"),
+            temp_dir.join("02-aero.mp3"),
+            temp_dir.join("03-digital.mp3"),
+        ];
+        for path in &paths {
+            write_test_wav(path, 10);
+        }
+
+        let tracks = vec![
+            test_album_track("t1", "One More Time", artist, album, &paths[0]),
+            test_album_track("t2", "Aerodynamic", artist, album, &paths[1]),
+            test_album_track("t3", "Digital Love", artist, album, &paths[2]),
+        ];
+
+        let db = Arc::new(Database::open_in_memory().expect("failed to open db"));
+        db.insert_watched_folder(temp_dir.to_string_lossy().as_ref())
+            .expect("failed to insert watched folder");
+        for t in &tracks {
+            db.upsert_local_track(
+                t.local_path.as_ref().unwrap(),
+                t,
+                temp_dir.to_string_lossy().as_ref(),
+                None,
+            )
+            .expect("failed to insert track");
+        }
+
+        let library = Arc::new(LibraryService::new(db));
+        let service = PlaybackService::<tauri::test::MockRuntime>::new(
+            tauri::test::mock_app().handle().clone(),
+            Arc::new(Database::open_in_memory().expect("failed to open resolver db")),
+            library,
+            Arc::new(Mutex::new(None)),
+        );
+
+        // Act
+        let result = service.play_album(&album_id);
+
+        // Audio output may fail in a headless test environment, but the queue
+        // replacement and current-track assignment must happen before that.
+        let queue = service.get_queue().expect("failed to get queue");
+        let current = service
+            .get_current_track()
+            .expect("failed to get current track");
+
+        // Assert queue replaced with album tracks in order
+        assert_eq!(
+            queue.tracks.len(),
+            tracks.len(),
+            "Queue should contain all album tracks"
+        );
+        assert_eq!(
+            queue.tracks.iter().map(|t| t.id.clone()).collect::<Vec<_>>(),
+            vec!["t1", "t2", "t3"],
+            "Album tracks should be queued in order"
+        );
+        assert_eq!(
+            queue.current_index,
+            Some(0),
+            "Playback should start at the first album track"
+        );
+
+        // Assert current track is the first album track
+        assert!(
+            current.is_some(),
+            "Current track should be set to the first album track"
+        );
+        let current = current.unwrap();
+        assert_eq!(current.id, "t1", "Current track should be the first album track");
+        assert_eq!(current.title, "One More Time");
+        assert_eq!(current.album, Some(album.to_string()));
+
+        // If audio output is available the call succeeds; otherwise we still
+        // verified the critical queue state.
+        if let Err(ref e) = result {
+            assert!(
+                e.code == "NO_AUDIO_DEVICE" || e.code == "DEVICE_ERROR" || e.code == "UNSUPPORTED_FORMAT",
+                "Expected audio-output error in headless environment, got {:?}",
+                e
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 }

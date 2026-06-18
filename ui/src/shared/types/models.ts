@@ -128,3 +128,71 @@ export interface ScanResult {
   filesSkipped: number;
   errors: number;
 }
+
+// ── Grouped search DTOs ───────────────────────────────────────────────
+
+/**
+ * Filter for grouped search: limit results to a single entity type.
+ * Mirrors the Rust `SearchFilter` enum serialized as lowercase camelCase.
+ */
+export type SearchFilter = 'songs' | 'artists' | 'albums';
+
+/**
+ * Grouped search result returned by `search_grouped`.
+ * Matches the Rust `GroupedSearchResult` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface GroupedSearchResult {
+  songs: Track[];
+  artists: ArtistSummary[];
+  albums: AlbumSummary[];
+}
+
+/**
+ * Lightweight artist summary for search results.
+ * Matches the Rust `ArtistSummary` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface ArtistSummary {
+  id: string;
+  name: string;
+  thumbnail?: string;
+  trackCount: number;
+}
+
+/**
+ * Lightweight album summary for search results.
+ * Matches the Rust `AlbumSummary` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface AlbumSummary {
+  id: string;
+  title: string;
+  artist: string;
+  cover?: string;
+  year?: number;
+  trackCount: number;
+}
+
+/**
+ * Full artist detail for `/artist/:id` view.
+ * Matches the Rust `ArtistDetail` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface ArtistDetail {
+  id: string;
+  name: string;
+  thumbnail?: string;
+  topTracks: Track[];
+  albums: AlbumSummary[];
+}
+
+/**
+ * Full album detail for `/album/:id` view.
+ * Matches the Rust `AlbumDetail` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface AlbumDetail {
+  id: string;
+  title: string;
+  artist: string;
+  artistId: string;
+  cover?: string;
+  year?: number;
+  tracks: Track[];
+}
