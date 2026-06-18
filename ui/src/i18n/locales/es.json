@@ -23,6 +23,8 @@
   },
   "home": {
     "recently_played": "Reproducido recientemente",
+    "recommended": "Recomendado para ti",
+    "empty_recommendations": "Aún no hay historial de reproducción.",
     "empty": "Aún no hay historial de reproducción.",
     "go_search": "Busca música para empezar"
   },
