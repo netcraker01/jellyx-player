@@ -302,7 +302,7 @@ impl Database {
 
         let mut stmt = conn
             .prepare(
-                "SELECT id, track_id, track_json, played_at FROM history ORDER BY played_at DESC LIMIT ?1",
+                "SELECT id, track_id, track_json, played_at FROM history ORDER BY played_at DESC, id DESC LIMIT ?1",
             )
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to prepare history query: {}", e))
@@ -478,6 +478,11 @@ impl Database {
         })?;
 
         Ok(())
+    }
+
+    /// Get all local tracks (for recommendation inventory).
+    pub fn get_all_local_tracks(&self) -> Result<Vec<LocalTrackEntry>, PersistenceError> {
+        self.get_local_tracks(None)
     }
 
     /// Get all local tracks, optionally filtered by folder path.
@@ -1034,5 +1039,30 @@ mod tests {
 
         let all = db.get_local_tracks(None).unwrap();
         assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn get_all_local_tracks_returns_all_in_insertion_order() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_watched_folder("/music").unwrap();
+        let t1 = sample_local_track("t1", "/music/a.mp3");
+        let t2 = sample_local_track("t2", "/music/b.mp3");
+        let t3 = sample_local_track("t3", "/music/c.mp3");
+        db.upsert_local_track("/music/a.mp3", &t1, "/music", Some("1000")).unwrap();
+        db.upsert_local_track("/music/b.mp3", &t2, "/music", Some("1001")).unwrap();
+        db.upsert_local_track("/music/c.mp3", &t3, "/music", Some("1002")).unwrap();
+
+        let all = db.get_all_local_tracks().unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].track.id, "t1");
+        assert_eq!(all[1].track.id, "t2");
+        assert_eq!(all[2].track.id, "t3");
+    }
+
+    #[test]
+    fn get_all_local_tracks_empty_inventory() {
+        let db = Database::open_in_memory().unwrap();
+        let all = db.get_all_local_tracks().unwrap();
+        assert!(all.is_empty(), "Should return empty vec when no local tracks");
     }
 }
