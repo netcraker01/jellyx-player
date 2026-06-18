@@ -76,7 +76,9 @@
     "search": "Buscar",
     "favorites": "Favoritos",
     "now_playing": "Reproduciendo",
-    "settings": "Configuración"
+    "settings": "Configuración",
+    "artist": "Artista",
+    "album": "Álbum"
   },
   "common": {
     "loading": "Cargando...",
@@ -87,7 +89,18 @@
     "delete": "Eliminar",
     "close": "Cerrar",
     "search": "Buscar",
-    "play": "Reproducir"
+    "play": "Reproducir",
+    "back": "Volver"
+  },
+  "artist": {
+    "top_tracks": "Mejores canciones",
+    "albums": "Álbumes",
+    "not_found": "Artista no encontrado"
+  },
+  "album": {
+    "play_album": "Reproducir álbum",
+    "tracks": "Canciones",
+    "not_found": "Álbum no encontrado"
   },
   "toasts": {
     "favorite_added": "Añadido a favoritos",

@@ -7,6 +7,8 @@
   import Search from '../routes/Search/Page.svelte';
   import Favorites from '../routes/Favorites/Page.svelte';
   import NowPlaying from '../routes/NowPlaying/Page.svelte';
+  import ArtistPage from '../routes/Artist/Page.svelte';
+  import AlbumPage from '../routes/Album/Page.svelte';
   import { frequencyData, modoCineActive } from '@features/player/stores/player';
 </script>
 
@@ -32,6 +34,12 @@
       </Route>
       <Route path="/now-playing" let:params>
         <NowPlaying />
+      </Route>
+      <Route path="/artist/:id" let:params>
+        <ArtistPage id={params.id} />
+      </Route>
+      <Route path="/album/:id" let:params>
+        <AlbumPage id={params.id} />
       </Route>
     </Router>
   </main>

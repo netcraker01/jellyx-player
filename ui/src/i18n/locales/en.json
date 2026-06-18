@@ -76,7 +76,9 @@
     "search": "Search",
     "favorites": "Favorites",
     "now_playing": "Now Playing",
-    "settings": "Settings"
+    "settings": "Settings",
+    "artist": "Artist",
+    "album": "Album"
   },
   "common": {
     "loading": "Loading...",
@@ -87,7 +89,18 @@
     "delete": "Delete",
     "close": "Close",
     "search": "Search",
-    "play": "Play"
+    "play": "Play",
+    "back": "Back"
+  },
+  "artist": {
+    "top_tracks": "Top tracks",
+    "albums": "Albums",
+    "not_found": "Artist not found"
+  },
+  "album": {
+    "play_album": "Play Album",
+    "tracks": "Tracks",
+    "not_found": "Album not found"
   },
   "toasts": {
     "favorite_added": "Added to favorites",

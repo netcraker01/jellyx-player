@@ -1,16 +1,33 @@
 <script lang="ts">
   import { Heart } from 'lucide-svelte';
   import { t } from '@i18n';
+  import { navigate } from 'svelte-routing';
   import { albumArtUrl } from '@shared/utils/assetUrl';
+  import { normalizeArtistId, normalizeAlbumId } from '@shared/utils/ids';
   import { isCurrentTrackFavorited } from '../stores/player';
   import { favorites } from '@features/favorites/stores/favorites';
   import type { Track } from '@shared/types/models';
 
   export let track: Track | null = null;
 
+  $: artistId = track?.artist ? normalizeArtistId(track.artist) : null;
+  $: albumId = track?.album && track?.artist ? normalizeAlbumId(track.album, track.artist) : null;
+
   async function handleFavoriteToggle() {
     if (!track?.id) return;
     await favorites.toggle(track.id);
+  }
+
+  function handleOpenArtist() {
+    if (artistId) {
+      navigate(`/artist/${encodeURIComponent(artistId)}`);
+    }
+  }
+
+  function handleOpenAlbum() {
+    if (albumId) {
+      navigate(`/album/${encodeURIComponent(albumId)}`);
+    }
   }
 </script>
 
@@ -34,8 +51,14 @@
             <Heart size={20} fill={$isCurrentTrackFavorited ? 'currentColor' : 'none'} />
           </button>
         </div>
-        <span class="track-artist">{track.artist}</span>
-        {#if track.album}
+        {#if artistId}
+          <button class="track-artist link" on:click={handleOpenArtist}>{track.artist}</button>
+        {:else}
+          <span class="track-artist">{track.artist}</span>
+        {/if}
+        {#if albumId}
+          <button class="track-album link" on:click={handleOpenAlbum}>{track.album}</button>
+        {:else if track.album}
           <span class="track-album">{track.album}</span>
         {/if}
         <span class="track-source">{track.source}</span>
@@ -124,6 +147,20 @@
   .track-artist {
     color: var(--text-secondary, #9ca3af);
     font-size: 0.95rem;
+  }
+
+  .track-artist.link,
+  .track-album.link {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+
+  .track-artist.link:hover,
+  .track-album.link:hover {
+    color: var(--color-accent, #6366f1);
   }
 
   .track-album {
