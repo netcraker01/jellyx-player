@@ -6,9 +6,10 @@
 use std::sync::{Arc, Mutex};
 
 use crate::errors::types::AppError;
+use crate::ipc::dto::{AlbumDetail, ArtistDetail, GroupedSearchResult, SearchFilter};
 use crate::library::LibraryService;
 use crate::models::track::Track;
-use crate::persistence::models::{FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry};
+use crate::persistence::models::{FavoriteEntry, HistoryEntry, LocalTrackEntry, WatchedFolder};
 use crate::playback::service::PlaybackService;
 use crate::sources::local::{ScannerService, ScanResult};
 
@@ -68,6 +69,46 @@ pub fn set_volume(state: tauri::State<AppState>, volume: f32) -> Result<(), AppE
 #[tauri::command]
 pub fn search(state: tauri::State<AppState>, query: &str) -> Result<Vec<Track>, AppError> {
     state.playback.search(query)
+}
+
+/// Search with grouped results (songs, artists, albums).
+/// Optional filter: "songs", "artists", "albums", or None for all.
+#[tauri::command]
+pub fn search_grouped(
+    state: tauri::State<AppState>,
+    query: &str,
+    filter: Option<&str>,
+) -> Result<GroupedSearchResult, AppError> {
+    let parsed_filter = filter
+        .map(|f| match f.to_lowercase().as_str() {
+            "songs" => Ok(SearchFilter::Songs),
+            "artists" => Ok(SearchFilter::Artists),
+            "albums" => Ok(SearchFilter::Albums),
+            _ => Err(crate::errors::types::ValidationError::InvalidInput(format!(
+                "invalid search filter: {}. Expected songs, artists, or albums",
+                f
+            ))),
+        })
+        .transpose()?;
+    state.library.search_grouped(query, parsed_filter)
+}
+
+/// Get full artist detail by artist ID.
+#[tauri::command]
+pub fn get_artist_detail(state: tauri::State<AppState>, id: &str) -> Result<ArtistDetail, AppError> {
+    state.library.get_artist_detail(id)
+}
+
+/// Get full album detail by album ID.
+#[tauri::command]
+pub fn get_album_detail(state: tauri::State<AppState>, id: &str) -> Result<AlbumDetail, AppError> {
+    state.library.get_album_detail(id)
+}
+
+/// Play all tracks in an album, replacing the current queue.
+#[tauri::command]
+pub fn play_album(state: tauri::State<AppState>, album_id: &str) -> Result<(), AppError> {
+    state.playback.play_album(album_id)
 }
 
 #[tauri::command]

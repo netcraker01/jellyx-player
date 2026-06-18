@@ -529,6 +529,55 @@ impl PlaybackService {
         Ok(())
     }
 
+    /// Replace the current queue with the given tracks and start playback from the first track.
+    ///
+    /// This is the shared implementation used by `play_album` and any future bulk-replace
+    /// commands. It emits queue-updated and track-changed events, and records history.
+    fn replace_queue_and_play(&self, tracks: Vec<Track>) -> Result<(), AppError> {
+        if tracks.is_empty() {
+            return Err(PlaybackError::QueueEmpty.into());
+        }
+
+        let first_track = tracks[0].clone();
+
+        {
+            let mut s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            s.queue.tracks = tracks;
+            s.queue.current_index = Some(0);
+            s.queue.played_indices.clear();
+        }
+
+        let queue_snapshot = self.get_queue()?;
+        let _ = self.emitter.emit_queue_updated(&queue_snapshot);
+        let _ = self.emitter.emit_track_changed(&first_track);
+        let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+
+        if let Some(ref local_path) = first_track.local_path {
+            return self.play_local(local_path);
+        }
+
+        self.record_history(&first_track);
+        {
+            let mut s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            s.current_track = Some(first_track);
+            s.playback_state = PlaybackState::Playing;
+        }
+
+        Ok(())
+    }
+
+    /// Play all tracks in an album, replacing the current queue in album order.
+    pub fn play_album(&self, album_id: &str) -> Result<(), AppError> {
+        let album = self.library.get_album_detail(album_id)?;
+        self.replace_queue_and_play(album.tracks)
+    }
+
     /// Get the current queue as a full QueueState snapshot.
     pub fn get_queue(&self) -> Result<QueueState, AppError> {
         let s = self.state.lock().map_err(|_| AppError {
