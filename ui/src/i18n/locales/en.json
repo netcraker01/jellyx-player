@@ -23,6 +23,8 @@
   },
   "home": {
     "recently_played": "Recently Played",
+    "recommended": "Recommended for You",
+    "empty_recommendations": "No listening history yet.",
     "empty": "No listening history yet.",
     "go_search": "Search for music to get started"
   },
