@@ -7,7 +7,7 @@
  */
 
 import { invokeCommand } from './tauri';
-import type { Track, QueueState, FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry, ScanResult } from '@shared/types/models';
+import type { Track, QueueState, FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry, ScanResult, HomeSnapshot } from '@shared/types/models';
 
 // ── Playback commands ──────────────────────────────────────────────
 
@@ -142,4 +142,11 @@ export function getWatchedFolders(): Promise<WatchedFolder[]> {
 /** Remove a watched folder and its associated tracks. */
 export function removeWatchedFolder(folderPath: string): Promise<void> {
   return invokeCommand<void>('remove_watched_folder', { folderPath });
+}
+
+// ── Home commands ───────────────────────────────────────────────────
+
+/** Get the Home snapshot with recently played and recommendations. */
+export function getHomeSnapshot(): Promise<HomeSnapshot> {
+  return invokeCommand<HomeSnapshot>('get_home_snapshot');
 }

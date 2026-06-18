@@ -128,3 +128,21 @@ export interface ScanResult {
   filesSkipped: number;
   errors: number;
 }
+
+/**
+ * A single recommendation item, which may be a track, artist, or album.
+ * Matches the Rust `RecommendationItem` enum with `serde(tag = "type")`.
+ */
+export type RecommendationItem =
+  | { type: 'Track'; track: Track; reason: string }
+  | { type: 'Artist'; id: string; name: string; thumbnail?: string; trackCount: number; reason: string }
+  | { type: 'Album'; id: string; title: string; artist: string; cover?: string; trackCount: number; reason: string };
+
+/**
+ * Full Home snapshot from the Rust backend.
+ * Matches the Rust `HomeSnapshot` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface HomeSnapshot {
+  recentlyPlayed: HistoryEntry[];
+  recommendations: RecommendationItem[];
+}
