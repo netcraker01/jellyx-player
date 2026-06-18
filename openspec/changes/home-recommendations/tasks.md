@@ -40,10 +40,10 @@ Chain strategy: pending
 
 ## Phase 3: TypeScript Contract + Home Store (RED → GREEN)
 
-- [ ] 3.1 Add failing type/wrapper tests in `ui/src/shared/types/models.test.ts` and `ui/src/services/commands.test.ts` for `HomeSnapshot`, `RecommendationItem`, and `getHomeSnapshot()`. AC: Vitest fails until wrappers/types exist.
-- [ ] 3.2 Implement TS models in `ui/src/shared/types/models.ts` and wrapper in `ui/src/services/commands.ts`. AC: union narrows by `type`; wrapper invokes `get_home_snapshot`.
-- [ ] 3.3 Add failing store tests in `ui/src/features/home/stores/home.test.ts` for load success, error toast, and clear reset. AC: tests assert loading/error transitions.
-- [ ] 3.4 Implement `ui/src/features/home/stores/home.ts`. AC: one `load()` call fetches snapshot, surfaces notifications, and clears state cleanly.
+- [x] 3.1 Add failing type/wrapper tests in `ui/src/shared/types/models.test.ts` and `ui/src/services/commands.test.ts` for `HomeSnapshot`, `RecommendationItem`, and `getHomeSnapshot()`. AC: Vitest fails until wrappers/types exist.
+- [x] 3.2 Implement TS models in `ui/src/shared/types/models.ts` and wrapper in `ui/src/services/commands.ts`. AC: union narrows by `type`; wrapper invokes `get_home_snapshot`.
+- [x] 3.3 Add failing store tests in `ui/src/features/home/stores/home.test.ts` for load success, error toast, and clear reset. AC: tests assert loading/error transitions.
+- [x] 3.4 Implement `ui/src/features/home/stores/home.ts`. AC: one `load()` call fetches snapshot, surfaces notifications, and clears state cleanly.
 
 ## Phase 4: Home Page Integration (RED → GREEN)
 
