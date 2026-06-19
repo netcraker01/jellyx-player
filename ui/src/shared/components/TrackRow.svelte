@@ -3,6 +3,7 @@
   import { favorites } from '@features/favorites/stores/favorites';
   import { playTrack, addToQueueAction, playNextAction } from '@shared/utils/actions';
   import { albumArtUrl } from '@shared/utils/assetUrl';
+  import HelixLogo from './HelixLogo.svelte';
   import type { Track } from '@shared/types/models';
 
   export let track: Track;
@@ -17,11 +18,7 @@
   }
 
   async function handlePlay() {
-    if (track.streamUrl) {
-      await playTrack(track.streamUrl);
-    } else if (track.localPath) {
-      await playTrack(track.localPath);
-    }
+    await playTrack(track);
   }
 
   async function handleAddToQueue() {
@@ -44,7 +41,9 @@
   {#if albumArtUrl(track.thumbnail)}
     <img class="track-thumb" src={albumArtUrl(track.thumbnail)} alt={track.title} />
   {:else}
-    <div class="track-thumb-placeholder"></div>
+    <div class="track-thumb-placeholder">
+      <HelixLogo size={20} monochrome={true} />
+    </div>
   {/if}
   <div class="track-info">
     <span class="track-title">{track.title}</span>
@@ -81,11 +80,13 @@
     gap: 0.75rem;
     padding: 0.6rem 0.5rem;
     border-bottom: 1px solid var(--border-color, #1f2937);
-    transition: background 0.15s;
+    transition: background 0.2s ease, border-color 0.2s ease;
+    border-radius: 6px;
   }
 
   .track-row:hover {
-    background: var(--bg-elevated, #1f2937);
+    background: rgba(138, 92, 255, 0.06);
+    border-bottom-color: rgba(138, 92, 255, 0.12);
   }
 
   .play-btn {
@@ -99,27 +100,34 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    transition: color 0.15s;
+    transition: color 0.15s, transform 0.1s;
   }
 
   .play-btn:hover {
-    color: var(--color-accent, #6366f1);
+    color: var(--color-helix-cyan, #00E5FF);
+    transform: scale(1.08);
   }
 
   .track-thumb {
     width: 40px;
     height: 40px;
-    border-radius: 4px;
+    border-radius: 6px;
     object-fit: cover;
     flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   }
 
   .track-thumb-placeholder {
     width: 40px;
     height: 40px;
-    border-radius: 4px;
-    background: var(--bg-elevated, #1f2937);
+    border-radius: 6px;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(0, 229, 255, 0.08), transparent 60%),
+      var(--bg-elevated, #1f2937);
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .track-info {
@@ -137,6 +145,11 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    transition: color 0.15s;
+  }
+
+  .track-row:hover .track-title {
+    color: var(--color-helix-cyan, #00E5FF);
   }
 
   .track-artist {
@@ -172,9 +185,10 @@
   .track-source {
     color: var(--text-secondary, #9ca3af);
     font-size: 0.75rem;
-    padding: 0.1rem 0.4rem;
+    padding: 0.15rem 0.5rem;
     background: var(--bg-elevated, #1f2937);
-    border-radius: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #1f2937);
   }
 
   .track-actions {
@@ -182,7 +196,7 @@
     gap: 0.25rem;
     flex-shrink: 0;
     opacity: 0;
-    transition: opacity 0.15s;
+    transition: opacity 0.2s ease;
   }
 
   .track-row:hover .track-actions {
@@ -195,20 +209,21 @@
     color: var(--text-secondary, #9ca3af);
     cursor: pointer;
     padding: 0.3rem;
-    border-radius: 4px;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: color 0.15s, background 0.15s;
+    transition: color 0.15s, background 0.15s, transform 0.1s;
   }
 
   .action-btn:hover {
-    color: var(--color-accent, #6366f1);
-    background: rgba(99, 102, 241, 0.1);
+    color: var(--color-helix-violet, #8A5CFF);
+    background: rgba(138, 92, 255, 0.12);
+    transform: scale(1.06);
   }
 
   .fav-btn:hover {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
+    color: var(--color-helix-magenta, #D946FF);
+    background: rgba(217, 70, 255, 0.12);
   }
 </style>

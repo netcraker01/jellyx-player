@@ -83,9 +83,18 @@ mod tests {
         };
         let json = serde_json::to_string(&track).unwrap();
         // Verify camelCase serialization — all fields present
-        assert!(json.contains("\"sourceId\""), "source_id should be camelCase");
-        assert!(json.contains("\"streamUrl\""), "stream_url should be camelCase");
-        assert!(json.contains("\"localPath\""), "local_path should be camelCase");
+        assert!(
+            json.contains("\"sourceId\""),
+            "source_id should be camelCase"
+        );
+        assert!(
+            json.contains("\"streamUrl\""),
+            "stream_url should be camelCase"
+        );
+        assert!(
+            json.contains("\"localPath\""),
+            "local_path should be camelCase"
+        );
     }
 
     #[test]
@@ -105,10 +114,22 @@ mod tests {
         };
         let json = serde_json::to_string(&track).unwrap();
         assert!(!json.contains("\"album\""), "None album should be absent");
-        assert!(!json.contains("\"duration\""), "None duration should be absent");
-        assert!(!json.contains("\"thumbnail\""), "None thumbnail should be absent");
-        assert!(!json.contains("\"streamUrl\""), "None stream_url should be absent");
-        assert!(!json.contains("\"localPath\""), "None local_path should be absent");
+        assert!(
+            !json.contains("\"duration\""),
+            "None duration should be absent"
+        );
+        assert!(
+            !json.contains("\"thumbnail\""),
+            "None thumbnail should be absent"
+        );
+        assert!(
+            !json.contains("\"streamUrl\""),
+            "None stream_url should be absent"
+        );
+        assert!(
+            !json.contains("\"localPath\""),
+            "None local_path should be absent"
+        );
     }
 
     #[test]

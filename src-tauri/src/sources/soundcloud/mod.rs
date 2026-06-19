@@ -25,9 +25,7 @@ impl SoundCloudResolver {
 
     /// Check if yt-dlp is available on PATH.
     fn check_yt_dlp() -> Result<(), SourceError> {
-        let result = Command::new("yt-dlp")
-            .arg("--version")
-            .output();
+        let result = Command::new("yt-dlp").arg("--version").output();
 
         match result {
             Ok(_) => Ok(()),
@@ -42,34 +40,46 @@ impl SoundCloudResolver {
         let value: serde_json::Value = serde_json::from_str(json_str).ok()?;
 
         // SoundCloud tracks may use "id" as numeric or string
-        let source_id = value.get("id")
+        let source_id = value
+            .get("id")
             .and_then(|v| v.as_str().map(|s| s.to_string()))
-            .or_else(|| value.get("id").and_then(|v| v.as_u64().map(|n| n.to_string())))
-            .or_else(|| value.get("url").and_then(|v| v.as_str().map(|s| s.to_string())))
+            .or_else(|| {
+                value
+                    .get("id")
+                    .and_then(|v| v.as_u64().map(|n| n.to_string()))
+            })
+            .or_else(|| {
+                value
+                    .get("url")
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+            })
             .unwrap_or_default();
 
         let title = value.get("title")?.as_str()?.to_string();
 
-        let artist = value.get("artist")
+        let artist = value
+            .get("artist")
             .or_else(|| value.get("uploader"))
             .or_else(|| value.get("channel"))
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown")
             .to_string();
 
-        let duration = value.get("duration")
-            .and_then(|v| v.as_f64());
+        let duration = value.get("duration").and_then(|v| v.as_f64());
 
-        let thumbnail = value.get("thumbnail")
+        let thumbnail = value
+            .get("thumbnail")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let album = value.get("album")
+        let album = value
+            .get("album")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
         // webpage_url for SoundCloud is the full track URL
-        let webpage_url = value.get("webpage_url")
+        let webpage_url = value
+            .get("webpage_url")
             .or_else(|| value.get("url"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
@@ -114,7 +124,8 @@ impl SourceResolver for SoundCloudResolver {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(SourceError::NetworkError(format!(
-                "yt-dlp SoundCloud search failed: {}", stderr.trim()
+                "yt-dlp SoundCloud search failed: {}",
+                stderr.trim()
             )));
         }
 
@@ -157,7 +168,8 @@ impl SourceResolver for SoundCloudResolver {
         if !url_output.status.success() {
             let stderr = String::from_utf8_lossy(&url_output.stderr);
             return Err(SourceError::ResolveError(format!(
-                "yt-dlp resolve failed: {}", stderr.trim()
+                "yt-dlp resolve failed: {}",
+                stderr.trim()
             )));
         }
 

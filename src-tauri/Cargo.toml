@@ -17,7 +17,7 @@ tauri = { version = "2", features = ["devtools", "protocol-asset", "test"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-symphonia = "0.6"
+symphonia = { version = "0.6", features = ["mp3"] }
 symphonia-core = "0.6"
 symphonia-bundle-mp3 = "0.6"
 symphonia-bundle-flac = "0.6"

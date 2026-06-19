@@ -1,8 +1,9 @@
 <script lang="ts">
   import { Heart } from 'lucide-svelte';
   import { t } from '@i18n';
-  import { navigate } from 'svelte-routing';
+  import { navigate } from '@app/router/navigation';
   import { albumArtUrl } from '@shared/utils/assetUrl';
+  import HelixLogo from '@shared/components/HelixLogo.svelte';
   import { normalizeArtistId, normalizeAlbumId } from '@shared/utils/ids';
   import { isCurrentTrackFavorited } from '../stores/player';
   import { favorites } from '@features/favorites/stores/favorites';
@@ -37,7 +38,9 @@
       {#if track.thumbnail}
         <img class="album-art" src={albumArtUrl(track.thumbnail)} alt={track.title} />
       {:else}
-        <div class="album-art-placeholder"></div>
+        <div class="album-art-placeholder">
+          <HelixLogo size={72} monochrome={true} />
+        </div>
       {/if}
       <div class="track-details">
         <div class="title-row">
@@ -85,18 +88,43 @@
   }
 
   .album-art {
-    width: 240px;
-    height: 240px;
-    border-radius: 8px;
+    width: 260px;
+    height: 260px;
+    border-radius: 16px;
     object-fit: cover;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(138, 92, 255, 0.15);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .album-art:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 16px 48px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(138, 92, 255, 0.25);
   }
 
   .album-art-placeholder {
-    width: 240px;
-    height: 240px;
-    border-radius: 8px;
-    background: var(--bg-elevated, #1f2937);
+    width: 260px;
+    height: 260px;
+    border-radius: 16px;
+    background:
+      radial-gradient(circle at 30% 30%, rgba(0, 229, 255, 0.08), transparent 60%),
+      var(--bg-elevated, #1f2937);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .album-art-placeholder::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(138, 92, 255, 0.06) 0%, transparent 60%);
   }
 
   .track-details {
@@ -114,9 +142,10 @@
 
   .track-title {
     color: var(--text-primary, #e0e0e0);
-    font-size: 1.25rem;
-    font-weight: 600;
+    font-size: 1.35rem;
+    font-weight: 700;
     margin: 0;
+    letter-spacing: -0.01em;
   }
 
   .favorite-btn {
@@ -133,11 +162,11 @@
   }
 
   .favorite-btn:hover {
-    color: var(--color-accent, #6366f1);
+    color: var(--color-helix-magenta, #D946FF);
   }
 
   .favorite-btn.active {
-    color: var(--color-favorite, #ef4444);
+    color: var(--color-helix-magenta, #D946FF);
   }
 
   .favorite-btn:active {
@@ -156,11 +185,12 @@
     padding: 0;
     cursor: pointer;
     text-decoration: underline;
+    text-underline-offset: 2px;
   }
 
   .track-artist.link:hover,
   .track-album.link:hover {
-    color: var(--color-accent, #6366f1);
+    color: var(--color-helix-cyan, #00E5FF);
   }
 
   .track-album {
@@ -173,9 +203,10 @@
     margin-top: 0.25rem;
     color: var(--text-secondary, #9ca3af);
     font-size: 0.75rem;
-    padding: 0.15rem 0.5rem;
+    padding: 0.2rem 0.6rem;
     background: var(--bg-elevated, #1f2937);
-    border-radius: 4px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color, #1f2937);
   }
 
   .empty-state {

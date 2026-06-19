@@ -19,11 +19,7 @@
   }
 
   async function handlePlay(track: Track) {
-    if (track.streamUrl) {
-      await playTrack(track.streamUrl);
-    } else if (track.localPath) {
-      await playTrack(track.localPath);
-    }
+    await playTrack(track);
   }
 </script>
 

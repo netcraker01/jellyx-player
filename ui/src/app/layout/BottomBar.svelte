@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize, Minimize, Shuffle, Repeat, Repeat1 } from 'lucide-svelte';
   import { t } from '@i18n';
+  import HelixLogo from '@shared/components/HelixLogo.svelte';
   import {
     currentTrack,
     isPlaying,
@@ -58,7 +59,9 @@
     {#if $currentTrack?.thumbnail}
       <img class="track-thumbnail" src={$currentTrack.thumbnail} alt="Album art" />
     {:else}
-      <div class="track-placeholder"></div>
+      <div class="track-placeholder">
+        <HelixLogo size={20} monochrome={true} />
+      </div>
     {/if}
     <div class="track-text">
       <span class="track-title">{$currentTrack?.title ?? $t('player.no_track')}</span>
@@ -181,6 +184,9 @@
     border-radius: 4px;
     background: var(--bg-elevated, #1f2937);
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .track-text {

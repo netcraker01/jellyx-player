@@ -49,10 +49,7 @@ impl<R: Runtime> PlaybackEventEmitter<R> {
 
     /// Emit a progress-tick event with position and duration.
     pub fn emit_progress_tick(&self, position: f64, duration: f64) -> Result<(), IPCError> {
-        let tick = ProgressTick {
-            position,
-            duration,
-        };
+        let tick = ProgressTick { position, duration };
         self.app
             .emit(EVENT_PROGRESS_TICK, tick)
             .map_err(|e| IPCError::CommandFailed(e.to_string()))

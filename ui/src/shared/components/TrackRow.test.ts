@@ -53,7 +53,7 @@ describe('TrackRow', () => {
     expect(container.textContent).toContain('Daft Punk');
   });
 
-  it('calls playTrack when play button is clicked', async () => {
+  it('calls playTrack with the full track when play button is clicked', async () => {
     mocks.playTrack.mockResolvedValueOnce(undefined);
     const { container } = render(TrackRow, { props: { track: sampleTrack } });
 
@@ -61,7 +61,7 @@ describe('TrackRow', () => {
     expect(playBtn).toBeTruthy();
     await fireEvent.click(playBtn!);
 
-    expect(mocks.playTrack).toHaveBeenCalledWith('https://stream.test/track.mp3');
+    expect(mocks.playTrack).toHaveBeenCalledWith(sampleTrack);
   });
 
   it('calls addToQueueAction when queue button is clicked', async () => {

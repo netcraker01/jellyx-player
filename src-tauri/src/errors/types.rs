@@ -283,7 +283,11 @@ mod tests {
     fn audio_error_decode_maps_to_playback_error() {
         let err = AppError::from(AudioError::DecodeError("corrupt frame".into()));
         assert_eq!(err.code, "PLAYBACK_ERROR");
-        assert!(err.details.as_ref().unwrap().contains("decode: corrupt frame"));
+        assert!(err
+            .details
+            .as_ref()
+            .unwrap()
+            .contains("decode: corrupt frame"));
     }
 
     #[test]
@@ -381,7 +385,11 @@ mod tests {
     fn playback_error_decode_failed() {
         let err = AppError::from(PlaybackError::DecodeFailed("corrupt header".into()));
         assert_eq!(err.code, "PLAYBACK_ERROR");
-        assert!(err.details.as_ref().unwrap().contains("decode: corrupt header"));
+        assert!(err
+            .details
+            .as_ref()
+            .unwrap()
+            .contains("decode: corrupt header"));
     }
 
     #[test]
@@ -395,6 +403,10 @@ mod tests {
     fn audio_error_decode_failed() {
         let err = AppError::from(AudioError::DecodeFailed("codec error".into()));
         assert_eq!(err.code, "PLAYBACK_ERROR");
-        assert!(err.details.as_ref().unwrap().contains("decode: codec error"));
+        assert!(err
+            .details
+            .as_ref()
+            .unwrap()
+            .contains("decode: codec error"));
     }
 }

@@ -17,6 +17,7 @@ describe('i18n route keys', () => {
     expect(en.routes.search).toBe('Search');
     expect(en.routes.favorites).toBe('Favorites');
     expect(en.routes.now_playing).toBe('Now Playing');
+    expect(en.routes.library).toBe('Library');
     expect(en.routes.settings).toBe('Settings');
   });
 
@@ -26,6 +27,7 @@ describe('i18n route keys', () => {
     expect(es.routes.search).toBe('Buscar');
     expect(es.routes.favorites).toBe('Favoritos');
     expect(es.routes.now_playing).toBe('Reproduciendo');
+    expect(es.routes.library).toBe('Biblioteca');
     expect(es.routes.settings).toBe('Configuración');
   });
 

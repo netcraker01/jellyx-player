@@ -121,11 +121,26 @@ mod tests {
             repeat_mode: RepeatMode::All,
         };
         let json = serde_json::to_string(&qs).unwrap();
-        assert!(json.contains("\"currentIndex\""), "current_index should serialize as currentIndex");
-        assert!(json.contains("\"tracks\""), "tracks should serialize as tracks");
-        assert!(json.contains("\"shuffle\""), "shuffle should serialize as shuffle");
-        assert!(json.contains("\"playedIndices\""), "played_indices should serialize as playedIndices");
-        assert!(json.contains("\"repeatMode\""), "repeat_mode should serialize as repeatMode");
+        assert!(
+            json.contains("\"currentIndex\""),
+            "current_index should serialize as currentIndex"
+        );
+        assert!(
+            json.contains("\"tracks\""),
+            "tracks should serialize as tracks"
+        );
+        assert!(
+            json.contains("\"shuffle\""),
+            "shuffle should serialize as shuffle"
+        );
+        assert!(
+            json.contains("\"playedIndices\""),
+            "played_indices should serialize as playedIndices"
+        );
+        assert!(
+            json.contains("\"repeatMode\""),
+            "repeat_mode should serialize as repeatMode"
+        );
     }
 
     #[test]

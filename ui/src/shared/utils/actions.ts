@@ -4,11 +4,16 @@
  */
 import * as commands from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
+import type { Track } from '@shared/types/models';
 
-/** Play a track by its stream URL or local path. */
-export async function playTrack(url: string): Promise<void> {
+/** Play a track, dispatching to the correct backend command by source. */
+export async function playTrack(track: Track): Promise<void> {
   try {
-    await commands.play(url);
+    if (track.localPath) {
+      await commands.playLocal(track.localPath);
+    } else if (track.streamUrl) {
+      await commands.play(track.streamUrl);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });

@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   favoritedValue: false,
 }));
 
-vi.mock('svelte-routing', () => ({
+vi.mock('@app/router/navigation', () => ({
   navigate: mocks.navigate,
 }));
 

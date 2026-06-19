@@ -34,7 +34,10 @@ mod tests {
         let deserialized: Artist = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.id, "artist-1");
         assert_eq!(deserialized.source, Source::YouTube);
-        assert_eq!(deserialized.thumbnail, Some("https://img.test/artist.jpg".to_string()));
+        assert_eq!(
+            deserialized.thumbnail,
+            Some("https://img.test/artist.jpg".to_string())
+        );
     }
 
     #[test]
@@ -47,7 +50,13 @@ mod tests {
             source_id: "local-1".to_string(),
         };
         let json = serde_json::to_string(&artist).unwrap();
-        assert!(json.contains("\"sourceId\""), "source_id should be camelCase");
-        assert!(!json.contains("\"thumbnail\""), "None thumbnail should be absent");
+        assert!(
+            json.contains("\"sourceId\""),
+            "source_id should be camelCase"
+        );
+        assert!(
+            !json.contains("\"thumbnail\""),
+            "None thumbnail should be absent"
+        );
     }
 }

@@ -58,7 +58,10 @@ mod tests {
             tracks: vec![],
         };
         let json = serde_json::to_string(&album).unwrap();
-        assert!(json.contains("\"sourceId\""), "source_id should be camelCase");
+        assert!(
+            json.contains("\"sourceId\""),
+            "source_id should be camelCase"
+        );
         assert!(!json.contains("\"cover\""), "None cover should be absent");
         assert!(!json.contains("\"year\""), "None year should be absent");
     }

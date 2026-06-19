@@ -19,9 +19,9 @@
 
 #[cfg(feature = "integration")]
 mod integration {
-    use std::sync::Arc;
     use helix_lib::persistence::db::Database;
     use helix_lib::sources::local::ScannerService;
+    use std::sync::Arc;
 
     /// Verify that scanning a folder with embedded art populates Track.thumbnail.
     #[test]
@@ -45,7 +45,10 @@ mod integration {
 
         // The serialized track JSON should contain a non-null thumbnail
         let json = &entry.unwrap().track_json;
-        assert!(json.contains("\"thumbnail\""), "track with art should have thumbnail field");
+        assert!(
+            json.contains("\"thumbnail\""),
+            "track with art should have thumbnail field"
+        );
     }
 
     /// Verify that scanning a folder without embedded art leaves Track.thumbnail as None.
@@ -71,6 +74,9 @@ mod integration {
         // The serialized track JSON should NOT contain a thumbnail field
         // (skip_serializing_if = "Option::is_none" removes it)
         let json = &entry.unwrap().track_json;
-        assert!(!json.contains("\"thumbnail\""), "track without art should not have thumbnail");
+        assert!(
+            !json.contains("\"thumbnail\""),
+            "track without art should not have thumbnail"
+        );
     }
 }

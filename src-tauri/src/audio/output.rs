@@ -13,7 +13,7 @@
 //!
 //! Mobile platforms will have their own implementations behind the `AudioBackend` trait.
 
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use super::pipeline::PcmBusSubscriber;
@@ -74,24 +74,60 @@ impl CpalBackend {
         *guard = Some(sub);
     }
 
+    /// Choose the best output device, avoiding obvious virtual/loopback sinks.
+    fn select_output_device(host: &cpal::Host) -> Result<cpal::Device, AudioError> {
+        use cpal::traits::{DeviceTrait, HostTrait};
+
+        let default = host.default_output_device();
+
+        if let Some(ref dev) = default {
+            if let Ok(name) = dev.name() {
+                let lowered = name.to_lowercase();
+                let is_suspicious = lowered.contains("loopback")
+                    || lowered.contains("monitor")
+                    || lowered.contains("null")
+                    || lowered.contains("dummy");
+                if !is_suspicious {
+                    return Ok(dev.clone());
+                }
+            }
+        }
+
+        // Default looks suspicious or is missing — scan for a better candidate.
+        let devices = host.output_devices().map_err(|e| {
+            AudioError::DeviceError(format!("Failed to enumerate output devices: {}", e))
+        })?;
+
+        for dev in devices {
+            if let Ok(name) = dev.name() {
+                let lowered = name.to_lowercase();
+                if !lowered.contains("loopback")
+                    && !lowered.contains("monitor")
+                    && !lowered.contains("null")
+                    && !lowered.contains("dummy")
+                {
+                    return Ok(dev);
+                }
+            }
+        }
+
+        // Nothing better found; fall back to default (or fail cleanly).
+        default
+            .ok_or_else(|| AudioError::NoAudioDevice("No suitable output device found".to_string()))
+    }
+
     /// Start audio playback by creating a cpal stream that reads from the subscriber.
     fn start_stream(&self, sample_rate: u32, channels: u16) -> Result<(), AudioError> {
-        use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+        use cpal::traits::{DeviceTrait, StreamTrait};
         use cpal::{SampleFormat, StreamConfig};
 
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or_else(|| {
-                AudioError::NoAudioDevice("No default output device found".to_string())
-            })?;
+        let device = Self::select_output_device(&host)?;
 
         // Find a supported config with f32 samples
         let supported_config = device
             .supported_output_configs()
-            .map_err(|e| {
-                AudioError::DeviceError(format!("Failed to query device configs: {}", e))
-            })?
+            .map_err(|e| AudioError::DeviceError(format!("Failed to query device configs: {}", e)))?
             .find(|c| {
                 c.channels() == channels
                     && c.sample_format() == SampleFormat::F32
@@ -108,7 +144,7 @@ impl CpalBackend {
             .ok_or_else(|| AudioError::UnsupportedFormat)?;
 
         let config: StreamConfig = supported_config
-            .with_max_sample_rate()
+            .with_sample_rate(cpal::SampleRate(sample_rate))
             .config();
 
         let actual_channels = config.channels as usize;
@@ -137,23 +173,23 @@ impl CpalBackend {
                                 s.pcm_buffer.extend_from_slice(&frame);
                             }
 
-                            // Fill output buffer from accumulated PCM data
-                            let consumed = data.len().min(s.pcm_buffer.len());
-                            for (i, sample) in data.iter_mut().enumerate() {
-                                if i < consumed {
-                                    *sample = s.pcm_buffer[i] * vol;
-                                } else {
-                                    *sample = 0.0; // Silence when no data
-                                }
-                            }
-
-                            // Remove consumed samples
+                            // Map source samples to output buffer with channel conversion
+                            let source_channels = channels as usize;
+                            let consumed = CpalBackend::map_channels(
+                                &s.pcm_buffer,
+                                source_channels,
+                                data,
+                                actual_channels,
+                                vol,
+                            );
                             s.pcm_buffer.drain(..consumed);
 
-                            // Update position estimate
+                            // Update position estimate (only while playing, so pause keeps position)
                             let seconds_consumed = consumed as f64
-                                / (actual_channels as f64 * config.sample_rate.0 as f64);
-                            s.position += seconds_consumed;
+                                / (source_channels as f64 * config.sample_rate.0 as f64);
+                            if s.playback_state != PlaybackState::Paused {
+                                s.position += seconds_consumed;
+                            }
                         } else {
                             // No subscriber — output silence
                             data.fill(0.0);
@@ -167,13 +203,11 @@ impl CpalBackend {
                 },
                 None, // None = no timeout
             )
-            .map_err(|e| {
-                AudioError::DeviceError(format!("Failed to build audio stream: {}", e))
-            })?;
+            .map_err(|e| AudioError::DeviceError(format!("Failed to build audio stream: {}", e)))?;
 
-        stream.play().map_err(|e| {
-            AudioError::DeviceError(format!("Failed to start audio stream: {}", e))
-        })?;
+        stream
+            .play()
+            .map_err(|e| AudioError::DeviceError(format!("Failed to start audio stream: {}", e)))?;
 
         // Store the stream so it stays alive
         // SAFETY: This is called from the same thread context where the stream was created.
@@ -188,6 +222,47 @@ impl CpalBackend {
         }
 
         Ok(())
+    }
+
+    /// Map interleaved source samples to interleaved output samples with channel conversion.
+    ///
+    /// Handles upmix (duplicate last source channel) and downmix (keep first N channels).
+    /// Returns the number of **source** samples consumed.
+    fn map_channels(
+        source: &[f32],
+        source_channels: usize,
+        output: &mut [f32],
+        output_channels: usize,
+        volume: f32,
+    ) -> usize {
+        let output_frames = output.len() / output_channels;
+        let source_frames = source.len() / source_channels;
+        let frames = output_frames.min(source_frames);
+
+        for frame in 0..frames {
+            let src_base = frame * source_channels;
+            let dst_base = frame * output_channels;
+
+            // Copy overlapping channels (passthrough or downmix)
+            for ch in 0..output_channels.min(source_channels) {
+                output[dst_base + ch] = source[src_base + ch] * volume;
+            }
+
+            // Upmix: duplicate last source channel to remaining outputs
+            if output_channels > source_channels {
+                let last = source[src_base + source_channels - 1] * volume;
+                for ch in source_channels..output_channels {
+                    output[dst_base + ch] = last;
+                }
+            }
+        }
+
+        // Zero-fill any remaining output frames
+        for sample in output.iter_mut().skip(frames * output_channels) {
+            *sample = 0.0;
+        }
+
+        frames * source_channels
     }
 
     /// Stop the current audio stream.
@@ -212,12 +287,17 @@ impl AudioBackend for CpalBackend {
         Err(AudioError::PlatformNotSupported)
     }
 
-    fn play_local(&mut self, _path: &PathBuf) -> Result<(), AudioError> {
+    fn play_local(&mut self, path: &Path) -> Result<(), AudioError> {
         // The caller (PlaybackService) should set up the decoder thread
         // and PcmBus before calling this. We start the cpal stream.
-        // Default to 44100 Hz stereo — the actual sample rate comes from
-        // the decoder, which is set up by PlaybackService.
-        self.start_stream(44100, 2)
+        // The actual sample rate and channels come from the decoder metadata.
+        use crate::audio::decoder::SymphoniaDecoder;
+
+        let decoder = SymphoniaDecoder::open(path.to_string_lossy().as_ref())?;
+        let sample_rate = decoder.sample_rate();
+        let channels = decoder.channels();
+
+        self.start_stream(sample_rate, channels)
     }
 
     fn pause(&mut self) -> Result<(), AudioError> {
@@ -225,9 +305,9 @@ impl AudioBackend for CpalBackend {
 
         let stream_guard = self.stream_drop.lock().unwrap();
         if let Some(ref stream) = *stream_guard {
-            stream.pause().map_err(|e| {
-                AudioError::DeviceError(format!("Failed to pause stream: {}", e))
-            })?;
+            stream
+                .pause()
+                .map_err(|e| AudioError::DeviceError(format!("Failed to pause stream: {}", e)))?;
         }
 
         let mut s = self.state.lock().unwrap();
@@ -241,9 +321,9 @@ impl AudioBackend for CpalBackend {
 
         let stream_guard = self.stream_drop.lock().unwrap();
         if let Some(ref stream) = *stream_guard {
-            stream.play().map_err(|e| {
-                AudioError::DeviceError(format!("Failed to resume stream: {}", e))
-            })?;
+            stream
+                .play()
+                .map_err(|e| AudioError::DeviceError(format!("Failed to resume stream: {}", e)))?;
         }
 
         let mut s = self.state.lock().unwrap();
@@ -257,9 +337,18 @@ impl AudioBackend for CpalBackend {
     }
 
     fn seek(&mut self, position: f64) -> Result<(), AudioError> {
-        // Seeking is handled at the decoder level — PlaybackService coordinates
         let mut s = self.state.lock().unwrap();
         s.position = position;
+        s.pcm_buffer.clear();
+        drop(s);
+
+        // Drain any pending frames from the PcmBus subscriber so stale
+        // decoded audio is not played after the seek.
+        let sub_guard = self.subscriber.lock().unwrap();
+        if let Some(ref sub) = *sub_guard {
+            while sub.try_recv().is_some() {}
+        }
+
         Ok(())
     }
 
@@ -275,5 +364,116 @@ impl AudioBackend for CpalBackend {
 
     fn state(&self) -> PlaybackState {
         self.state.lock().unwrap().playback_state.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_channels_passthrough_stereo() {
+        let source = vec![0.1_f32, 0.2, 0.3, 0.4];
+        let mut output = vec![0.0_f32; 4];
+        let consumed = CpalBackend::map_channels(&source, 2, &mut output, 2, 1.0);
+        assert_eq!(consumed, 4);
+        assert_eq!(output, vec![0.1, 0.2, 0.3, 0.4]);
+    }
+
+    #[test]
+    fn map_channels_upmix_mono_to_stereo() {
+        let source = vec![0.5_f32, 0.6];
+        let mut output = vec![0.0_f32; 4];
+        let consumed = CpalBackend::map_channels(&source, 1, &mut output, 2, 1.0);
+        assert_eq!(consumed, 2);
+        assert_eq!(output, vec![0.5, 0.5, 0.6, 0.6]);
+    }
+
+    #[test]
+    fn map_channels_downmix_stereo_to_mono() {
+        let source = vec![0.1_f32, 0.2, 0.3, 0.4];
+        let mut output = vec![0.0_f32; 2];
+        let consumed = CpalBackend::map_channels(&source, 2, &mut output, 1, 1.0);
+        assert_eq!(consumed, 4);
+        assert_eq!(output, vec![0.1, 0.3]);
+    }
+
+    #[test]
+    fn map_channels_applies_volume() {
+        let source = vec![1.0_f32, 0.5];
+        let mut output = vec![0.0_f32; 2];
+        let consumed = CpalBackend::map_channels(&source, 1, &mut output, 1, 0.5);
+        assert_eq!(consumed, 2);
+        assert_eq!(output, vec![0.5, 0.25]);
+    }
+
+    #[test]
+    fn map_channels_zero_fills_when_source_insufficient() {
+        let source = vec![0.5_f32];
+        let mut output = vec![-1.0_f32; 4];
+        let consumed = CpalBackend::map_channels(&source, 1, &mut output, 2, 1.0);
+        assert_eq!(consumed, 1);
+        assert_eq!(output, vec![0.5, 0.5, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn map_channels_empty_source_outputs_silence() {
+        let source: Vec<f32> = vec![];
+        let mut output = vec![-1.0_f32; 4];
+        let consumed = CpalBackend::map_channels(&source, 2, &mut output, 2, 1.0);
+        assert_eq!(consumed, 0);
+        assert_eq!(output, vec![0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn map_channels_upmix_5_1_to_stereo_keeps_first_two() {
+        let source = vec![0.1_f32, 0.2, 0.3, 0.4, 0.5, 0.6];
+        let mut output = vec![0.0_f32; 2];
+        let consumed = CpalBackend::map_channels(&source, 6, &mut output, 2, 1.0);
+        assert_eq!(consumed, 6);
+        assert_eq!(output, vec![0.1, 0.2]);
+    }
+
+    #[test]
+    fn map_channels_downmix_stereo_to_5_1_duplicates_last() {
+        let source = vec![0.7_f32, 0.8];
+        let mut output = vec![0.0_f32; 6];
+        let consumed = CpalBackend::map_channels(&source, 2, &mut output, 6, 1.0);
+        assert_eq!(consumed, 2);
+        assert_eq!(output, vec![0.7, 0.8, 0.8, 0.8, 0.8, 0.8]);
+    }
+
+    #[test]
+    fn seek_clears_pcm_buffer_and_drains_subscriber() {
+        let (producer, subscriber) = crate::audio::pipeline::PcmBus::new(44100, 2);
+        let mut backend = CpalBackend::new();
+        backend.set_subscriber(subscriber);
+
+        // Seed the internal buffer and subscriber channel
+        {
+            let mut s = backend.state.lock().unwrap();
+            s.pcm_buffer.extend_from_slice(&[0.1_f32, 0.2, 0.3, 0.4]);
+        }
+        producer.send(vec![0.5_f32, 0.6, 0.7, 0.8]).unwrap();
+
+        backend.seek(10.0).unwrap();
+
+        let s = backend.state.lock().unwrap();
+        assert!(
+            s.pcm_buffer.is_empty(),
+            "PCM buffer must be cleared after seek"
+        );
+        assert!(
+            (s.position - 10.0).abs() < f64::EPSILON,
+            "Position must update after seek"
+        );
+
+        let sub_guard = backend.subscriber.lock().unwrap();
+        if let Some(ref sub) = *sub_guard {
+            assert!(
+                sub.try_recv().is_none(),
+                "Subscriber must be drained after seek"
+            );
+        }
     }
 }

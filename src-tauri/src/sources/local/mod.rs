@@ -7,4 +7,4 @@ pub mod resolver;
 pub mod scanner;
 
 pub use resolver::LocalResolver;
-pub use scanner::{ScannerService, ScanResult};
+pub use scanner::{ScanResult, ScannerService};

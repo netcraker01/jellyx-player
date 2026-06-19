@@ -7,9 +7,9 @@ pub mod fft_bridge;
 
 #[allow(dead_code)]
 pub enum VisualizerMode {
-    Spectrum,    // Classic bars
-    Oscilloscope, // Waveform
-    AlbumArt,    // Album art + glow
+    Spectrum,       // Classic bars
+    Oscilloscope,   // Waveform
+    AlbumArt,       // Album art + glow
     Shader(String), // Custom GLSL shader
 }
 

@@ -16,10 +16,12 @@ vi.mock('@services/commands', async () => {
   return {
     ...actual,
     getHomeSnapshot: vi.fn(),
+    getHomeRecommendations: vi.fn(() => Promise.resolve([])),
   };
 });
 
 const mockedGetHomeSnapshot = vi.mocked(commands.getHomeSnapshot);
+const mockedGetHomeRecommendations = vi.mocked(commands.getHomeRecommendations);
 
 function createMockSnapshot(): commands.HomeSnapshot {
   return {
@@ -54,6 +56,11 @@ function createMockSnapshot(): commands.HomeSnapshot {
   };
 }
 
+// Flush pending promises so background .then() callbacks run.
+async function flushPromises() {
+  return new Promise<void>((resolve) => setTimeout(resolve, 0));
+}
+
 describe('homeStore', () => {
   beforeEach(() => {
     homeStore.clear();
@@ -69,7 +76,8 @@ describe('homeStore', () => {
 
   it('loads snapshot data and clears loading/error state', async () => {
     const snapshot = createMockSnapshot();
-    mockedGetHomeSnapshot.mockResolvedValueOnce(snapshot);
+    mockedGetHomeSnapshot.mockResolvedValueOnce({ ...snapshot, recommendations: [] });
+    mockedGetHomeRecommendations.mockResolvedValueOnce(snapshot.recommendations);
 
     const promise = homeStore.load();
     expect(get(homeLoading)).toBe(true);
@@ -81,6 +89,8 @@ describe('homeStore', () => {
     expect(state).not.toBeNull();
     expect(state!.recentlyPlayed).toHaveLength(1);
     expect(state!.recentlyPlayed[0].track.title).toBe('Recent Track');
+    // Recommendations arrive asynchronously after the main snapshot.
+    await flushPromises();
     expect(state!.recommendations).toHaveLength(1);
     expect(state!.recommendations[0].type).toBe('Track');
     expect(get(homeLoading)).toBe(false);

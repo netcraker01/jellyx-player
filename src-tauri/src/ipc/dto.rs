@@ -292,7 +292,10 @@ mod tests {
         assert!(json.contains("\"artists\""));
         assert!(json.contains("\"albums\""));
         assert!(json.contains("\"trackCount\""));
-        assert!(!json.contains("\"thumbnail\""), "None thumbnail should be skipped");
+        assert!(
+            !json.contains("\"thumbnail\""),
+            "None thumbnail should be skipped"
+        );
     }
 
     #[test]
@@ -334,7 +337,10 @@ mod tests {
         };
         let json = serde_json::to_string(&item).unwrap();
         assert!(json.contains("\"type\":\"Track\""), "type should be Track");
-        assert!(json.contains("\"reason\":\"From your favorites\""), "reason should be present");
+        assert!(
+            json.contains("\"reason\":\"From your favorites\""),
+            "reason should be present"
+        );
     }
 
     #[test]
@@ -347,10 +353,22 @@ mod tests {
             reason: "Because you listened to Test Artist".to_string(),
         };
         let json = serde_json::to_string(&item).unwrap();
-        assert!(json.contains("\"type\":\"Artist\""), "type should be Artist");
-        assert!(json.contains("\"trackCount\":5"), "track_count should be camelCase");
-        assert!(!json.contains("\"track_count\""), "snake_case track_count should not appear");
-        assert!(json.contains("\"reason\":\"Because you listened to Test Artist\""), "reason should be present");
+        assert!(
+            json.contains("\"type\":\"Artist\""),
+            "type should be Artist"
+        );
+        assert!(
+            json.contains("\"trackCount\":5"),
+            "track_count should be camelCase"
+        );
+        assert!(
+            !json.contains("\"track_count\""),
+            "snake_case track_count should not appear"
+        );
+        assert!(
+            json.contains("\"reason\":\"Because you listened to Test Artist\""),
+            "reason should be present"
+        );
     }
 
     #[test]
@@ -366,12 +384,30 @@ mod tests {
         let json = serde_json::to_string(&item).unwrap();
         assert!(json.contains("\"type\":\"Album\""), "type should be Album");
         assert!(json.contains("\"id\":\"album-1\""), "id should be present");
-        assert!(json.contains("\"title\":\"Test Album\""), "title should be present");
-        assert!(json.contains("\"artist\":\"Test Artist\""), "artist should be present");
-        assert!(json.contains("\"cover\":\"https://img.test/cover.jpg\""), "cover should be present");
-        assert!(json.contains("\"trackCount\":10"), "track_count should be camelCase");
-        assert!(!json.contains("\"track_count\""), "snake_case track_count should not appear");
-        assert!(json.contains("\"reason\":\"Based on your listening\""), "reason should be present");
+        assert!(
+            json.contains("\"title\":\"Test Album\""),
+            "title should be present"
+        );
+        assert!(
+            json.contains("\"artist\":\"Test Artist\""),
+            "artist should be present"
+        );
+        assert!(
+            json.contains("\"cover\":\"https://img.test/cover.jpg\""),
+            "cover should be present"
+        );
+        assert!(
+            json.contains("\"trackCount\":10"),
+            "track_count should be camelCase"
+        );
+        assert!(
+            !json.contains("\"track_count\""),
+            "snake_case track_count should not appear"
+        );
+        assert!(
+            json.contains("\"reason\":\"Based on your listening\""),
+            "reason should be present"
+        );
     }
 
     #[test]
@@ -393,8 +429,14 @@ mod tests {
         };
         let artist_json = serde_json::to_string(&artist).unwrap();
         let album_json = serde_json::to_string(&album).unwrap();
-        assert!(!artist_json.contains("\"thumbnail\""), "None thumbnail should be skipped for artist");
-        assert!(!album_json.contains("\"cover\""), "None cover should be skipped for album");
+        assert!(
+            !artist_json.contains("\"thumbnail\""),
+            "None thumbnail should be skipped for artist"
+        );
+        assert!(
+            !album_json.contains("\"cover\""),
+            "None cover should be skipped for album"
+        );
     }
 
     #[test]
@@ -413,9 +455,18 @@ mod tests {
             recommendations: vec![item],
         };
         let json = serde_json::to_string(&snapshot).unwrap();
-        assert!(json.contains("\"recentlyPlayed\""), "recently_played should be camelCase");
-        assert!(json.contains("\"recommendations\""), "recommendations should be present");
-        assert!(!json.contains("\"recently_played\""), "snake_case recently_played should not appear");
+        assert!(
+            json.contains("\"recentlyPlayed\""),
+            "recently_played should be camelCase"
+        );
+        assert!(
+            json.contains("\"recommendations\""),
+            "recommendations should be present"
+        );
+        assert!(
+            !json.contains("\"recently_played\""),
+            "snake_case recently_played should not appear"
+        );
     }
 
     #[test]
@@ -425,7 +476,13 @@ mod tests {
             recommendations: vec![],
         };
         let json = serde_json::to_string(&snapshot).unwrap();
-        assert!(json.contains("\"recentlyPlayed\":[]"), "empty recentlyPlayed should serialize as []");
-        assert!(json.contains("\"recommendations\":[]"), "empty recommendations should serialize as []");
+        assert!(
+            json.contains("\"recentlyPlayed\":[]"),
+            "empty recentlyPlayed should serialize as []"
+        );
+        assert!(
+            json.contains("\"recommendations\":[]"),
+            "empty recommendations should serialize as []"
+        );
     }
 }

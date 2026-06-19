@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Disc, Mic2, Music } from 'lucide-svelte';
-  import { navigate } from 'svelte-routing';
+  import { navigate } from '@app/router/navigation';
   import TrackRow from '@shared/components/TrackRow.svelte';
   import ArtistCard from '@shared/components/ArtistCard.svelte';
   import AlbumCard from '@shared/components/AlbumCard.svelte';

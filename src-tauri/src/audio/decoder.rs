@@ -9,10 +9,10 @@ use std::path::Path;
 
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::errors::Error as SymphoniaError;
+use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::formats::probe::Hint;
 use symphonia::core::units::Time;
 use symphonia_core::codecs::audio::AudioDecoder;
 use symphonia_core::formats::TrackType;
@@ -173,10 +173,7 @@ impl SymphoniaDecoder {
                     continue;
                 }
                 Err(e) => {
-                    return Err(AudioError::DecodeFailed(format!(
-                        "decode failed: {}",
-                        e
-                    )));
+                    return Err(AudioError::DecodeFailed(format!("decode failed: {}", e)));
                 }
             }
         }
@@ -187,8 +184,7 @@ impl SymphoniaDecoder {
     /// Stops the current decode, seeks symphonia, and the next call
     /// to `decode_next` will produce frames from the new position.
     pub fn seek(&mut self, position_secs: f64) -> Result<(), AudioError> {
-        let time = Time::try_from_secs_f64(position_secs)
-            .unwrap_or(Time::ZERO);
+        let time = Time::try_from_secs_f64(position_secs).unwrap_or(Time::ZERO);
         let seek_to = SeekTo::Time {
             time,
             track_id: Some(self.track_id),
@@ -306,7 +302,10 @@ mod tests {
         // Verify AudioError variants used by decoder exist and serialize correctly
         let err = AudioError::DecodeFailed("test error".to_string());
         let json = serde_json::to_string(&err).unwrap();
-        assert!(json.contains("decode_failed"), "DecodeFailed should serialize as snake_case");
+        assert!(
+            json.contains("decode_failed"),
+            "DecodeFailed should serialize as snake_case"
+        );
 
         let err = AudioError::UnsupportedFormat;
         let json = serde_json::to_string(&err).unwrap();

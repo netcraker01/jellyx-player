@@ -7,9 +7,9 @@
 
 use std::collections::VecDeque;
 
-use rustfft::FftPlanner;
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
+use rustfft::FftPlanner;
 
 use super::pipeline::PcmBusSubscriber;
 
@@ -93,7 +93,8 @@ impl FftEngine {
         // Take fft_size samples from the front of the buffer
         let samples: Vec<f32> = self.buffer.drain(..self.fft_size).collect();
 
-        let frequency_data = compute_fft(&samples, self.fft_size, &mut self.planner, self.sample_rate);
+        let frequency_data =
+            compute_fft(&samples, self.fft_size, &mut self.planner, self.sample_rate);
 
         Some(frequency_data)
     }
@@ -211,7 +212,10 @@ mod tests {
             peak: 0.5,
         };
         let json = serde_json::to_string(&data).unwrap();
-        assert!(json.contains("\"sampleRate\""), "sample_rate should serialize as camelCase");
+        assert!(
+            json.contains("\"sampleRate\""),
+            "sample_rate should serialize as camelCase"
+        );
         assert!(json.contains("\"bins\""), "bins should be present");
         assert!(json.contains("\"peak\""), "peak should be present");
     }
@@ -226,7 +230,10 @@ mod tests {
         let json = serde_json::to_string(&data).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(parsed.get("bins").is_some(), "bins field must be present");
-        assert!(parsed.get("sampleRate").is_some(), "sampleRate field must be present");
+        assert!(
+            parsed.get("sampleRate").is_some(),
+            "sampleRate field must be present"
+        );
         assert!(parsed.get("peak").is_some(), "peak field must be present");
     }
 
@@ -260,7 +267,10 @@ mod tests {
         engine.collect_frames();
         let result = engine.analyze_if_ready();
 
-        assert!(result.is_some(), "Should return FrequencyData when enough samples");
+        assert!(
+            result.is_some(),
+            "Should return FrequencyData when enough samples"
+        );
         let data = result.unwrap();
         assert!(!data.bins.is_empty(), "Bins should not be empty");
         assert_eq!(data.sample_rate, 44100);
@@ -274,7 +284,10 @@ mod tests {
         // No frames sent — buffer is empty
         engine.collect_frames();
         let result = engine.analyze_if_ready();
-        assert!(result.is_none(), "Should return None when insufficient samples");
+        assert!(
+            result.is_none(),
+            "Should return None when insufficient samples"
+        );
     }
 
     #[test]
@@ -284,10 +297,17 @@ mod tests {
 
         // Buffer is empty — analyze_partial should still work (all zeros)
         let data = engine.analyze_partial();
-        assert!(!data.bins.is_empty(), "Bins should not be empty even with zero input");
+        assert!(
+            !data.bins.is_empty(),
+            "Bins should not be empty even with zero input"
+        );
         // All-zero input should produce all-zero bins (or near-zero due to float math)
         let max_bin = data.bins.iter().cloned().fold(0.0_f32, f32::max);
-        assert!(max_bin < 0.001, "Zero input should produce near-zero bins, got {}", max_bin);
+        assert!(
+            max_bin < 0.001,
+            "Zero input should produce near-zero bins, got {}",
+            max_bin
+        );
     }
 
     #[test]
@@ -304,7 +324,11 @@ mod tests {
         engine.collect_frames();
 
         // Buffer should be capped at 2 * fft_size = 512
-        assert!(engine.buffer_len() <= 512, "Buffer should be capped at 2 * fft_size, got {}", engine.buffer_len());
+        assert!(
+            engine.buffer_len() <= 512,
+            "Buffer should be capped at 2 * fft_size, got {}",
+            engine.buffer_len()
+        );
     }
 
     #[test]
@@ -326,7 +350,10 @@ mod tests {
 
         // peak at offset 4 (f32 LE)
         let pk = f32::from_le_bytes(frame[4..8].try_into().unwrap());
-        assert!((pk - 0.3).abs() < f32::EPSILON, "peak should be at offset 4");
+        assert!(
+            (pk - 0.3).abs() < f32::EPSILON,
+            "peak should be at offset 4"
+        );
 
         // bins start at offset 8
         let bin0 = f32::from_le_bytes(frame[8..12].try_into().unwrap());
@@ -346,7 +373,11 @@ mod tests {
         };
 
         let frame = encode_frequency_data_binary(&data);
-        assert_eq!(frame.len(), 8, "Empty bins should produce 8-byte header only");
+        assert_eq!(
+            frame.len(),
+            8,
+            "Empty bins should produce 8-byte header only"
+        );
 
         let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
         assert_eq!(sr, 48000);
@@ -363,7 +394,11 @@ mod tests {
         };
 
         let frame = encode_frequency_data_binary(&data);
-        assert_eq!(frame.len(), 8 + 512 * 4, "512 bins should produce 2056-byte frame");
+        assert_eq!(
+            frame.len(),
+            8 + 512 * 4,
+            "512 bins should produce 2056-byte frame"
+        );
     }
 
     #[test]

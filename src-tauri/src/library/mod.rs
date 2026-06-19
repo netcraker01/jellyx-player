@@ -1,7 +1,7 @@
 //! Library domain module.
 
+pub mod models;
 pub mod service;
 pub mod state;
-pub mod models;
 
 pub use service::LibraryService;

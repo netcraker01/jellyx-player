@@ -15,7 +15,7 @@ use rusqlite::{params, Connection};
 
 use crate::errors::types::PersistenceError;
 use crate::models::track::Track;
-use crate::persistence::models::{FavoriteEntry, HistoryEntry, WatchedFolder, LocalTrackEntry};
+use crate::persistence::models::{FavoriteEntry, HistoryEntry, LocalTrackEntry, WatchedFolder};
 
 /// Current schema version — increment when adding migrations.
 const SCHEMA_VERSION: u32 = 2;
@@ -85,7 +85,7 @@ impl Database {
         })?;
 
         conn.execute_batch(
-                "CREATE TABLE IF NOT EXISTS favorites (
+            "CREATE TABLE IF NOT EXISTS favorites (
                     track_id TEXT PRIMARY KEY,
                     track_json TEXT NOT NULL,
                     added_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -132,10 +132,10 @@ impl Database {
                 INSERT OR IGNORE INTO _meta (key, value)
                     VALUES ('schema_version', '2');
                 ",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to initialize schema: {}", e))
-            })?;
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to initialize schema: {}", e))
+        })?;
 
         Ok(())
     }
@@ -154,22 +154,16 @@ impl Database {
         })?;
 
         conn.execute(
-                "INSERT INTO favorites (track_id, track_json) VALUES (?1, ?2)",
-                params![track.id, track_json],
-            )
-            .map_err(|e| {
-                if e.to_string().contains("UNIQUE constraint") {
-                    PersistenceError::DatabaseError(format!(
-                        "favorite already exists: {}",
-                        track.id
-                    ))
-                } else {
-                    PersistenceError::DatabaseError(format!(
-                        "failed to insert favorite: {}",
-                        e
-                    ))
-                }
-            })?;
+            "INSERT INTO favorites (track_id, track_json) VALUES (?1, ?2)",
+            params![track.id, track_json],
+        )
+        .map_err(|e| {
+            if e.to_string().contains("UNIQUE constraint") {
+                PersistenceError::DatabaseError(format!("favorite already exists: {}", track.id))
+            } else {
+                PersistenceError::DatabaseError(format!("failed to insert favorite: {}", e))
+            }
+        })?;
 
         Ok(())
     }
@@ -266,25 +260,21 @@ impl Database {
         })?;
 
         conn.execute(
-                "INSERT INTO history (track_id, track_json) VALUES (?1, ?2)",
-                params![track.id, track_json],
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to insert history: {}", e))
-            })?;
+            "INSERT INTO history (track_id, track_json) VALUES (?1, ?2)",
+            params![track.id, track_json],
+        )
+        .map_err(|e| PersistenceError::DatabaseError(format!("failed to insert history: {}", e)))?;
 
         // Evict oldest entries if we've exceeded the limit.
         conn.execute(
-                "DELETE FROM history WHERE id IN (
+            "DELETE FROM history WHERE id IN (
                     SELECT id FROM history ORDER BY played_at ASC LIMIT (
                         SELECT MAX(0, COUNT(*) - ?1) FROM history
                     )
                 )",
-                params![HISTORY_LIMIT],
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to evict history: {}", e))
-            })?;
+            params![HISTORY_LIMIT],
+        )
+        .map_err(|e| PersistenceError::DatabaseError(format!("failed to evict history: {}", e)))?;
 
         Ok(())
     }
@@ -295,7 +285,10 @@ impl Database {
     }
 
     /// Get play history with a custom limit, ordered by most recent first.
-    pub fn get_history_with_limit(&self, limit: u32) -> Result<Vec<HistoryEntry>, PersistenceError> {
+    pub fn get_history_with_limit(
+        &self,
+        limit: u32,
+    ) -> Result<Vec<HistoryEntry>, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
@@ -339,10 +332,9 @@ impl Database {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
 
-        conn.execute("DELETE FROM history", [])
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to clear history: {}", e))
-            })?;
+        conn.execute("DELETE FROM history", []).map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to clear history: {}", e))
+        })?;
 
         Ok(())
     }
@@ -399,9 +391,14 @@ impl Database {
         })?;
 
         let mut stmt = conn
-            .prepare("SELECT path, last_scanned_at, added_at FROM watched_folders ORDER BY added_at ASC")
+            .prepare(
+                "SELECT path, last_scanned_at, added_at FROM watched_folders ORDER BY added_at ASC",
+            )
             .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to prepare watched_folders query: {}", e))
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare watched_folders query: {}",
+                    e
+                ))
             })?;
 
         let entries = stmt
@@ -429,10 +426,7 @@ impl Database {
         })?;
 
         let rows = conn
-            .execute(
-                "DELETE FROM watched_folders WHERE path = ?1",
-                params![path],
-            )
+            .execute("DELETE FROM watched_folders WHERE path = ?1", params![path])
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to remove watched folder: {}", e))
             })?;
@@ -460,7 +454,13 @@ impl Database {
     // ── Local Tracks ──────────────────────────────────────────────────
 
     /// Insert or update a local track. Uses INSERT OR REPLACE.
-    pub fn upsert_local_track(&self, file_path: &str, track: &Track, folder_path: &str, file_modified_at: Option<&str>) -> Result<(), PersistenceError> {
+    pub fn upsert_local_track(
+        &self,
+        file_path: &str,
+        track: &Track,
+        folder_path: &str,
+        file_modified_at: Option<&str>,
+    ) -> Result<(), PersistenceError> {
         let track_json = serde_json::to_string(track).map_err(|e| {
             PersistenceError::WriteError(format!("failed to serialize track: {}", e))
         })?;
@@ -486,7 +486,10 @@ impl Database {
     }
 
     /// Get all local tracks, optionally filtered by folder path.
-    pub fn get_local_tracks(&self, folder_path: Option<&str>) -> Result<Vec<LocalTrackEntry>, PersistenceError> {
+    pub fn get_local_tracks(
+        &self,
+        folder_path: Option<&str>,
+    ) -> Result<Vec<LocalTrackEntry>, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
@@ -565,39 +568,118 @@ impl Database {
     }
 
     /// Get a local track by its file path.
-    pub fn get_local_track_by_path(&self, file_path: &str) -> Result<Option<Track>, PersistenceError> {
+    pub fn get_local_track_by_path(
+        &self,
+        file_path: &str,
+    ) -> Result<Option<Track>, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
 
-        let result = conn
-            .query_row(
-                "SELECT track_json FROM local_tracks WHERE file_path = ?1",
-                params![file_path],
-                |row| {
-                    let track_json: String = row.get(0)?;
-                    let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            track_json.len(),
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        )
-                    })?;
-                    Ok(track)
-                },
-            );
+        let result = conn.query_row(
+            "SELECT track_json FROM local_tracks WHERE file_path = ?1",
+            params![file_path],
+            |row| {
+                let track_json: String = row.get(0)?;
+                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        track_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(track)
+            },
+        );
 
         match result {
             Ok(track) => Ok(Some(track)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
             Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get local track by path: {}", e
+                "failed to get local track by path: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Get a full local track inventory entry by its file path.
+    pub fn get_local_track_entry_by_path(
+        &self,
+        file_path: &str,
+    ) -> Result<Option<LocalTrackEntry>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let result = conn.query_row(
+            "SELECT file_path, track_json, folder_path, file_modified_at FROM local_tracks WHERE file_path = ?1",
+            params![file_path],
+            |row| {
+                let track_json: String = row.get(1)?;
+                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        track_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(LocalTrackEntry {
+                    track,
+                    file_path: row.get(0)?,
+                    folder_path: row.get(2)?,
+                    file_modified_at: row.get(3)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(entry) => Ok(Some(entry)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(PersistenceError::DatabaseError(format!(
+                "failed to get local track entry by path: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Get a local track by its Helix track ID stored in the serialized payload.
+    pub fn get_local_track_by_id(&self, track_id: &str) -> Result<Option<Track>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let pattern = format!("%\"id\":\"{}\"%", track_id);
+        let result = conn.query_row(
+            "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 LIMIT 1",
+            params![pattern],
+            |row| {
+                let track_json: String = row.get(0)?;
+                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        track_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(track)
+            },
+        );
+
+        match result {
+            Ok(track) => Ok(Some(track)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(PersistenceError::DatabaseError(format!(
+                "failed to get local track by id: {}",
+                e
             ))),
         }
     }
 
     /// Delete all local tracks for a given folder path.
-    pub fn delete_local_tracks_by_folder(&self, folder_path: &str) -> Result<u64, PersistenceError> {
+    pub fn delete_local_tracks_by_folder(
+        &self,
+        folder_path: &str,
+    ) -> Result<u64, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
@@ -608,10 +690,34 @@ impl Database {
                 params![folder_path],
             )
             .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to delete local tracks by folder: {}", e))
+                PersistenceError::DatabaseError(format!(
+                    "failed to delete local tracks by folder: {}",
+                    e
+                ))
             })?;
 
         Ok(rows as u64)
+    }
+
+    /// Delete a single local track by file path.
+    pub fn delete_local_track_by_path(&self, file_path: &str) -> Result<bool, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let rows = conn
+            .execute(
+                "DELETE FROM local_tracks WHERE file_path = ?1",
+                params![file_path],
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to delete local track by path: {}",
+                    e
+                ))
+            })?;
+
+        Ok(rows > 0)
     }
 
     /// Search local tracks by a text query (matches title, artist, album).
@@ -760,7 +866,9 @@ impl Database {
     /// Count how many times each track ID appears in play history.
     ///
     /// Returns a map of track_id -> play count. Tracks with no plays are omitted.
-    pub fn get_track_play_counts(&self) -> Result<std::collections::HashMap<String, u32>, PersistenceError> {
+    pub fn get_track_play_counts(
+        &self,
+    ) -> Result<std::collections::HashMap<String, u32>, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
@@ -947,7 +1055,8 @@ mod tests {
     fn history_limit_respected() {
         let db = Database::open_in_memory().unwrap();
         for i in 0..5 {
-            db.insert_history(&sample_track(&format!("t{}", i))).unwrap();
+            db.insert_history(&sample_track(&format!("t{}", i)))
+                .unwrap();
         }
 
         let history = db.get_history_with_limit(3).unwrap();
@@ -965,10 +1074,15 @@ mod tests {
             conn.execute(
                 "INSERT INTO history (track_id, track_json, played_at) VALUES (?1, ?2, ?3)",
                 params![format!("t{}", i), track_json, played_at],
-            ).unwrap();
+            )
+            .unwrap();
         }
         drop(conn);
-        assert_eq!(db.get_history().unwrap().len(), 100, "Should keep first 100 entries");
+        assert_eq!(
+            db.get_history().unwrap().len(),
+            100,
+            "Should keep first 100 entries"
+        );
 
         db.insert_history(&sample_track("newest")).unwrap();
         let history = db.get_history().unwrap();
@@ -987,7 +1101,8 @@ mod tests {
     fn history_default_limit_is_100() {
         let db = Database::open_in_memory().unwrap();
         for i in 0..120 {
-            db.insert_history(&sample_track(&format!("t{}", i))).unwrap();
+            db.insert_history(&sample_track(&format!("t{}", i)))
+                .unwrap();
         }
         let history = db.get_history().unwrap();
         assert_eq!(history.len(), 100, "Default history should cap at 100");
@@ -1039,7 +1154,8 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000")).unwrap();
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
         assert_eq!(db.get_local_tracks(Some("/music")).unwrap().len(), 1);
 
         let removed = db.remove_watched_folder("/music").unwrap();
@@ -1080,7 +1196,8 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000")).unwrap();
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
 
         let tracks = db.get_local_tracks(Some("/music")).unwrap();
         assert_eq!(tracks.len(), 1);
@@ -1094,12 +1211,14 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000")).unwrap();
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
 
         // Update the same track with different title
         let mut updated = track.clone();
         updated.title = "Updated Title".to_string();
-        db.upsert_local_track("/music/song.mp3", &updated, "/music", Some("1001")).unwrap();
+        db.upsert_local_track("/music/song.mp3", &updated, "/music", Some("1001"))
+            .unwrap();
 
         let tracks = db.get_local_tracks(Some("/music")).unwrap();
         assert_eq!(tracks.len(), 1);
@@ -1111,7 +1230,8 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000")).unwrap();
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
 
         let found = db.get_local_track_by_path("/music/song.mp3").unwrap();
         assert!(found.is_some());
@@ -1122,11 +1242,53 @@ mod tests {
     }
 
     #[test]
+    fn get_local_track_entry_by_path_returns_folder_metadata() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_watched_folder("/music").unwrap();
+        let track = sample_local_track("t1", "/music/song.mp3");
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
+
+        let entry = db
+            .get_local_track_entry_by_path("/music/song.mp3")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(entry.track.id, "t1");
+        assert_eq!(entry.file_path, "/music/song.mp3");
+        assert_eq!(entry.folder_path, "/music");
+        assert_eq!(entry.file_modified_at.as_deref(), Some("1000"));
+    }
+
+    #[test]
+    fn get_local_track_by_id() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_watched_folder("/music").unwrap();
+
+        let track = sample_local_track("9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123", "/music/song.mp3");
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
+
+        let found = db
+            .get_local_track_by_id("9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123")
+            .unwrap();
+        assert!(found.is_some());
+        assert_eq!(
+            found.unwrap().local_path.as_deref(),
+            Some("/music/song.mp3")
+        );
+
+        let not_found = db.get_local_track_by_id("missing-id").unwrap();
+        assert!(not_found.is_none());
+    }
+
+    #[test]
     fn search_local_tracks_by_title() {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000")).unwrap();
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
 
         let results = db.search_local_tracks("Song").unwrap();
         assert_eq!(results.len(), 1);
@@ -1140,11 +1302,31 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000")).unwrap();
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
 
         let deleted = db.delete_local_tracks_by_folder("/music").unwrap();
         assert_eq!(deleted, 1);
         assert_eq!(db.get_local_tracks(Some("/music")).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn delete_local_track_by_path_removes_only_matching_track() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_watched_folder("/music").unwrap();
+        let t1 = sample_local_track("t1", "/music/song.mp3");
+        let t2 = sample_local_track("t2", "/music/other.mp3");
+        db.upsert_local_track("/music/song.mp3", &t1, "/music", Some("1000"))
+            .unwrap();
+        db.upsert_local_track("/music/other.mp3", &t2, "/music", Some("1001"))
+            .unwrap();
+
+        let deleted = db.delete_local_track_by_path("/music/song.mp3").unwrap();
+
+        assert!(deleted);
+        let remaining = db.get_local_tracks(Some("/music")).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].track.id, "t2");
     }
 
     #[test]
@@ -1154,8 +1336,10 @@ mod tests {
         db.insert_watched_folder("/music2").unwrap();
         let t1 = sample_local_track("t1", "/music1/a.mp3");
         let t2 = sample_local_track("t2", "/music2/b.mp3");
-        db.upsert_local_track("/music1/a.mp3", &t1, "/music1", Some("1000")).unwrap();
-        db.upsert_local_track("/music2/b.mp3", &t2, "/music2", Some("1001")).unwrap();
+        db.upsert_local_track("/music1/a.mp3", &t1, "/music1", Some("1000"))
+            .unwrap();
+        db.upsert_local_track("/music2/b.mp3", &t2, "/music2", Some("1001"))
+            .unwrap();
 
         let all = db.get_local_tracks(None).unwrap();
         assert_eq!(all.len(), 2);
@@ -1168,9 +1352,12 @@ mod tests {
         let t1 = sample_local_track("t1", "/music/a.mp3");
         let t2 = sample_local_track("t2", "/music/b.mp3");
         let t3 = sample_local_track("t3", "/music/c.mp3");
-        db.upsert_local_track("/music/a.mp3", &t1, "/music", Some("1000")).unwrap();
-        db.upsert_local_track("/music/b.mp3", &t2, "/music", Some("1001")).unwrap();
-        db.upsert_local_track("/music/c.mp3", &t3, "/music", Some("1002")).unwrap();
+        db.upsert_local_track("/music/a.mp3", &t1, "/music", Some("1000"))
+            .unwrap();
+        db.upsert_local_track("/music/b.mp3", &t2, "/music", Some("1001"))
+            .unwrap();
+        db.upsert_local_track("/music/c.mp3", &t3, "/music", Some("1002"))
+            .unwrap();
 
         let all = db.get_all_local_tracks().unwrap();
         assert_eq!(all.len(), 3);
@@ -1183,6 +1370,9 @@ mod tests {
     fn get_all_local_tracks_empty_inventory() {
         let db = Database::open_in_memory().unwrap();
         let all = db.get_all_local_tracks().unwrap();
-        assert!(all.is_empty(), "Should return empty vec when no local tracks");
+        assert!(
+            all.is_empty(),
+            "Should return empty vec when no local tracks"
+        );
     }
 }

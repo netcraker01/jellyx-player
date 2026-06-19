@@ -26,14 +26,18 @@ export const homeError = writable<string | null>(null);
 // ── Store factory ───────────────────────────────────────────────────
 
 function createHomeStore(): HomeStore {
-  const { subscribe, set } = homeData;
+  const { subscribe, set, update } = homeData;
 
   return {
     subscribe,
     loading: homeLoading,
     error: homeError,
 
-    /** Load the Home snapshot from the Rust backend. */
+    /** Load the Home snapshot from the Rust backend.
+     *
+     * Recently played is fetched first so the page renders immediately;
+     * recommendations are loaded asynchronously to avoid blocking startup.
+     */
     async load() {
       homeLoading.set(true);
       homeError.set(null);
@@ -49,6 +53,21 @@ function createHomeStore(): HomeStore {
       } finally {
         homeLoading.set(false);
       }
+
+      // Fetch heavy recommendations in the background so the UI stays responsive.
+      // Not awaited — load() resolves after the cheap snapshot.
+      commands.getHomeRecommendations()
+        .then((recommendations) => {
+          update((current) => {
+            if (!current) return null;
+            return { ...current, recommendations };
+          });
+        })
+        .catch((recErr) => {
+          // Recommendations are secondary; do not fail the whole page.
+          // eslint-disable-next-line no-console
+          console.warn('Failed to load recommendations:', recErr);
+        });
     },
 
     /** Reset all Home state to initial values. */

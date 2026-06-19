@@ -26,7 +26,8 @@
     "recommended": "Recomendado para ti",
     "empty_recommendations": "Aún no hay historial de reproducción.",
     "empty": "Aún no hay historial de reproducción.",
-    "go_search": "Busca música para empezar"
+    "go_search": "Busca música para empezar",
+    "welcome": "Bienvenido"
   },
   "search": {
     "placeholder": "Buscar canciones, artistas, álbumes...",
@@ -78,6 +79,7 @@
     "search": "Buscar",
     "favorites": "Favoritos",
     "now_playing": "Reproduciendo",
+    "library": "Biblioteca",
     "settings": "Configuración",
     "artist": "Artista",
     "album": "Álbum"

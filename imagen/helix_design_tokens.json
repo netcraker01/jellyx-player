@@ -1,0 +1,102 @@
+{
+  "brand": "Helix",
+  "purpose": "Aplicación de escritorio para reproducción de música",
+  "colors": {
+    "midnight": {
+      "hex": "#0B0F2B",
+      "rgb": "11, 15, 43",
+      "use": "Fondo principal, icono de escritorio, barras laterales"
+    },
+    "indigo": {
+      "hex": "#1A1F4D",
+      "rgb": "26, 31, 77",
+      "use": "Superficies oscuras secundarias, tarjetas, hover oscuro"
+    },
+    "electric_cyan": {
+      "hex": "#00E5FF",
+      "rgb": "0, 229, 255",
+      "use": "Acento activo, punto de la i, iconos de acción"
+    },
+    "helix_violet": {
+      "hex": "#8A5CFF",
+      "rgb": "138, 92, 255",
+      "use": "Progreso, selección, estados activos secundarios"
+    },
+    "magenta_pulse": {
+      "hex": "#D946FF",
+      "rgb": "217, 70, 255",
+      "use": "Acento emocional, visualizador, destacados"
+    },
+    "ice": {
+      "hex": "#F2F4F8",
+      "rgb": "242, 244, 248",
+      "use": "Fondos claros, divisores suaves"
+    },
+    "white": {
+      "hex": "#FFFFFF",
+      "rgb": "255, 255, 255",
+      "use": "Superficies y texto sobre fondo oscuro"
+    }
+  },
+  "gradients": {
+    "helix_primary": "linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%)",
+    "dark_surface": "linear-gradient(180deg, #0B0F2B 0%, #111642 100%)",
+    "progress": "linear-gradient(90deg, #00E5FF 0%, #8A5CFF 70%, #D946FF 100%)"
+  },
+  "typography": {
+    "logo_style": "Geométrica, tecnológica, redondeada, con X angular y punto de la i en cian",
+    "ui_primary": "Inter / SF Pro / Segoe UI Variable",
+    "ui_fallback": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+    "scale_px": {
+      "display": 40,
+      "title": 24,
+      "section": 18,
+      "body": 14,
+      "caption": 12
+    }
+  },
+  "radii_px": {
+    "app_icon": 128,
+    "cards": 20,
+    "buttons": 12,
+    "inputs": 10,
+    "small": 8
+  },
+  "spacing_px": {
+    "xs": 4,
+    "s": 8,
+    "m": 16,
+    "l": 24,
+    "xl": 32,
+    "xxl": 48
+  },
+  "iconography": {
+    "stroke": "2 px",
+    "corners": "redondeados",
+    "style": "lineal y limpio",
+    "metaphors": [
+      "play",
+      "pause",
+      "waveform",
+      "shuffle",
+      "queue",
+      "repeat"
+    ]
+  },
+  "ui": {
+    "dark_player": {
+      "background": "#0B0F2B",
+      "surface": "#1A1F4D",
+      "primary_text": "#FFFFFF",
+      "secondary_text": "#B8C0D9",
+      "accent": "#00E5FF"
+    },
+    "light_player": {
+      "background": "#F2F4F8",
+      "surface": "#FFFFFF",
+      "primary_text": "#0B0F2B",
+      "secondary_text": "#5F668A",
+      "accent": "#8A5CFF"
+    }
+  }
+}

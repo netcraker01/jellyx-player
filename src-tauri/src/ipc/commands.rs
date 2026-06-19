@@ -6,12 +6,14 @@
 use std::sync::{Arc, Mutex};
 
 use crate::errors::types::AppError;
-use crate::ipc::dto::{AlbumDetail, ArtistDetail, GroupedSearchResult, HomeSnapshot, SearchFilter};
+use crate::ipc::dto::{
+    AlbumDetail, ArtistDetail, GroupedSearchResult, HomeSnapshot, RecommendationItem, SearchFilter,
+};
 use crate::library::LibraryService;
 use crate::models::track::Track;
 use crate::persistence::models::{FavoriteEntry, HistoryEntry, LocalTrackEntry, WatchedFolder};
 use crate::playback::service::PlaybackService;
-use crate::sources::local::{ScannerService, ScanResult};
+use crate::sources::local::{ScanResult, ScannerService};
 
 /// Application state shared across Tauri commands.
 /// PlaybackService is the single authority for all playback operations.
@@ -84,10 +86,12 @@ pub fn search_grouped(
             "songs" => Ok(SearchFilter::Songs),
             "artists" => Ok(SearchFilter::Artists),
             "albums" => Ok(SearchFilter::Albums),
-            _ => Err(crate::errors::types::ValidationError::InvalidInput(format!(
-                "invalid search filter: {}. Expected songs, artists, or albums",
-                f
-            ))),
+            _ => Err(crate::errors::types::ValidationError::InvalidInput(
+                format!(
+                    "invalid search filter: {}. Expected songs, artists, or albums",
+                    f
+                ),
+            )),
         })
         .transpose()?;
     state.library.search_grouped(query, parsed_filter)
@@ -95,7 +99,10 @@ pub fn search_grouped(
 
 /// Get full artist detail by artist ID.
 #[tauri::command]
-pub fn get_artist_detail(state: tauri::State<AppState>, id: &str) -> Result<ArtistDetail, AppError> {
+pub fn get_artist_detail(
+    state: tauri::State<AppState>,
+    id: &str,
+) -> Result<ArtistDetail, AppError> {
     state.library.get_artist_detail(id)
 }
 
@@ -136,7 +143,9 @@ pub fn play_next(state: tauri::State<AppState>, track_id: &str) -> Result<(), Ap
 
 /// Get the current queue as a full QueueState snapshot.
 #[tauri::command]
-pub fn get_queue(state: tauri::State<AppState>) -> Result<crate::playback::state::QueueState, AppError> {
+pub fn get_queue(
+    state: tauri::State<AppState>,
+) -> Result<crate::playback::state::QueueState, AppError> {
     state.playback.get_queue()
 }
 
@@ -192,7 +201,10 @@ pub fn toggle_favorite(state: tauri::State<AppState>, track_id: String) -> Resul
 /// Check whether a track is currently favorited.
 #[tauri::command]
 pub fn is_favorite(state: tauri::State<AppState>, track_id: String) -> Result<bool, AppError> {
-    state.library.favorite_exists(&track_id).map_err(AppError::from)
+    state
+        .library
+        .favorite_exists(&track_id)
+        .map_err(AppError::from)
 }
 
 /// Set shuffle mode on or off.
@@ -218,13 +230,19 @@ pub fn cycle_repeat(state: tauri::State<AppState>) -> Result<String, AppError> {
 
 /// Scan a folder for audio files and add to local library.
 #[tauri::command]
-pub fn scan_folder(state: tauri::State<AppState>, folder_path: &str) -> Result<ScanResult, AppError> {
+pub fn scan_folder(
+    state: tauri::State<AppState>,
+    folder_path: &str,
+) -> Result<ScanResult, AppError> {
     state.scanner.scan_folder(folder_path)
 }
 
 /// Get all local tracks, optionally filtered by folder path.
 #[tauri::command]
-pub fn get_local_tracks(state: tauri::State<AppState>, folder_path: Option<&str>) -> Result<Vec<LocalTrackEntry>, AppError> {
+pub fn get_local_tracks(
+    state: tauri::State<AppState>,
+    folder_path: Option<&str>,
+) -> Result<Vec<LocalTrackEntry>, AppError> {
     state.scanner.get_tracks(folder_path)
 }
 
@@ -240,9 +258,20 @@ pub fn get_home_snapshot(state: tauri::State<AppState>) -> Result<HomeSnapshot, 
     state.library.get_home_snapshot()
 }
 
+/// Get heavy Home recommendations computed from history, favorites, and local library.
+#[tauri::command]
+pub fn get_home_recommendations(
+    state: tauri::State<AppState>,
+) -> Result<Vec<RecommendationItem>, AppError> {
+    state.library.get_home_recommendations()
+}
+
 /// Remove a watched folder and its associated tracks.
 #[tauri::command]
-pub fn remove_watched_folder(state: tauri::State<AppState>, folder_path: &str) -> Result<(), AppError> {
+pub fn remove_watched_folder(
+    state: tauri::State<AppState>,
+    folder_path: &str,
+) -> Result<(), AppError> {
     state.scanner.remove_folder(folder_path)
 }
 
@@ -252,7 +281,10 @@ pub fn remove_watched_folder(state: tauri::State<AppState>, folder_path: &str) -
 /// The Channel is stored in `AppState.fft_channel` so the FFT thread can send
 /// binary frames at ~60fps. The Channel is cleared when playback stops.
 #[tauri::command]
-pub fn start_fft_stream(state: tauri::State<AppState>, channel: tauri::ipc::Channel<Vec<u8>>) -> Result<(), AppError> {
+pub fn start_fft_stream(
+    state: tauri::State<AppState>,
+    channel: tauri::ipc::Channel<Vec<u8>>,
+) -> Result<(), AppError> {
     let mut fft_ch = state.fft_channel.lock().map_err(|_| AppError {
         code: "UNKNOWN_ERROR".into(),
         details: Some("mutex lock".into()),

@@ -24,3 +24,7 @@ Thumbs.db
 *.rpm
 *.dmg
 *.msi
+
+# Local tooling artifacts
+ui/vite.config.ts.timestamp-*.mjs
+src-tauri/!

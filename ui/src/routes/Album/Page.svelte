@@ -9,6 +9,7 @@
     albumDetailError,
   } from '@features/library/stores/albumDetail';
   import TrackRow from '@shared/components/TrackRow.svelte';
+  import HelixLogo from '@shared/components/HelixLogo.svelte';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import { playAlbum } from '@services/commands';
   import { notifications } from '@shared/stores/notifications';
@@ -71,7 +72,7 @@
         />
       {:else}
         <div class="album-cover-art placeholder">
-          <span class="placeholder-icon">♪</span>
+          <HelixLogo size={72} monochrome={true} />
         </div>
       {/if}
       <div class="album-header-info">
@@ -114,49 +115,67 @@
 
 <style>
   .page-album {
-    padding: 1rem;
+    padding: 1.5rem;
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
+    gap: 2rem;
   }
 
   .loading-state,
   .error-state {
-    padding: 2rem 1rem;
+    padding: 3rem 1rem;
     text-align: center;
     color: var(--text-secondary, #9ca3af);
   }
 
   .error-state {
     color: #fca5a5;
-    background: rgba(239, 68, 68, 0.1);
+    background:
+      radial-gradient(circle at 30% 30%, rgba(239, 68, 68, 0.08), transparent 70%),
+      rgba(239, 68, 68, 0.06);
     border: 1px solid rgba(239, 68, 68, 0.2);
-    border-radius: 8px;
+    border-radius: 12px;
   }
 
   .back-btn {
     margin-top: 1rem;
-    padding: 0.5rem 1.25rem;
+    padding: 0.5rem 1.5rem;
     border: 1px solid var(--color-accent, #6366f1);
     border-radius: 24px;
     background: transparent;
     color: var(--color-accent, #6366f1);
     cursor: pointer;
     font-size: 0.9rem;
+    font-weight: 500;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
   }
 
   .back-btn:hover {
     background: var(--color-accent, #6366f1);
-    color: white;
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(138, 92, 255, 0.35);
   }
 
   .album-header {
     display: flex;
     align-items: flex-end;
     gap: 1.5rem;
-    padding: 2rem;
-    background: var(--bg-elevated, #1f2937);
-    border-radius: 12px;
+    padding: 2.5rem;
+    border-radius: 16px;
+    background:
+      radial-gradient(circle at 10% 10%, rgba(138, 92, 255, 0.08), transparent 60%),
+      var(--bg-elevated, #1f2937);
+    border: 1px solid rgba(138, 92, 255, 0.08);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .album-header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(0, 229, 255, 0.04) 0%, transparent 50%);
+    pointer-events: none;
   }
 
   .album-cover-art {
@@ -165,19 +184,26 @@
     border-radius: 12px;
     object-fit: cover;
     flex-shrink: 0;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    box-shadow:
+      0 12px 40px rgba(0, 0, 0, 0.45),
+      0 0 0 1px rgba(138, 92, 255, 0.15);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .album-cover-art:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 16px 48px rgba(0, 0, 0, 0.5),
+      0 0 0 1px rgba(138, 92, 255, 0.25);
   }
 
   .album-cover-art.placeholder {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: var(--bg-primary, #111827);
-  }
-
-  .placeholder-icon {
-    font-size: 3rem;
-    color: var(--text-secondary, #9ca3af);
+    background:
+      radial-gradient(circle at 30% 30%, rgba(0, 229, 255, 0.08), transparent 60%),
+      var(--bg-primary, #111827);
   }
 
   .album-header-info {
@@ -185,23 +211,39 @@
     flex-direction: column;
     gap: 0.5rem;
     align-items: flex-start;
+    position: relative;
+    z-index: 1;
   }
 
   .album-title {
     margin: 0;
-    color: var(--text-primary, #e0e0e0);
-    font-size: 2rem;
+    font-size: 2.25rem;
     font-weight: 700;
+    letter-spacing: -0.02em;
+    background: linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    color: var(--color-accent, #6366f1);
+  }
+
+  @supports not (-webkit-background-clip: text) {
+    .album-title {
+      color: var(--text-primary, #e0e0e0);
+      -webkit-text-fill-color: unset;
+    }
   }
 
   .artist-link {
     background: none;
     border: none;
     padding: 0;
-    color: var(--color-accent, #6366f1);
+    color: var(--color-helix-cyan, #00E5FF);
     font-size: 1rem;
     cursor: pointer;
     text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: color 0.15s;
   }
 
   .artist-link:hover {
@@ -223,29 +265,41 @@
     align-items: center;
     gap: 0.5rem;
     margin-top: 1rem;
-    padding: 0.6rem 1.25rem;
+    padding: 0.65rem 1.5rem;
     border: none;
     border-radius: 24px;
-    background: var(--color-accent, #6366f1);
+    background: linear-gradient(135deg, #00E5FF 0%, #8A5CFF 70%, #D946FF 100%);
     color: white;
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 600;
-    transition: background 0.2s, transform 0.1s;
+    transition: transform 0.15s ease, box-shadow 0.2s ease, filter 0.2s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .play-album-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent 60%);
+    pointer-events: none;
   }
 
   .play-album-btn:hover {
-    background: #4f46e5;
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px rgba(138, 92, 255, 0.35);
+    filter: brightness(1.08);
   }
 
   .play-album-btn:active {
-    transform: scale(0.98);
+    transform: scale(0.97);
   }
 
   .section {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1rem;
   }
 
   .section-title {
@@ -253,6 +307,7 @@
     color: var(--text-primary, #e0e0e0);
     font-size: 1.1rem;
     font-weight: 600;
+    letter-spacing: -0.01em;
   }
 
   .track-list {

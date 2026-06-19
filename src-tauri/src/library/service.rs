@@ -111,14 +111,21 @@ impl LibraryService {
             return Err(crate::errors::types::ValidationError::EmptyQuery.into());
         }
 
-        let matching_tracks = self.db.search_local_tracks(trimmed).map_err(AppError::from)?;
+        let matching_tracks = self
+            .db
+            .search_local_tracks(trimmed)
+            .map_err(AppError::from)?;
 
         let include_all = filter.is_none();
         let include_songs = include_all || filter == Some(SearchFilter::Songs);
         let include_artists = include_all || filter == Some(SearchFilter::Artists);
         let include_albums = include_all || filter == Some(SearchFilter::Albums);
 
-        let songs = if include_songs { matching_tracks.clone() } else { Vec::new() };
+        let songs = if include_songs {
+            matching_tracks.clone()
+        } else {
+            Vec::new()
+        };
 
         let mut artists: Vec<ArtistSummary> = Vec::new();
         let mut albums: Vec<AlbumSummary> = Vec::new();
@@ -310,19 +317,30 @@ impl LibraryService {
     const RECOMMENDATIONS_LIMIT: usize = 20;
     const SECONDS_PER_DAY: u64 = 86400;
 
-    /// Get the Home snapshot: recently played + recommendations.
+    /// Get the Home snapshot: recently played only (non-blocking).
+    ///
+    /// Recommendations are intentionally omitted here so the Home page
+    /// renders immediately. Use `get_home_recommendations` for the heavy
+    /// computation.
     pub fn get_home_snapshot(&self) -> Result<HomeSnapshot, AppError> {
+        let history = self.db.get_history().map_err(AppError::from)?;
+        let recently_played = history
+            .iter()
+            .take(Self::RECENTLY_PLAYED_LIMIT)
+            .cloned()
+            .collect();
+        Ok(HomeSnapshot {
+            recently_played,
+            recommendations: vec![],
+        })
+    }
+
+    /// Compute heavy recommendations from history, favorites, and local library.
+    pub fn get_home_recommendations(&self) -> Result<Vec<RecommendationItem>, AppError> {
         let history = self.db.get_history().map_err(AppError::from)?;
         let favorites = self.db.get_favorites().map_err(AppError::from)?;
         let local_tracks = self.db.get_all_local_tracks().map_err(AppError::from)?;
-
-        let recently_played = history.iter().take(Self::RECENTLY_PLAYED_LIMIT).cloned().collect();
-        let recommendations = self.build_recommendations(&history, &favorites, &local_tracks);
-
-        Ok(HomeSnapshot {
-            recently_played,
-            recommendations,
-        })
+        Ok(self.build_recommendations(&history, &favorites, &local_tracks))
     }
 
     /// Assemble recommendations from history, favorites, and local library.
@@ -370,15 +388,15 @@ impl LibraryService {
 
         // 2. Album affinity
         let album_counts = count_albums_in_history(history);
-        let mut albums_by_plays: Vec<((String, String), usize)> = album_counts.into_iter().collect();
+        let mut albums_by_plays: Vec<((String, String), usize)> =
+            album_counts.into_iter().collect();
         albums_by_plays.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0 .0.cmp(&b.0 .0)));
 
         for ((artist, album), _count) in albums_by_plays.iter().take(Self::ALBUM_AFFINITY_LIMIT) {
             let album_tracks: Vec<&LocalTrackEntry> = local_tracks
                 .iter()
                 .filter(|entry| {
-                    entry.track.artist == *artist
-                        && entry.track.album.as_ref() == Some(album)
+                    entry.track.artist == *artist && entry.track.album.as_ref() == Some(album)
                 })
                 .collect();
             if album_tracks.is_empty() {
@@ -429,8 +447,10 @@ impl LibraryService {
         let mut rng = StdRng::seed_from_u64(seed);
         let mut candidates: Vec<&LocalTrackEntry> = local_tracks
             .iter()
-            .filter(|entry| !recent_track_ids.contains(&entry.track.id)
-                && !recommended_ids.contains(&entry.track.id))
+            .filter(|entry| {
+                !recent_track_ids.contains(&entry.track.id)
+                    && !recommended_ids.contains(&entry.track.id)
+            })
             .collect();
         candidates.shuffle(&mut rng);
 
@@ -499,13 +519,7 @@ mod tests {
         }
     }
 
-    fn local_track(
-        id: &str,
-        title: &str,
-        artist: &str,
-        album: &str,
-        path: &str,
-    ) -> Track {
+    fn local_track(id: &str, title: &str, artist: &str, album: &str, path: &str) -> Track {
         Track {
             id: id.to_string(),
             source: Source::Local,
@@ -646,9 +660,27 @@ mod tests {
     fn search_grouped_returns_mixed_groups() {
         let svc = setup_service();
         let tracks = vec![
-            local_track("t1", "One More Time", "Daft Punk", "Discovery", "/music/one.mp3"),
-            local_track("t2", "Harder Better", "Daft Punk", "Discovery", "/music/harder.mp3"),
-            local_track("t3", "Bohemian Rhapsody", "Queen", "A Night at the Opera", "/music/bohemian.mp3"),
+            local_track(
+                "t1",
+                "One More Time",
+                "Daft Punk",
+                "Discovery",
+                "/music/one.mp3",
+            ),
+            local_track(
+                "t2",
+                "Harder Better",
+                "Daft Punk",
+                "Discovery",
+                "/music/harder.mp3",
+            ),
+            local_track(
+                "t3",
+                "Bohemian Rhapsody",
+                "Queen",
+                "A Night at the Opera",
+                "/music/bohemian.mp3",
+            ),
         ];
         insert_local_tracks(&svc, &tracks, "/music");
 
@@ -675,12 +707,26 @@ mod tests {
     fn search_grouped_filter_artists_only() {
         let svc = setup_service();
         let tracks = vec![
-            local_track("t1", "Bohemian Rhapsody", "Queen", "A Night at the Opera", "/music/bohemian.mp3"),
-            local_track("t2", "We Will Rock You", "Queen", "News of the World", "/music/rockyou.mp3"),
+            local_track(
+                "t1",
+                "Bohemian Rhapsody",
+                "Queen",
+                "A Night at the Opera",
+                "/music/bohemian.mp3",
+            ),
+            local_track(
+                "t2",
+                "We Will Rock You",
+                "Queen",
+                "News of the World",
+                "/music/rockyou.mp3",
+            ),
         ];
         insert_local_tracks(&svc, &tracks, "/music");
 
-        let result = svc.search_grouped("queen", Some(SearchFilter::Artists)).unwrap();
+        let result = svc
+            .search_grouped("queen", Some(SearchFilter::Artists))
+            .unwrap();
         assert!(result.songs.is_empty());
         assert_eq!(result.artists.len(), 1);
         assert!(result.albums.is_empty());
@@ -690,12 +736,26 @@ mod tests {
     fn search_grouped_filter_albums_only() {
         let svc = setup_service();
         let tracks = vec![
-            local_track("t1", "One More Time", "Daft Punk", "Discovery", "/music/one.mp3"),
-            local_track("t2", "Harder Better", "Daft Punk", "Discovery", "/music/harder.mp3"),
+            local_track(
+                "t1",
+                "One More Time",
+                "Daft Punk",
+                "Discovery",
+                "/music/one.mp3",
+            ),
+            local_track(
+                "t2",
+                "Harder Better",
+                "Daft Punk",
+                "Discovery",
+                "/music/harder.mp3",
+            ),
         ];
         insert_local_tracks(&svc, &tracks, "/music");
 
-        let result = svc.search_grouped("discovery", Some(SearchFilter::Albums)).unwrap();
+        let result = svc
+            .search_grouped("discovery", Some(SearchFilter::Albums))
+            .unwrap();
         assert!(result.songs.is_empty());
         assert!(result.artists.is_empty());
         assert_eq!(result.albums.len(), 1);
@@ -708,9 +768,27 @@ mod tests {
     fn get_artist_detail_returns_top_tracks_and_albums() {
         let svc = setup_service();
         let tracks = vec![
-            local_track("t1", "One More Time", "Daft Punk", "Discovery", "/music/one.mp3"),
-            local_track("t2", "Harder Better", "Daft Punk", "Discovery", "/music/harder.mp3"),
-            local_track("t3", "Aerodynamic", "Daft Punk", "Discovery", "/music/aero.mp3"),
+            local_track(
+                "t1",
+                "One More Time",
+                "Daft Punk",
+                "Discovery",
+                "/music/one.mp3",
+            ),
+            local_track(
+                "t2",
+                "Harder Better",
+                "Daft Punk",
+                "Discovery",
+                "/music/harder.mp3",
+            ),
+            local_track(
+                "t3",
+                "Aerodynamic",
+                "Daft Punk",
+                "Discovery",
+                "/music/aero.mp3",
+            ),
         ];
         insert_local_tracks(&svc, &tracks, "/music");
         // t1 played twice, t2 once → t1 should be the first top track
@@ -722,7 +800,10 @@ mod tests {
         let detail = svc.get_artist_detail(&id).unwrap();
         assert_eq!(detail.name, "Daft Punk");
         assert_eq!(detail.top_tracks.len(), 3);
-        assert_eq!(detail.top_tracks[0].id, "t1", "Most-played track should be first");
+        assert_eq!(
+            detail.top_tracks[0].id, "t1",
+            "Most-played track should be first"
+        );
         assert_eq!(detail.albums.len(), 1);
         assert_eq!(detail.albums[0].title, "Discovery");
     }
@@ -739,9 +820,27 @@ mod tests {
     fn get_album_detail_returns_tracks_in_order() {
         let svc = setup_service();
         let tracks = vec![
-            local_track("t1", "One More Time", "Daft Punk", "Discovery", "/music/01-one.mp3"),
-            local_track("t2", "Aerodynamic", "Daft Punk", "Discovery", "/music/02-aero.mp3"),
-            local_track("t3", "Digital Love", "Daft Punk", "Discovery", "/music/03-digital.mp3"),
+            local_track(
+                "t1",
+                "One More Time",
+                "Daft Punk",
+                "Discovery",
+                "/music/01-one.mp3",
+            ),
+            local_track(
+                "t2",
+                "Aerodynamic",
+                "Daft Punk",
+                "Discovery",
+                "/music/02-aero.mp3",
+            ),
+            local_track(
+                "t3",
+                "Digital Love",
+                "Daft Punk",
+                "Discovery",
+                "/music/03-digital.mp3",
+            ),
         ];
         insert_local_tracks(&svc, &tracks, "/music");
 
@@ -796,25 +895,52 @@ mod tests {
 
         let snapshot = svc.get_home_snapshot().unwrap();
         assert_eq!(snapshot.recently_played.len(), 20, "Should cap at 20");
-        assert_eq!(snapshot.recently_played[0].track.id, "hist-24", "Most recent first");
-        assert_eq!(snapshot.recently_played[19].track.id, "hist-5", "Oldest in cap");
+        assert_eq!(
+            snapshot.recently_played[0].track.id, "hist-24",
+            "Most recent first"
+        );
+        assert_eq!(
+            snapshot.recently_played[19].track.id, "hist-5",
+            "Oldest in cap"
+        );
+        assert!(
+            snapshot.recommendations.is_empty(),
+            "Snapshot no longer carries recommendations"
+        );
     }
 
     #[test]
-    fn get_home_snapshot_recommends_artist_affinity() {
+    fn get_home_recommendations_artist_affinity() {
         let svc = setup_service();
         svc.db.insert_watched_folder("/music").unwrap();
         for i in 0..3 {
-            let track = sample_local_track(&format!("local-{}", i), &format!("/music/{}.mp3", i), "Affinity Artist", Some("Album A"));
-            svc.db.upsert_local_track(&format!("/music/{}.mp3", i), &track, "/music", Some(&format!("100{}", i))).unwrap();
+            let track = sample_local_track(
+                &format!("local-{}", i),
+                &format!("/music/{}.mp3", i),
+                "Affinity Artist",
+                Some("Album A"),
+            );
+            svc.db
+                .upsert_local_track(
+                    &format!("/music/{}.mp3", i),
+                    &track,
+                    "/music",
+                    Some(&format!("100{}", i)),
+                )
+                .unwrap();
         }
-        let played = sample_local_track("hist-0", "/music/h0.mp3", "Affinity Artist", Some("Album A"));
+        let played = sample_local_track(
+            "hist-0",
+            "/music/h0.mp3",
+            "Affinity Artist",
+            Some("Album A"),
+        );
         insert_history_at(&svc, &played, 0);
         std::thread::sleep(std::time::Duration::from_millis(5));
         insert_history_at(&svc, &played, 10);
 
-        let snapshot = svc.get_home_snapshot().unwrap();
-        let has_artist = snapshot.recommendations.iter().any(|item| match item {
+        let recs = svc.get_home_recommendations().unwrap();
+        let has_artist = recs.iter().any(|item| match item {
             RecommendationItem::Artist { name, .. } if name == "Affinity Artist" => true,
             _ => false,
         });
@@ -822,38 +948,75 @@ mod tests {
     }
 
     #[test]
-    fn get_home_snapshot_excludes_recently_played_when_alternatives_exist() {
+    fn get_home_recommendations_excludes_recently_played_when_alternatives_exist() {
         let svc = setup_service();
         svc.db.insert_watched_folder("/music").unwrap();
-        let played = sample_local_track("track-played", "/music/played.mp3", "Same Artist", Some("Album X"));
-        let alternative = sample_local_track("track-alt", "/music/alt.mp3", "Same Artist", Some("Album X"));
-        svc.db.upsert_local_track("/music/played.mp3", &played, "/music", Some("1000")).unwrap();
-        svc.db.upsert_local_track("/music/alt.mp3", &alternative, "/music", Some("1001")).unwrap();
+        let played = sample_local_track(
+            "track-played",
+            "/music/played.mp3",
+            "Same Artist",
+            Some("Album X"),
+        );
+        let alternative = sample_local_track(
+            "track-alt",
+            "/music/alt.mp3",
+            "Same Artist",
+            Some("Album X"),
+        );
+        svc.db
+            .upsert_local_track("/music/played.mp3", &played, "/music", Some("1000"))
+            .unwrap();
+        svc.db
+            .upsert_local_track("/music/alt.mp3", &alternative, "/music", Some("1001"))
+            .unwrap();
 
         insert_history_at(&svc, &played, 0);
 
-        let snapshot = svc.get_home_snapshot().unwrap();
-        let has_played_track = snapshot.recommendations.iter().any(|item| match item {
+        let recs = svc.get_home_recommendations().unwrap();
+        let has_played_track = recs.iter().any(|item| match item {
             RecommendationItem::Track { track, .. } if track.id == "track-played" => true,
             _ => false,
         });
-        assert!(!has_played_track, "Should not recommend the exact recently played track");
+        assert!(
+            !has_played_track,
+            "Should not recommend the exact recently played track"
+        );
     }
 
     #[test]
-    fn get_home_snapshot_falls_back_to_library_discovery_with_empty_signals() {
+    fn get_home_recommendations_falls_back_to_library_discovery_with_empty_signals() {
         let svc = setup_service();
         svc.db.insert_watched_folder("/music").unwrap();
         for i in 0..5 {
-            let track = sample_local_track(&format!("lib-{}", i), &format!("/music/{}.mp3", i), "Library Artist", None);
-            svc.db.upsert_local_track(&format!("/music/{}.mp3", i), &track, "/music", Some(&format!("100{}", i))).unwrap();
+            let track = sample_local_track(
+                &format!("lib-{}", i),
+                &format!("/music/{}.mp3", i),
+                "Library Artist",
+                None,
+            );
+            svc.db
+                .upsert_local_track(
+                    &format!("/music/{}.mp3", i),
+                    &track,
+                    "/music",
+                    Some(&format!("100{}", i)),
+                )
+                .unwrap();
         }
 
-        let snapshot = svc.get_home_snapshot().unwrap();
-        assert!(!snapshot.recommendations.is_empty(), "Empty history/favorites should still produce recommendations");
-        let has_library_track = snapshot.recommendations.iter().any(|item| matches!(item,
-            RecommendationItem::Track { reason, .. } if reason.contains("library")));
-        assert!(has_library_track, "Should include library discovery fallback items");
+        let recs = svc.get_home_recommendations().unwrap();
+        assert!(
+            !recs.is_empty(),
+            "Empty history/favorites should still produce recommendations"
+        );
+        let has_library_track = recs.iter().any(|item| {
+            matches!(item,
+            RecommendationItem::Track { reason, .. } if reason.contains("library"))
+        });
+        assert!(
+            has_library_track,
+            "Should include library discovery fallback items"
+        );
     }
 
     #[test]
@@ -867,7 +1030,14 @@ mod tests {
                 &format!("Artist {}", i % 5),
                 Some("Album"),
             );
-            svc.db.upsert_local_track(&format!("/music/{}.mp3", i), &track, "/music", Some(&format!("100{}", i))).unwrap();
+            svc.db
+                .upsert_local_track(
+                    &format!("/music/{}.mp3", i),
+                    &track,
+                    "/music",
+                    Some(&format!("100{}", i)),
+                )
+                .unwrap();
         }
         // Add some history for affinity signals
         for i in 0..5 {
@@ -876,7 +1046,7 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
 
-        let snapshot = svc.get_home_snapshot().unwrap();
-        assert!(snapshot.recommendations.len() <= 20, "Recommendations should be capped at 20");
+        let recs = svc.get_home_recommendations().unwrap();
+        assert!(recs.len() <= 20, "Recommendations should be capped at 20");
     }
 }

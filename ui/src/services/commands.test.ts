@@ -96,4 +96,26 @@ describe('Grouped search commands', () => {
 
     expect(mocks.invokeCommand).toHaveBeenCalledWith('play_album', { albumId: 'album:discovery:daft-punk' });
   });
+
+  it('play invokes play with url', async () => {
+    mocks.invokeCommand.mockResolvedValueOnce(undefined);
+
+    const { play } = await import('@services/commands');
+    await play('https://stream.test/track.mp3');
+
+    expect(mocks.invokeCommand).toHaveBeenCalledWith('play', {
+      url: 'https://stream.test/track.mp3',
+    });
+  });
+
+  it('playLocal invokes play_local with path', async () => {
+    mocks.invokeCommand.mockResolvedValueOnce(undefined);
+
+    const { playLocal } = await import('@services/commands');
+    await playLocal('/music/track.mp3');
+
+    expect(mocks.invokeCommand).toHaveBeenCalledWith('play_local', {
+      path: '/music/track.mp3',
+    });
+  });
 });

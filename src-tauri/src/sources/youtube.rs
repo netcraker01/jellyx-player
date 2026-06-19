@@ -25,9 +25,7 @@ impl YouTubeResolver {
 
     /// Check if yt-dlp is available on PATH.
     fn check_yt_dlp() -> Result<(), SourceError> {
-        let result = Command::new("yt-dlp")
-            .arg("--version")
-            .output();
+        let result = Command::new("yt-dlp").arg("--version").output();
 
         match result {
             Ok(_) => Ok(()),
@@ -45,26 +43,29 @@ impl YouTubeResolver {
         let title = value.get("title")?.as_str()?.to_string();
 
         // yt-dlp provides "uploader" or "artist" or "channel"
-        let artist = value.get("artist")
+        let artist = value
+            .get("artist")
             .or_else(|| value.get("uploader"))
             .or_else(|| value.get("channel"))
             .and_then(|v| v.as_str())
             .unwrap_or("Unknown")
             .to_string();
 
-        let duration = value.get("duration")
-            .and_then(|v| v.as_f64());
+        let duration = value.get("duration").and_then(|v| v.as_f64());
 
-        let thumbnail = value.get("thumbnail")
+        let thumbnail = value
+            .get("thumbnail")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        let album = value.get("album")
+        let album = value
+            .get("album")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
         // webpage_url is the full YouTube URL for resolve
-        let webpage_url = value.get("webpage_url")
+        let webpage_url = value
+            .get("webpage_url")
             .or_else(|| value.get("url"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
@@ -112,7 +113,8 @@ impl SourceResolver for YouTubeResolver {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(SourceError::NetworkError(format!(
-                "yt-dlp search failed: {}", stderr.trim()
+                "yt-dlp search failed: {}",
+                stderr.trim()
             )));
         }
 
@@ -155,7 +157,8 @@ impl SourceResolver for YouTubeResolver {
         if !url_output.status.success() {
             let stderr = String::from_utf8_lossy(&url_output.stderr);
             return Err(SourceError::ResolveError(format!(
-                "yt-dlp resolve failed: {}", stderr.trim()
+                "yt-dlp resolve failed: {}",
+                stderr.trim()
             )));
         }
 

@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
-use crate::sources::SourceResolver;
 use crate::errors::types::SourceError;
 use crate::models::source::Source;
 use crate::models::track::Track;
 use crate::persistence::db::Database;
+use crate::sources::SourceResolver;
 
 /// Resolver for local file tracks stored in the SQLite database.
 pub struct LocalResolver {
@@ -36,6 +36,14 @@ impl SourceResolver for LocalResolver {
     }
 
     fn resolve(&self, id: &str) -> Result<Track, SourceError> {
+        if let Some(track) = self
+            .db
+            .get_local_track_by_id(id)
+            .map_err(|e| SourceError::ResolveError(format!("local resolve failed: {:?}", e)))?
+        {
+            return Ok(track);
+        }
+
         self.db
             .get_local_track_by_path(id)
             .map_err(|e| SourceError::ResolveError(format!("local resolve failed: {:?}", e)))?
@@ -111,6 +119,24 @@ mod tests {
         // Resolve should return the track by path
         let resolved = resolver.resolve("/music/song.mp3").unwrap();
         assert_eq!(resolved.id, "t1");
+        assert_eq!(resolved.local_path, Some("/music/song.mp3".to_string()));
+    }
+
+    #[test]
+    fn local_resolver_resolves_local_track_by_helix_id() {
+        let db = Database::open_in_memory().unwrap();
+        db.insert_watched_folder("/music").unwrap();
+
+        let track = sample_track("9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123", "/music/song.mp3");
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+            .unwrap();
+
+        let resolver = LocalResolver::new(Arc::new(db));
+        let resolved = resolver
+            .resolve("9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123")
+            .unwrap();
+
+        assert_eq!(resolved.id, "9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123");
         assert_eq!(resolved.local_path, Some("/music/song.mp3".to_string()));
     }
 }

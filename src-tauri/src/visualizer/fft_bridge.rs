@@ -122,7 +122,11 @@ mod tests {
         for (i, expected) in [1.0f32, 2.0, 3.0, 4.0].iter().enumerate() {
             let offset = 8 + i * 4;
             let val = f32::from_le_bytes(frame[offset..offset + 4].try_into().unwrap());
-            assert!((val - *expected).abs() < f32::EPSILON, "bin[{}] mismatch", i);
+            assert!(
+                (val - *expected).abs() < f32::EPSILON,
+                "bin[{}] mismatch",
+                i
+            );
         }
     }
 }

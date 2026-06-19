@@ -66,11 +66,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: color 0.2s, transform 0.1s;
+    transition: color 0.2s, transform 0.1s, background 0.2s;
   }
 
   .control-btn:hover:not(:disabled) {
-    color: var(--color-accent, #6366f1);
+    color: var(--color-helix-cyan, #00E5FF);
+    background: rgba(0, 229, 255, 0.08);
   }
 
   .control-btn:active:not(:disabled) {
@@ -83,16 +84,18 @@
   }
 
   .play-btn {
-    background: var(--color-accent, #6366f1);
-    color: white;
-    width: 48px;
-    height: 48px;
+    background: var(--helix-gradient-primary);
+    color: #0a0a0f;
+    width: 52px;
+    height: 52px;
     border-radius: 50%;
+    box-shadow: 0 4px 16px rgba(138, 92, 255, 0.35);
   }
 
   .play-btn:hover:not(:disabled) {
-    opacity: 0.9;
-    color: white;
+    opacity: 0.92;
+    color: #0a0a0f;
+    box-shadow: 0 6px 20px rgba(138, 92, 255, 0.45);
   }
 
   .mode-btn {
@@ -100,10 +103,11 @@
   }
 
   .mode-btn.active {
-    color: var(--color-accent, #6366f1);
+    color: var(--color-helix-cyan, #00E5FF);
+    background: rgba(0, 229, 255, 0.08);
   }
 
   .mode-btn:hover:not(:disabled) {
-    color: var(--color-accent, #6366f1);
+    color: var(--color-helix-cyan, #00E5FF);
   }
 </style>

@@ -2,14 +2,14 @@
 //!
 //! Re-exports public modules for integration testing and mobile targets.
 
-pub mod audio;
-pub mod sources;
-pub mod visualizer;
 pub mod app;
+pub mod audio;
+pub mod errors;
 pub mod ipc;
-pub mod playback;
 pub mod library;
 pub mod models;
 pub mod persistence;
-pub mod errors;
+pub mod playback;
 pub mod shared;
+pub mod sources;
+pub mod visualizer;

@@ -196,3 +196,23 @@ export interface AlbumDetail {
   year?: number;
   tracks: Track[];
 }
+
+// ── Home snapshot DTOs ───────────────────────────────────────────────
+
+/**
+ * A single recommendation item: a track, artist, or album with a reason.
+ * Mirrors the Rust `RecommendationItem` enum (tagged union with type field).
+ */
+export type RecommendationItem =
+  | { type: 'Track'; track: Track; reason: string }
+  | { type: 'Artist'; id: string; name: string; thumbnail?: string; trackCount: number; reason: string }
+  | { type: 'Album'; id: string; title: string; artist: string; cover?: string; trackCount: number; reason: string };
+
+/**
+ * Home snapshot: recently played tracks and recommendations.
+ * Matches the Rust `HomeSnapshot` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface HomeSnapshot {
+  recentlyPlayed: HistoryEntry[];
+  recommendations: RecommendationItem[];
+}

@@ -26,8 +26,14 @@ mod tests {
             duration: 240.0,
         };
         let json = serde_json::to_string(&tick).unwrap();
-        assert!(json.contains("\"position\""), "position field should be present");
-        assert!(json.contains("\"duration\""), "duration field should be present");
+        assert!(
+            json.contains("\"position\""),
+            "position field should be present"
+        );
+        assert!(
+            json.contains("\"duration\""),
+            "duration field should be present"
+        );
         assert!(json.contains("45.2"), "position value should serialize");
         assert!(json.contains("240.0"), "duration value should serialize");
     }

@@ -3,6 +3,7 @@
   import { favorites } from '@features/favorites/stores/favorites';
   import { playTrack, addToQueueAction, playNextAction } from '@shared/utils/actions';
   import { albumArtUrl } from '@shared/utils/assetUrl';
+  import HelixLogo from './HelixLogo.svelte';
   import type { Track } from '@shared/types/models';
 
   export let tracks: { track: Track }[] = [];
@@ -18,11 +19,7 @@
   }
 
   async function handlePlay(track: Track) {
-    if (track.streamUrl) {
-      await playTrack(track.streamUrl);
-    } else if (track.localPath) {
-      await playTrack(track.localPath);
-    }
+    await playTrack(track);
   }
 
   async function handleAddToQueue(track: Track) {
@@ -50,7 +47,9 @@
       {#if albumArtUrl(entry.track.thumbnail)}
         <img class="track-thumb" src={albumArtUrl(entry.track.thumbnail)} alt="" />
       {:else}
-        <div class="track-thumb-placeholder"></div>
+        <div class="track-thumb-placeholder">
+          <HelixLogo size={20} monochrome={true} />
+        </div>
       {/if}
       <div class="track-info">
         <span class="track-title">{entry.track.title}</span>
@@ -138,6 +137,9 @@
     border-radius: 4px;
     background: var(--bg-elevated, #1f2937);
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .track-info {

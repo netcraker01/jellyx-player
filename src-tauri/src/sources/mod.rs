@@ -5,9 +5,9 @@
 //! `SourceRegistry` manages registered resolvers and provides
 //! unified search across all sources.
 
-pub mod youtube;
-pub mod soundcloud;
 pub mod local;
+pub mod soundcloud;
+pub mod youtube;
 
 use crate::errors::types::SourceError;
 use crate::models::source::Source;
@@ -64,11 +64,7 @@ impl SourceRegistry {
                 Ok(tracks) => all_tracks.extend(tracks),
                 Err(e) => {
                     // Log the error but continue with other sources
-                    eprintln!(
-                        "Search failed for {:?}: {:?}",
-                        resolver.source_type(),
-                        e
-                    );
+                    eprintln!("Search failed for {:?}: {:?}", resolver.source_type(), e);
                 }
             }
         }

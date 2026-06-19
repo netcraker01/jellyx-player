@@ -27,6 +27,13 @@
   /* Font */
   --font-family: 'Inter', sans-serif;
 
+  /* Helix brand palette (opt-in companions to existing tokens) */
+  --color-helix-cyan: #00E5FF;
+  --color-helix-violet: #8A5CFF;
+  --color-helix-magenta: #D946FF;
+  --helix-gradient-primary: linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%);
+  --helix-gradient-progress: linear-gradient(90deg, #00E5FF 0%, #8A5CFF 70%, #D946FF 100%);
+
   /* Visualizer */
   --viz-blur-radius: 20px;
   --viz-bar-gap: 2px;

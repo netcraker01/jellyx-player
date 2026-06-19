@@ -48,8 +48,14 @@ pub struct StreamInfo {
 /// Used by the decoder thread to push PCM frames into the pipeline.
 /// Each call to `send` pushes a frame to ALL subscribers.
 pub struct PcmBusProducer {
-    /// Senders for all subscribers (output + FFT + future consumers).
-    subscribers: Vec<Sender<PcmFrame>>,
+    /// The primary (audio output) sender. Uses a *blocking* send so the
+    /// decoder naturally paces itself to real-time playback. Never drops
+    /// frames — backpressure slows decode speed to match output speed.
+    output_tx: Sender<PcmFrame>,
+    /// Secondary subscribers (FFT, visualizer, future consumers). Uses
+    /// *non-blocking* `try_send` — drops frames when full so visualization
+    /// lag never stalls audio playback.
+    secondary_subscribers: Vec<Sender<PcmFrame>>,
     /// Shared stream info.
     #[allow(dead_code)]
     stream_info: Arc<StreamInfo>,
@@ -68,8 +74,8 @@ impl PcmBus {
     /// Create a new PcmBus with default buffer size.
     ///
     /// Returns a `(PcmBusProducer, PcmBusSubscriber)` pair for the primary
-    /// audio output consumer. Call `subscribe()` on the producer to add
-    /// additional consumers (e.g., FFT).
+    /// audio output consumer. Call `subscribe_secondary()` on the producer to
+    /// add additional lossy consumers (e.g., FFT).
     pub fn new(sample_rate: u32, channels: u16) -> (PcmBusProducer, PcmBusSubscriber) {
         Self::with_bound(sample_rate, channels, DEFAULT_BUS_BOUND)
     }
@@ -88,7 +94,8 @@ impl PcmBus {
 
         let subscriber = PcmBusSubscriber { rx: output_rx };
         let producer = PcmBusProducer {
-            subscribers: vec![output_tx],
+            output_tx,
+            secondary_subscribers: Vec::new(),
             stream_info: stream_info.clone(),
         };
 
@@ -103,27 +110,35 @@ impl PcmBusProducer {
         &self.stream_info
     }
 
-    /// Add a new subscriber to the bus.
+    /// Add a new secondary (lossy) subscriber to the bus — e.g., FFT/visualizer.
     ///
     /// Returns a `PcmBusSubscriber` that will receive all frames sent after
-    /// this call. The subscriber has its own bounded channel with the same
-    /// capacity as the bus.
-    pub fn subscribe(&mut self) -> PcmBusSubscriber {
+    /// this call. Uses a bounded channel with `try_send` so lagging
+    /// visualizers never stall audio playback.
+    pub fn subscribe_secondary(&mut self) -> PcmBusSubscriber {
         let (tx, rx) = bounded(DEFAULT_BUS_BOUND);
-        self.subscribers.push(tx);
+        self.secondary_subscribers.push(tx);
         PcmBusSubscriber { rx }
     }
 
-    /// Send a PCM frame to all subscribers.
+    /// Send a PCM frame to the primary output and all secondary subscribers.
     ///
-    /// If a subscriber's channel is full, the frame is dropped for that
-    /// subscriber (non-blocking backpressure). This ensures the decoder
-    /// thread never blocks on a slow consumer.
+    /// The **primary** output channel uses a *blocking* send — if it is full,
+    /// the decoder thread waits. This backpressures the decoder so decode
+    /// speed matches real-time playback speed.
+    ///
+    /// **Secondary** subscribers (FFT/visualizer) use `try_send`; if their
+    /// channel is full, the frame is silently dropped. This prevents a
+    /// lagging visualizer from stalling audio.
     pub fn send(&self, frame: PcmFrame) -> Result<(), AudioError> {
-        for tx in &self.subscribers {
-            // try_send is non-blocking; if the channel is full, the frame
-            // is dropped for that subscriber — acceptable for visualization,
-            // critical for audio output (which should always be draining).
+        // Primary output — BLOCKING. This is the key pacing mechanism:
+        // the decoder cannot run faster than the audio callback consumes data.
+        self.output_tx
+            .send(frame.clone())
+            .map_err(|_| AudioError::DeviceError("PCM bus closed".to_string()))?;
+
+        // Secondary subscribers — NON-BLOCKING (lossy acceptable for viz).
+        for tx in &self.secondary_subscribers {
             let _ = tx.try_send(frame.clone());
         }
         Ok(())
@@ -164,24 +179,61 @@ mod tests {
 
     #[test]
     fn pcm_bus_drops_on_full() {
-        let (producer, subscriber) = PcmBus::with_bound(44100, 2, 2);
+        // With the new architecture, the PRIMARY channel is blocking and
+        // never drops — secondary channels are lossy. Since we have no
+        // secondary subscribers here, the primary channel will block on
+        // the third send (no receiver draining it). Verify that the
+        // first two sends succeed and the third blocks (detected via
+        // thread join timeout).
+        let (producer, _subscriber) = PcmBus::with_bound(44100, 2, 2);
 
         // Fill the channel
         producer.send(vec![0.1; 4]).unwrap();
         producer.send(vec![0.2; 4]).unwrap();
 
-        // Third send should not block; oldest frame may be dropped or newest dropped
-        producer.send(vec![0.3; 4]).unwrap();
+        // Third send blocks because primary channel is full with no receiver.
+        // Spawn it in a thread and enforce a short timeout — if it returns
+        // immediately, the assertion fails.
+        let handle = std::thread::spawn(move || producer.send(vec![0.3; 4]));
+        // If primary were lossy (old behavior), this would return instantly.
+        // With blocking primary, the thread should still be alive after 50ms.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        assert!(
+            !handle.is_finished(),
+            "Primary channel should block when full (backpressure)"
+        );
+    }
 
-        // At least one frame should be receivable
-        let frame = subscriber.try_recv();
-        assert!(frame.is_some());
+    #[test]
+    fn pcm_bus_secondary_drops_when_full() {
+        let (mut producer, output_sub) = PcmBus::with_bound(44100, 2, 2);
+        let fft_sub = producer.subscribe_secondary();
+
+        // Fill both primary and secondary
+        for i in 0..20 {
+            producer.send(vec![i as f32; 4]).unwrap();
+            // Drain primary so it never blocks (secondary is lossy)
+            let _ = output_sub.try_recv();
+        }
+
+        // Secondary should have dropped some frames (it only sees what
+        // the lossy try_send accepted; primary saw all because we drained it)
+        let mut count = 0;
+        while fft_sub.try_recv().is_some() {
+            count += 1;
+        }
+        // With DEFAULT_BUS_BOUND=16, secondary should have kept at most 16
+        assert!(
+            count <= 16,
+            "Secondary should cap at channel bound, got {}",
+            count
+        );
     }
 
     #[test]
     fn pcm_bus_multiple_subscribers() {
         let (mut producer, output_sub) = PcmBus::new(44100, 2);
-        let fft_sub = producer.subscribe();
+        let fft_sub = producer.subscribe_secondary();
 
         let frame: PcmFrame = vec![0.5, 0.6];
         producer.send(frame.clone()).unwrap();
@@ -207,16 +259,29 @@ mod tests {
     // --- Additional PcmBus tests (Task 4.2) ---
 
     #[test]
-    fn pcm_bus_producer_send_returns_ok_even_with_no_subscribers_after_drop() {
-        // If all subscribers are dropped, send should still return Ok
-        // (frames are just dropped — no panic)
+    fn pcm_bus_primary_send_errors_when_receiver_dropped() {
+        // When the primary output subscriber is dropped, the blocking
+        // send should fail with an error (channel disconnected).
         let (producer, subscriber) = PcmBus::new(44100, 2);
         drop(subscriber);
-        // The sender in PcmBusProducer keeps its own reference,
-        // but if all receivers are dropped, try_send on those channels fails silently
         let result = producer.send(vec![1.0; 4]);
-        // send always returns Ok — it silently drops frames for disconnected subs
-        assert!(result.is_ok());
+        assert!(
+            result.is_err(),
+            "Primary send should error when receiver dropped"
+        );
+    }
+
+    #[test]
+    fn pcm_bus_secondary_send_ok_when_receiver_dropped() {
+        // Secondary subscribers are lossy; dropping them should not affect
+        // the primary send.
+        let (mut producer, output_sub) = PcmBus::new(44100, 2);
+        let fft_sub = producer.subscribe_secondary();
+        drop(fft_sub);
+
+        // Primary should still work
+        producer.send(vec![1.0; 4]).unwrap();
+        assert_eq!(output_sub.try_recv().unwrap(), vec![1.0; 4]);
     }
 
     #[test]
@@ -262,7 +327,7 @@ mod tests {
         // Send a frame BEFORE subscribing the FFT listener
         producer.send(vec![1.0; 4]).unwrap();
 
-        let fft_sub = producer.subscribe();
+        let fft_sub = producer.subscribe_secondary();
 
         // Send a frame AFTER subscribing
         producer.send(vec![2.0; 4]).unwrap();

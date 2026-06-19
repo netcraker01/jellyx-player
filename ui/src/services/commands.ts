@@ -18,12 +18,18 @@ import type {
   GroupedSearchResult,
   ArtistDetail,
   AlbumDetail,
+  HomeSnapshot,
+  RecommendationItem,
 } from '@shared/types/models';
 
 // ── Playback commands ──────────────────────────────────────────────
 
 export function play(url: string): Promise<void> {
   return invokeCommand<void>('play', { url });
+}
+
+export function playLocal(path: string): Promise<void> {
+  return invokeCommand<void>('play_local', { path });
 }
 
 export function pause(): Promise<void> {
@@ -173,4 +179,15 @@ export function getWatchedFolders(): Promise<WatchedFolder[]> {
 /** Remove a watched folder and its associated tracks. */
 export function removeWatchedFolder(folderPath: string): Promise<void> {
   return invokeCommand<void>('remove_watched_folder', { folderPath });
+}
+
+// ── Home commands ──────────────────────────────────────────────────────
+
+export function getHomeRecommendations(): Promise<RecommendationItem[]> {
+  return invokeCommand<RecommendationItem[]>('get_home_recommendations');
+}
+
+/** Get the Home snapshot: recently played + recommendations. */
+export function getHomeSnapshot(): Promise<HomeSnapshot> {
+  return invokeCommand<HomeSnapshot>('get_home_snapshot');
 }

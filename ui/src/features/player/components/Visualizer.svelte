@@ -165,7 +165,10 @@
     width: 100vw;
     height: 100vh;
     z-index: 100;
-    background: var(--bg-base, #0a0a0f);
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -20%, rgba(138, 92, 255, 0.12), transparent),
+      radial-gradient(ellipse 60% 50% at 80% 100%, rgba(0, 229, 255, 0.08), transparent),
+      var(--bg-base, #0a0a0f);
   }
 
   .visualizer-canvas {
@@ -179,21 +182,23 @@
     top: 1rem;
     right: 1rem;
     z-index: 101;
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     color: var(--text-primary, #e0e0e0);
     font-size: 1.25rem;
-    width: 2rem;
-    height: 2rem;
+    width: 2.25rem;
+    height: 2.25rem;
     border-radius: 50%;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: background 0.2s;
+    transition: background 0.2s, box-shadow 0.2s;
+    backdrop-filter: blur(4px);
   }
 
   .modo-cine-close:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 0 12px rgba(138, 92, 255, 0.3);
   }
 </style>

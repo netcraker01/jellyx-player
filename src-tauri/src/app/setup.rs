@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 
+use crate::errors::types::PersistenceError;
 use crate::ipc::commands::AppState;
 use crate::library::LibraryService;
 use crate::persistence::db::Database;
@@ -22,19 +23,37 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // Ensure art cache directory exists before any scanning
-            ensure_art_cache_dir();
+            // Ensure art cache directory exists before any scanning.
+            // Non-fatal: scanning may degrade without local art caching, but the
+            // app should not abort startup because of a directory permission issue.
+            if let Err(_e) = ensure_art_cache_dir() {
+                // A warning has already been logged by ensure_art_cache_dir.
+                // We deliberately continue so the app remains usable.
+            }
 
-            // Initialize SQLite database at XDG data dir
+            // Initialize SQLite database at XDG data dir.
+            // If this fails, propagate the error through Tauri's setup hook so
+            // the process exits gracefully instead of panicking.
             let db_path = database_path();
-            let db = Arc::new(Database::open(&db_path).expect("failed to initialize database"));
+            let db = Arc::new(Database::open(&db_path).map_err(|e| {
+                eprintln!("fatal: failed to initialize database: {:?}", e);
+                match e {
+                    PersistenceError::DatabaseError(msg) => msg,
+                    PersistenceError::WriteError(msg) => msg,
+                }
+            })?);
 
             // Binary FFT channel — shared between AppState and PlaybackService
             let fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>> =
                 Arc::new(Mutex::new(None));
 
             let library = Arc::new(LibraryService::new(db.clone()));
-            let playback = PlaybackService::new(app.handle().clone(), db.clone(), library.clone(), fft_channel.clone());
+            let playback = PlaybackService::new(
+                app.handle().clone(),
+                db.clone(),
+                library.clone(),
+                fft_channel.clone(),
+            );
             let scanner = ScannerService::new(db);
 
             app.manage(AppState {
@@ -83,6 +102,7 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::remove_watched_folder,
             // Home snapshot
             crate::ipc::commands::get_home_snapshot,
+            crate::ipc::commands::get_home_recommendations,
             // FFT binary streaming
             crate::ipc::commands::start_fft_stream,
         ])
@@ -93,8 +113,6 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
 /// On Linux: `~/.local/share/helix/helix.db`
 /// Falls back to current directory if XDG dirs are unavailable.
 fn database_path() -> std::path::PathBuf {
-    let data_dir = dirs::data_local_dir().unwrap_or_else(|| {
-        std::path::PathBuf::from(".")
-    });
+    let data_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
     data_dir.join("helix").join("helix.db")
 }
