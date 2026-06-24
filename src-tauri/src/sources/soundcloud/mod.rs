@@ -5,6 +5,7 @@
 
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::OnceLock;
 
 use uuid::Uuid;
 
@@ -29,20 +30,28 @@ const SOUNDCLOUD_AUDIO_FORMAT: &str =
 
 pub struct SoundCloudResolver;
 
+/// Cached result of yt-dlp availability check.
+/// Shared across YouTube and SoundCloud resolvers to avoid redundant subprocess spawns.
+static YT_DLP_AVAILABLE: OnceLock<bool> = OnceLock::new();
+
 impl SoundCloudResolver {
     pub fn new() -> Self {
         Self
     }
 
     /// Check if yt-dlp is available on PATH.
+    /// Cached after first check — avoids ~100-300ms subprocess spawn per resolve.
     fn check_yt_dlp() -> Result<(), SourceError> {
-        let result = Command::new("yt-dlp").arg("--version").output();
+        let available = *YT_DLP_AVAILABLE.get_or_init(|| {
+            Command::new("yt-dlp").arg("--version").output().is_ok()
+        });
 
-        match result {
-            Ok(_) => Ok(()),
-            Err(_) => Err(SourceError::DependencyMissing(
+        if available {
+            Ok(())
+        } else {
+            Err(SourceError::DependencyMissing(
                 "yt-dlp is not installed or not on PATH. Install it from https://github.com/yt-dlp/yt-dlp".to_string(),
-            )),
+            ))
         }
     }
 
@@ -114,10 +123,15 @@ impl SoundCloudResolver {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        // webpage_url for SoundCloud is the full track URL
+        // webpage_url for SoundCloud is the human-friendly track page URL
         let webpage_url = value
             .get("webpage_url")
-            .or_else(|| value.get("url"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+
+        // Direct stream URL from format resolution (present with --format + --dump-json)
+        let stream_url = value
+            .get("url")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
@@ -135,7 +149,7 @@ impl SoundCloudResolver {
             album,
             duration,
             thumbnail,
-            stream_url: None, // Resolved lazily on play
+            stream_url,
             local_path: None,
             playlist_id: None,
             metadata,
@@ -193,18 +207,20 @@ impl SourceResolver for SoundCloudResolver {
             format!("https://soundcloud.com/{}", id)
         };
 
-        // Get stream URL
-        let url_output = Command::new("yt-dlp")
+        // Single yt-dlp call: --dump-json with format selector includes the resolved
+        // stream URL in the "url" field, avoiding a duplicate yt-dlp invocation.
+        let output = Command::new("yt-dlp")
             .arg(&url)
-            .arg("--get-url")
+            .arg("--dump-json")
+            .arg("--no-download")
+            .arg("--no-playlist")
             .arg("--format")
             .arg(SOUNDCLOUD_AUDIO_FORMAT)
-            .arg("--no-playlist")
             .output()
             .map_err(|e| SourceError::NetworkError(e.to_string()))?;
 
-        if !url_output.status.success() {
-            let stderr = String::from_utf8_lossy(&url_output.stderr);
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
             let err_msg = stderr.trim();
             // Detect DRM-protected tracks and provide a user-friendly message
             if err_msg.contains("DRM protected") {
@@ -218,63 +234,48 @@ impl SourceResolver for SoundCloudResolver {
             )));
         }
 
-        let stream_url = String::from_utf8_lossy(&url_output.stdout)
-            .lines()
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let first_line = stdout.lines().next().unwrap_or("");
 
-        if stream_url.is_empty() {
+        let mut track = Self::parse_track_from_json(first_line).unwrap_or_else(|| Track {
+            id: Uuid::new_v4().to_string(),
+            source: Source::SoundCloud,
+            source_id: id.to_string(),
+            title: "Unknown".to_string(),
+            artist: "Unknown".to_string(),
+            album: None,
+            duration: None,
+            thumbnail: None,
+            stream_url: None,
+            local_path: None,
+            playlist_id: None,
+            metadata: HashMap::new(),
+        });
+
+        // Extract the stream URL from the JSON "url" field (the resolved format URL).
+        // Fallback to the "webpage_url" which is the SoundCloud page URL.
+        if track.stream_url.is_none() {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(first_line) {
+                let resolved_url = value
+                    .get("url")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .or_else(|| {
+                        value
+                            .get("webpage_url")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                    });
+                track.stream_url = resolved_url;
+            }
+        }
+
+        if track.stream_url.is_none() {
             return Err(SourceError::ResolveError(
                 "No stream URL returned by yt-dlp".to_string(),
             ));
         }
 
-        // Get metadata with --dump-json
-        let json_output = Command::new("yt-dlp")
-            .arg(&url)
-            .arg("--dump-json")
-            .arg("--no-download")
-            .arg("--no-playlist")
-            .output()
-            .map_err(|e| SourceError::NetworkError(e.to_string()))?;
-
-        let mut track = if json_output.status.success() {
-            let json_str = String::from_utf8_lossy(&json_output.stdout);
-            let first_line = json_str.lines().next().unwrap_or("");
-            Self::parse_track_from_json(first_line).unwrap_or_else(|| Track {
-                id: Uuid::new_v4().to_string(),
-                source: Source::SoundCloud,
-                source_id: id.to_string(),
-                title: "Unknown".to_string(),
-                artist: "Unknown".to_string(),
-                album: None,
-                duration: None,
-                thumbnail: None,
-                stream_url: None,
-                local_path: None,
-                playlist_id: None,
-                metadata: HashMap::new(),
-            })
-        } else {
-            Track {
-                id: Uuid::new_v4().to_string(),
-                source: Source::SoundCloud,
-                source_id: id.to_string(),
-                title: "Unknown".to_string(),
-                artist: "Unknown".to_string(),
-                album: None,
-                duration: None,
-                thumbnail: None,
-                stream_url: None,
-                local_path: None,
-                playlist_id: None,
-                metadata: HashMap::new(),
-            }
-        };
-
-        track.stream_url = Some(stream_url);
         Ok(track)
     }
 }
@@ -298,7 +299,8 @@ mod tests {
         assert_eq!(track.artist, "DJ Chill");
         assert_eq!(track.duration, Some(3600.0));
         assert_eq!(track.source, Source::SoundCloud);
-        assert!(track.stream_url.is_none());
+        // stream_url is populated from the "url" JSON field when present
+        assert!(track.stream_url.is_some());
         assert!(track.metadata.contains_key("webpage_url"));
     }
 

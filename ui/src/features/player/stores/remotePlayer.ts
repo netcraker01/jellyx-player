@@ -106,9 +106,8 @@ export async function loadRemoteStream(track: Track, streamUrl: string): Promise
   // Set volume (0-1)
   audio.volume = get(volume) / 100;
 
-  // Load new stream
+  // Load new stream — play() triggers buffering automatically
   audio.src = streamUrl;
-  audio.load();
 
   try {
     await audio.play();

@@ -594,17 +594,19 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                 s.queue.played_indices.clear();
             }
         }
+        // Emit stream-resolved FIRST so frontend starts buffering audio immediately,
+        // before queue/state events that don't block playback start.
+        let _ = self
+            .emitter
+            .emit_stream_resolved(&track.id, &stream_url);
+
+        // Then emit UI state events
         if let Ok(queue) = self.get_queue() {
             let _ = self.emitter.emit_queue_updated(&queue);
         }
 
         let _ = self.emitter.emit_track_changed(&track);
         let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
-
-        // Emit stream-resolved so frontend loads the URL into HTMLAudio
-        let _ = self
-            .emitter
-            .emit_stream_resolved(&track.id, &stream_url);
 
         // Record history
         self.record_history(&track);
