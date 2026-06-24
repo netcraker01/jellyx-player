@@ -79,6 +79,37 @@ pub struct AlbumDetail {
     pub tracks: Vec<Track>,
 }
 
+/// A user-created local playlist (DTO for IPC).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserPlaylist {
+    pub id: String,
+    pub title: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// A track entry inside a user playlist (DTO for IPC).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistTrackEntry {
+    pub playlist_id: String,
+    pub position: i64,
+    pub track: Track,
+    pub added_at: String,
+}
+
+/// A favorited artist (DTO for IPC).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtistFavorite {
+    pub artist_id: String,
+    pub artist_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thumbnail: Option<String>,
+    pub added_at: String,
+}
+
 // ── ID normalization helpers ─────────────────────────────────────────
 
 /// Normalize a raw artist name into a stable artist ID.
@@ -199,6 +230,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: None,
+            playlist_id: None,
             metadata: HashMap::new(),
         }
     }

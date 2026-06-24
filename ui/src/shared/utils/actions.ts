@@ -2,8 +2,10 @@
  * Shared track actions — thin wrappers around Tauri commands.
  * Used by TrackList and other components to avoid duplicate command imports.
  */
+import { get } from 'svelte/store';
 import * as commands from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
+import { t } from '@i18n';
 import type { Track } from '@shared/types/models';
 
 /** Play a track, dispatching to the correct backend command by source. */
@@ -11,19 +13,24 @@ export async function playTrack(track: Track): Promise<void> {
   try {
     if (track.localPath) {
       await commands.playLocal(track.localPath);
-    } else if (track.streamUrl) {
-      await commands.play(track.streamUrl);
+    } else {
+      // Remote track (YouTube, SoundCloud) — use playStream for HTTP streaming
+      await commands.playStream(track);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
+    const translate = get(t);
+    const drmMessage = msg.includes('DRM')
+      ? translate('playback.drm_protected', { default: 'Cannot play: DRM-protected track' })
+      : msg;
+    notifications.push({ type: 'error', title: translate('playback.error_title', { default: 'Playback Error' }), message: drmMessage, dismissible: true });
   }
 }
 
-/** Add a track to the playback queue by its ID. */
-export async function addToQueueAction(trackId: string): Promise<void> {
+/** Add a track to the playback queue using the full Track object — instant, no resolve needed. */
+export async function addToQueueAction(track: Track): Promise<void> {
   try {
-    await commands.addToQueue(trackId);
+    await commands.addToQueueWithTrack(track);
     notifications.push({ type: 'success', title: 'Queue', message: 'Track added to queue', dismissible: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -31,10 +38,10 @@ export async function addToQueueAction(trackId: string): Promise<void> {
   }
 }
 
-/** Insert a track immediately after the current track in the queue. */
-export async function playNextAction(trackId: string): Promise<void> {
+/** Insert a track immediately after the current track in the queue — instant, no resolve needed. */
+export async function playNextAction(track: Track): Promise<void> {
   try {
-    await commands.playNext(trackId);
+    await commands.playNextWithTrack(track);
     notifications.push({ type: 'info', title: 'Queue', message: 'Track set to play next', dismissible: true });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
 }));
 
-vi.mock('svelte-routing', () => ({
+vi.mock('@app/router/navigation', () => ({
   navigate: mocks.navigate,
 }));
 

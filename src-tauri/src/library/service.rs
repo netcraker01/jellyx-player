@@ -3,6 +3,11 @@
 //! `LibraryService` wraps the `Database` and provides business-logic-level
 //! operations for favorites and history. All methods return `AppError`
 //! for consistent IPC error handling.
+//!
+//! Favorite operations use a **source-aware key**: `track.id` for local tracks
+//! (stable UUID) and `track.source_id` for remote tracks (stable resolver ID).
+//! This ensures that remote tracks, which get a new internal UUID on each
+//! resolution, can still be reliably favorited and unfavorited.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -19,8 +24,7 @@ use crate::ipc::dto::{
 };
 use crate::models::track::Track;
 use crate::persistence::db::Database;
-use crate::persistence::models::{FavoriteEntry, HistoryEntry, LocalTrackEntry};
-
+use crate::persistence::models::{HistoryEntry, LocalTrackEntry};
 /// Service providing library operations (favorites, history).
 ///
 /// Owns an `Arc<Database>` shared reference so it can be cheaply cloned
@@ -36,55 +40,10 @@ impl LibraryService {
         Self { db }
     }
 
-    /// Add a track to the user's favorites.
-    ///
-    /// Returns `LibraryError::AlreadyExists` if the track is already favorited.
-    pub fn add_favorite(&self, track: Track) -> Result<(), AppError> {
-        if self.db.favorite_exists(&track.id).map_err(AppError::from)? {
-            return Err(AppError::from(LibraryError::AlreadyExists(track.id)));
-        }
-        self.db.insert_favorite(&track).map_err(AppError::from)
-    }
-
-    /// Remove a track from favorites by its Helix ID.
-    ///
-    /// Returns `LibraryError::NotFound` if the track is not in favorites.
-    pub fn remove_favorite(&self, track_id: &str) -> Result<(), AppError> {
-        let removed = self.db.remove_favorite(track_id).map_err(AppError::from)?;
-        if !removed {
-            return Err(AppError::from(LibraryError::NotFound(track_id.to_string())));
-        }
-        Ok(())
-    }
-
-    /// Get all favorited tracks, ordered by most recently added first.
-    pub fn get_favorites(&self) -> Result<Vec<FavoriteEntry>, AppError> {
-        self.db.get_favorites().map_err(AppError::from)
-    }
-
     /// Record a play event in history.
     #[allow(dead_code)]
     pub fn record_play(&self, track: &Track) -> Result<(), AppError> {
         self.db.insert_history(track).map_err(AppError::from)
-    }
-
-    /// Toggle a track's favorite state.
-    ///
-    /// If the track is already favorited it is removed and `false` is returned.
-    /// If it is not favorited it is added and `true` is returned.
-    pub fn toggle_favorite(&self, track: &Track) -> Result<bool, AppError> {
-        if self.db.favorite_exists(&track.id).map_err(AppError::from)? {
-            self.db.remove_favorite(&track.id).map_err(AppError::from)?;
-            Ok(false)
-        } else {
-            self.db.insert_favorite(track).map_err(AppError::from)?;
-            Ok(true)
-        }
-    }
-
-    /// Check whether a track is currently favorited by its Helix ID.
-    pub fn favorite_exists(&self, track_id: &str) -> Result<bool, AppError> {
-        self.db.favorite_exists(track_id).map_err(AppError::from)
     }
 
     /// Get play history, ordered by most recent first (max 100 entries).
@@ -335,19 +294,17 @@ impl LibraryService {
         })
     }
 
-    /// Compute heavy recommendations from history, favorites, and local library.
+    /// Compute heavy recommendations from history and local library.
     pub fn get_home_recommendations(&self) -> Result<Vec<RecommendationItem>, AppError> {
         let history = self.db.get_history().map_err(AppError::from)?;
-        let favorites = self.db.get_favorites().map_err(AppError::from)?;
         let local_tracks = self.db.get_all_local_tracks().map_err(AppError::from)?;
-        Ok(self.build_recommendations(&history, &favorites, &local_tracks))
+        Ok(self.build_recommendations(&history, &local_tracks))
     }
 
-    /// Assemble recommendations from history, favorites, and local library.
+    /// Assemble recommendations from history and local library.
     fn build_recommendations(
         &self,
         history: &[HistoryEntry],
-        favorites: &[FavoriteEntry],
         local_tracks: &[LocalTrackEntry],
     ) -> Vec<RecommendationItem> {
         let recent_track_ids: HashSet<String> = history
@@ -416,33 +373,7 @@ impl LibraryService {
             }
         }
 
-        // 3. Favorite discovery
-        let favorite_artists: HashSet<String> = favorites
-            .iter()
-            .map(|fav| fav.track.artist.clone())
-            .collect();
-        let mut favorite_tracks_added = 0;
-        for entry in local_tracks.iter() {
-            if favorite_tracks_added >= Self::FAVORITE_DISCOVERY_LIMIT {
-                break;
-            }
-            if !favorite_artists.contains(&entry.track.artist) {
-                continue;
-            }
-            if recent_track_ids.contains(&entry.track.id) {
-                continue;
-            }
-            if !recommended_ids.insert(entry.track.id.clone()) {
-                continue;
-            }
-            recommendations.push(RecommendationItem::Track {
-                track: entry.track.clone(),
-                reason: "From your favorites".to_string(),
-            });
-            favorite_tracks_added += 1;
-        }
-
-        // 4. Library discovery
+        // 3. Library discovery
         let seed = daily_seed();
         let mut rng = StdRng::seed_from_u64(seed);
         let mut candidates: Vec<&LocalTrackEntry> = local_tracks
@@ -515,6 +446,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: None,
+            playlist_id: None,
             metadata: HashMap::new(),
         }
     }
@@ -531,6 +463,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(path.to_string()),
+            playlist_id: None,
             metadata: HashMap::new(),
         }
     }
@@ -546,44 +479,6 @@ mod tests {
             let path = t.local_path.as_ref().unwrap();
             svc.db.upsert_local_track(path, t, _folder, None).unwrap();
         }
-    }
-
-    #[test]
-    fn add_and_get_favorites() {
-        let svc = setup_service();
-        let track = sample_track("t1");
-        svc.add_favorite(track).unwrap();
-
-        let favs = svc.get_favorites().unwrap();
-        assert_eq!(favs.len(), 1);
-        assert_eq!(favs[0].track.id, "t1");
-    }
-
-    #[test]
-    fn add_duplicate_favorite_returns_already_exists() {
-        let svc = setup_service();
-        svc.add_favorite(sample_track("t1")).unwrap();
-        let result = svc.add_favorite(sample_track("t1"));
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.code, "ALREADY_EXISTS");
-    }
-
-    #[test]
-    fn remove_existing_favorite() {
-        let svc = setup_service();
-        svc.add_favorite(sample_track("t1")).unwrap();
-        svc.remove_favorite("t1").unwrap();
-        assert_eq!(svc.get_favorites().unwrap().len(), 0);
-    }
-
-    #[test]
-    fn remove_nonexistent_favorite_returns_not_found() {
-        let svc = setup_service();
-        let result = svc.remove_favorite("ghost");
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(err.code, "NOT_FOUND");
     }
 
     #[test]
@@ -616,42 +511,6 @@ mod tests {
         svc.record_play(&sample_track("t2")).unwrap();
         svc.clear_history().unwrap();
         assert_eq!(svc.get_history().unwrap().len(), 0);
-    }
-
-    #[test]
-    fn empty_favorites_and_history() {
-        let svc = setup_service();
-        assert_eq!(svc.get_favorites().unwrap().len(), 0);
-        assert_eq!(svc.get_history().unwrap().len(), 0);
-    }
-
-    #[test]
-    fn toggle_favorite_adds_when_not_favorited() {
-        let svc = setup_service();
-        let track = sample_track("t1");
-        let result = svc.toggle_favorite(&track).unwrap();
-        assert!(result, "Should return true when adding");
-        assert_eq!(svc.get_favorites().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn toggle_favorite_removes_when_favorited() {
-        let svc = setup_service();
-        let track = sample_track("t1");
-        svc.add_favorite(track.clone()).unwrap();
-        let result = svc.toggle_favorite(&track).unwrap();
-        assert!(!result, "Should return false when removing");
-        assert_eq!(svc.get_favorites().unwrap().len(), 0);
-    }
-
-    #[test]
-    fn toggle_favorite_twice_returns_to_initial_state() {
-        let svc = setup_service();
-        let track = sample_track("t1");
-        assert!(svc.toggle_favorite(&track).unwrap());
-        assert!(!svc.toggle_favorite(&track).unwrap());
-        assert!(svc.toggle_favorite(&track).unwrap());
-        assert_eq!(svc.get_favorites().unwrap().len(), 1);
     }
 
     // ── Grouped search tests (REQ-MS-1/2) ────────────────────────────────
@@ -876,6 +735,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(path.to_string()),
+            playlist_id: None,
             metadata: HashMap::new(),
         }
     }

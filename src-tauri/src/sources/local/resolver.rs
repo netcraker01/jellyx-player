@@ -74,6 +74,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(path.to_string()),
+            playlist_id: None,
             metadata: HashMap::new(),
         }
     }

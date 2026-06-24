@@ -9,6 +9,8 @@ import { get } from 'svelte/store';
 import { homeStore, homeLoading, homeError } from './home';
 import { notifications } from '@shared/stores/notifications';
 import * as commands from '@services/commands';
+import { Source } from '@shared/types/models';
+import type { HomeSnapshot, RecommendationItem } from '@shared/types/models';
 
 // Mock the commands module so we can control IPC responses.
 vi.mock('@services/commands', async () => {
@@ -23,14 +25,14 @@ vi.mock('@services/commands', async () => {
 const mockedGetHomeSnapshot = vi.mocked(commands.getHomeSnapshot);
 const mockedGetHomeRecommendations = vi.mocked(commands.getHomeRecommendations);
 
-function createMockSnapshot(): commands.HomeSnapshot {
+function createMockSnapshot(): HomeSnapshot {
   return {
     recentlyPlayed: [
       {
         id: 1,
         track: {
           id: 'track-1',
-          source: 'Local' as commands.Source,
+          source: Source.Local,
           sourceId: 'local-1',
           title: 'Recent Track',
           artist: 'Recent Artist',
@@ -44,7 +46,7 @@ function createMockSnapshot(): commands.HomeSnapshot {
         type: 'Track',
         track: {
           id: 'track-2',
-          source: 'Local' as commands.Source,
+          source: Source.Local,
           sourceId: 'local-2',
           title: 'Recommended Track',
           artist: 'Recommended Artist',
@@ -128,7 +130,7 @@ describe('homeStore', () => {
   });
 
   it('handles an empty snapshot gracefully', async () => {
-    const emptySnapshot: commands.HomeSnapshot = {
+    const emptySnapshot: HomeSnapshot = {
       recentlyPlayed: [],
       recommendations: [],
     };
@@ -144,8 +146,8 @@ describe('homeStore', () => {
     expect(get(homeError)).toBeNull();
   });
 
-  it(' narrows RecommendationItem union by type', () => {
-    const item: commands.RecommendationItem = {
+  it('narrows RecommendationItem union by type', () => {
+    const item: RecommendationItem = {
       type: 'Artist',
       id: 'artist-1',
       name: 'Artist One',

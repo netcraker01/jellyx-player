@@ -1,45 +1,34 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import BrandLockup from './BrandLockup.svelte';
-  import { Home, Search, Heart, Music, Library, Settings } from 'lucide-svelte';
+  import { Home, Search, ListMusic, Music, Library, Settings } from 'lucide-svelte';
   import { t } from '@i18n';
   import { currentPath, navigate } from '../router/navigation';
-
-  let pathname = '/';
-
-  onMount(() => {
-    const unsubscribe = currentPath.subscribe((path) => {
-      pathname = path;
-    });
-
-    return unsubscribe;
-  });
 </script>
 
 <aside class="sidebar">
   <BrandLockup />
   <nav>
-    <button type="button" class="nav-link{pathname === '/' ? ' active' : ''}" on:click={() => navigate('/')}>
+    <button type="button" class="nav-link{$currentPath === '/' ? ' active' : ''}" on:click={() => navigate('/')}>
       <Home size={20} />
       <span>{$t('routes.home')}</span>
     </button>
-    <button type="button" class="nav-link{pathname === '/search' ? ' active' : ''}" on:click={() => navigate('/search')}>
+    <button type="button" class="nav-link{$currentPath === '/search' ? ' active' : ''}" on:click={() => navigate('/search')}>
       <Search size={20} />
       <span>{$t('routes.search')}</span>
     </button>
-    <button type="button" class="nav-link{pathname === '/favorites' ? ' active' : ''}" on:click={() => navigate('/favorites')}>
-      <Heart size={20} />
-      <span>{$t('routes.favorites')}</span>
+    <button type="button" class="nav-link{$currentPath === '/playlists' ? ' active' : ''}" on:click={() => navigate('/playlists')}>
+      <ListMusic size={20} />
+      <span>{$t('routes.playlists')}</span>
     </button>
-    <button type="button" class="nav-link{pathname === '/now-playing' ? ' active' : ''}" on:click={() => navigate('/now-playing')}>
+    <button type="button" class="nav-link{$currentPath === '/now-playing' ? ' active' : ''}" on:click={() => navigate('/now-playing')}>
       <Music size={20} />
       <span>{$t('routes.now_playing')}</span>
     </button>
-    <button type="button" class="nav-link{pathname === '/library' ? ' active' : ''}" on:click={() => navigate('/library')}>
+    <button type="button" class="nav-link{$currentPath === '/library' ? ' active' : ''}" on:click={() => navigate('/library')}>
       <Library size={20} />
       <span>{$t('routes.library')}</span>
     </button>
-    <button type="button" class="nav-link{pathname === '/settings' ? ' active' : ''}" on:click={() => navigate('/settings')}>
+    <button type="button" class="nav-link{$currentPath === '/settings' ? ' active' : ''}" on:click={() => navigate('/settings')}>
       <Settings size={20} />
       <span>{$t('routes.settings')}</span>
     </button>

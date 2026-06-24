@@ -10,8 +10,15 @@ import * as events from '@services/events';
 import * as commands from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
 import { t } from '@i18n';
-import { favorites } from '@features/favorites/stores/favorites';
 import type { Track, QueueState, FrequencyData } from '@shared/types/models';
+import {
+  loadRemoteStream,
+  pauseRemote,
+  resumeRemote,
+  seekRemote,
+  stopRemote,
+  remoteActive,
+} from './remotePlayer';
 
 // ── Stores ────────────────────────────────────────────────────────
 
@@ -20,6 +27,12 @@ export const currentTrack = writable<Track | null>(null);
 
 /** Whether audio is currently playing. */
 export const isPlaying = writable(false);
+
+/** Whether the player is in a buffering state (e.g., resolving/streaming a remote track). */
+export const isBuffering = writable(false);
+
+/** Buffering progress percentage (0 to 1). Null when not buffering. */
+export const bufferingProgress = writable<number | null>(null);
 
 /** Current playback progress: { position: seconds, duration: seconds }. */
 export const progress = writable<{ position: number; duration: number }>({ position: 0, duration: 0 });
@@ -54,15 +67,6 @@ export const frequencyData = writable<FrequencyData | null>(null);
 /** Whether Modo Cine (immersive fullscreen visualizer) is active. */
 export const modoCineActive = writable<boolean>(false);
 
-/** Whether the current track is favorited. */
-export const isCurrentTrackFavorited = derived(
-  [currentTrack, favorites],
-  ([$currentTrack, $favorites]) => {
-    if (!$currentTrack) return false;
-    return $favorites.some((entry) => entry.track.id === $currentTrack.id);
-  },
-);
-
 // ── Event Initialization ──────────────────────────────────────────
 
 let initialized = false;
@@ -81,9 +85,24 @@ export async function initPlayerEvents(): Promise<void> {
     currentTrack.set(track);
   });
 
-  // State changed — update isPlaying
+  // State changed — update isPlaying and isBuffering
   await events.onStateChanged((state: string) => {
     isPlaying.set(state === 'Playing');
+    if (state === 'Playing') {
+      isBuffering.set(false);
+      bufferingProgress.set(null);
+    } else if (state.startsWith('Buffering')) {
+      isBuffering.set(true);
+      bufferingProgress.set(0.0);
+    } else if (state === 'Stopped' || state === 'Paused') {
+      isBuffering.set(false);
+      bufferingProgress.set(null);
+    }
+
+    // Stop remote playback when Rust signals stopped
+    if (state === 'Stopped') {
+      stopRemote();
+    }
   });
 
   // Queue updated — update full queue snapshot and derived mode state
@@ -93,9 +112,29 @@ export async function initPlayerEvents(): Promise<void> {
     repeatMode.set(state.repeatMode);
   });
 
-  // Progress tick — update position and duration
+  // Progress tick — update position and duration (skip if remote active,
+  // since remotePlayer updates progress directly from HTMLAudio)
   await events.onProgressTick((tick: events.ProgressTick) => {
-    progress.set({ position: tick.position, duration: tick.duration });
+    if (!get(remoteActive)) {
+      progress.set({ position: tick.position, duration: tick.duration });
+    }
+  });
+
+  // Buffering progress — update buffering percentage for remote tracks
+  await events.onBufferingProgress((payload: events.BufferingProgressEvent) => {
+    isBuffering.set(true);
+    bufferingProgress.set(payload.progress);
+  });
+
+  // Stream resolved — remote playback URL ready; load into HTMLAudio
+  await events.onStreamResolved((payload: events.StreamResolvedEvent) => {
+    const track = get(currentTrack);
+    if (track && track.id === payload.trackId) {
+      loadRemoteStream(track, payload.streamUrl).catch((e) => {
+        const msg = e instanceof Error ? e.message : String(e);
+        notifications.push({ type: 'error', title: 'Remote Playback Error', message: msg, dismissible: true });
+      });
+    }
   });
 }
 
@@ -106,18 +145,53 @@ export async function playTrack(track: Track): Promise<void> {
   try {
     if (track.localPath) {
       await commands.playLocal(track.localPath);
-    } else if (track.streamUrl) {
-      await commands.play(track.streamUrl);
+    } else {
+      // Remote track (YouTube, SoundCloud) — use play_stream for HTTP streaming
+      await commands.playStream(track);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
+    // Detect DRM-protected tracks for a user-friendly message
+    const translate = get(t);
+    const drmMessage = msg.includes('DRM')
+      ? translate('playback.drm_protected', { default: 'Cannot play: DRM-protected track' })
+      : msg;
+    notifications.push({ type: 'error', title: translate('playback.error_title', { default: 'Playback Error' }), message: drmMessage, dismissible: true });
+    // Auto-advance to the next track in the queue instead of stopping
+    skipToNext();
   }
+}
+
+/**
+ * Skip to next track, auto-advancing past tracks that fail to resolve (e.g. DRM).
+ * Tries up to 10 consecutive tracks before giving up to prevent infinite loops.
+ */
+export async function skipToNext(): Promise<void> {
+  const translate = get(t);
+  for (let i = 0; i < 10; i++) {
+    try {
+      await commands.next();
+      return; // Successfully started next track
+    } catch (e) {
+      // Track failed (DRM, network, etc.) — show error and try the next one
+      const msg = e instanceof Error ? e.message : String(e);
+      const drmMessage = msg.includes('DRM')
+        ? translate('playback.drm_protected', { default: 'Cannot play: DRM-protected track' })
+        : msg;
+      notifications.push({ type: 'error', title: translate('playback.error_title', { default: 'Playback Error' }), message: drmMessage, dismissible: true });
+      // Continue loop to try the next track
+    }
+  }
+  // All tracks failed — stop
+  notifications.push({ type: 'error', title: translate('playback.error_title', { default: 'Playback Error' }), message: translate('playback.all_failed', { default: 'All tracks in queue failed to play' }), dismissible: true });
 }
 
 /** Pause current playback. */
 export async function pauseTrack(): Promise<void> {
   try {
+    if (get(remoteActive)) {
+      pauseRemote();
+    }
     await commands.pause();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -128,6 +202,9 @@ export async function pauseTrack(): Promise<void> {
 /** Resume paused playback. */
 export async function resumeTrack(): Promise<void> {
   try {
+    if (get(remoteActive)) {
+      resumeRemote();
+    }
     await commands.resume();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -158,6 +235,9 @@ export async function previousTrack(): Promise<void> {
 /** Seek to a position (in seconds). */
 export async function seekTo(position: number): Promise<void> {
   try {
+    if (get(remoteActive)) {
+      seekRemote(position);
+    }
     await commands.seek(position);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -168,6 +248,13 @@ export async function seekTo(position: number): Promise<void> {
 /** Set volume (0-100). */
 export async function setVolume(value: number): Promise<void> {
   volume.set(value);
+  // Sync remote playback volume if active
+  try {
+    const { setRemoteVolume } = await import('./remotePlayer');
+    setRemoteVolume(value);
+  } catch {
+    // remotePlayer may not be available in test environments
+  }
   try {
     await commands.setVolume(value);
   } catch (e) {

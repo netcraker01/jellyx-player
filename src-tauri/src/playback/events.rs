@@ -15,6 +15,32 @@ pub const EVENT_TRACK_CHANGED: &str = "track-changed";
 pub const EVENT_STATE_CHANGED: &str = "state-changed";
 pub const EVENT_QUEUE_UPDATED: &str = "queue-updated";
 pub const EVENT_PROGRESS_TICK: &str = "progress-tick";
+pub const EVENT_BUFFERING_PROGRESS: &str = "buffering-progress";
+pub const EVENT_STREAM_RESOLVED: &str = "stream-resolved";
+
+/// Buffering progress payload emitted when a remote track is buffering.
+///
+/// Serialized as camelCase to match TypeScript frontend types.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BufferingProgress {
+    /// Progress percentage from 0.0 to 1.0.
+    pub progress: f32,
+    /// The ID of the track being buffered.
+    pub track_id: String,
+}
+
+/// Stream resolved payload emitted when a remote track's stream URL is ready.
+///
+/// The frontend uses `stream_url` with HTMLAudio for browser-native playback.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamResolved {
+    /// The ID of the track.
+    pub track_id: String,
+    /// The (proxied) stream URL the frontend should load.
+    pub stream_url: String,
+}
 
 /// Emits typed playback events via Tauri's event system.
 pub struct PlaybackEventEmitter<R: Runtime = tauri::Wry> {
@@ -55,6 +81,31 @@ impl<R: Runtime> PlaybackEventEmitter<R> {
             .map_err(|e| IPCError::CommandFailed(e.to_string()))
     }
 
+    /// Emit a buffering-progress event with progress percentage and track ID.
+    pub fn emit_buffering_progress(&self, progress: f32, track_id: &str) -> Result<(), IPCError> {
+        let payload = BufferingProgress {
+            progress,
+            track_id: track_id.to_string(),
+        };
+        self.app
+            .emit(EVENT_BUFFERING_PROGRESS, payload)
+            .map_err(|e| IPCError::CommandFailed(e.to_string()))
+    }
+
+    /// Emit a stream-resolved event with the proxied stream URL.
+    ///
+    /// Sent when a remote track's stream URL has been resolved and proxied.
+    /// The frontend uses this URL with HTMLAudio for browser-native playback.
+    pub fn emit_stream_resolved(&self, track_id: &str, stream_url: &str) -> Result<(), IPCError> {
+        let payload = StreamResolved {
+            track_id: track_id.to_string(),
+            stream_url: stream_url.to_string(),
+        };
+        self.app
+            .emit(EVENT_STREAM_RESOLVED, payload)
+            .map_err(|e| IPCError::CommandFailed(e.to_string()))
+    }
+
     /// Clone the emitter for use in another thread.
     ///
     /// `AppHandle` is `Clone + Send + Sync`, so this is safe.
@@ -88,5 +139,18 @@ mod tests {
         assert_eq!(EVENT_STATE_CHANGED, "state-changed");
         assert_eq!(EVENT_QUEUE_UPDATED, "queue-updated");
         assert_eq!(EVENT_PROGRESS_TICK, "progress-tick");
+        assert_eq!(EVENT_BUFFERING_PROGRESS, "buffering-progress");
+        assert_eq!(EVENT_STREAM_RESOLVED, "stream-resolved");
+    }
+
+    #[test]
+    fn stream_resolved_serializes_camel_case() {
+        let payload = StreamResolved {
+            track_id: "t-1".to_string(),
+            stream_url: "http://127.0.0.1:8765/proxy?url=abc".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("\"trackId\""), "track_id should serialize as trackId");
+        assert!(json.contains("\"streamUrl\""), "stream_url should serialize as streamUrl");
     }
 }

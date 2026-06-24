@@ -5,7 +5,8 @@
   import { currentPath } from './router/navigation';
   import Home from '../routes/Home/Page.svelte';
   import Search from '../routes/Search/Page.svelte';
-  import Favorites from '../routes/Favorites/Page.svelte';
+  import PlaylistsPage from '../routes/Playlists/Page.svelte';
+  import PlaylistDetail from '../routes/Playlists/PlaylistDetail.svelte';
   import NowPlaying from '../routes/NowPlaying/Page.svelte';
   import Library from '../routes/Library/Page.svelte';
   import Settings from '../routes/Settings/Page.svelte';
@@ -16,7 +17,8 @@
   type RouteMatch =
     | { name: 'home' }
     | { name: 'search' }
-    | { name: 'favorites' }
+    | { name: 'playlists' }
+    | { name: 'playlist-detail'; id: string }
     | { name: 'now-playing' }
     | { name: 'library' }
     | { name: 'settings' }
@@ -25,10 +27,11 @@
 
   function resolveRoute(path: string): RouteMatch {
     if (path === '/search') return { name: 'search' };
-    if (path === '/favorites') return { name: 'favorites' };
+    if (path === '/playlists') return { name: 'playlists' };
     if (path === '/now-playing') return { name: 'now-playing' };
     if (path === '/library') return { name: 'library' };
     if (path === '/settings') return { name: 'settings' };
+    if (path.startsWith('/playlists/')) return { name: 'playlist-detail', id: decodeURIComponent(path.slice('/playlists/'.length)) };
     if (path.startsWith('/artist/')) return { name: 'artist', id: decodeURIComponent(path.slice('/artist/'.length)) };
     if (path.startsWith('/album/')) return { name: 'album', id: decodeURIComponent(path.slice('/album/'.length)) };
     return { name: 'home' };
@@ -49,8 +52,10 @@
   <main class="content">
     {#if route.name === 'search'}
       <Search />
-    {:else if route.name === 'favorites'}
-      <Favorites />
+    {:else if route.name === 'playlists'}
+      <PlaylistsPage />
+    {:else if route.name === 'playlist-detail'}
+      <PlaylistDetail id={route.id} />
     {:else if route.name === 'now-playing'}
       <NowPlaying />
     {:else if route.name === 'library'}

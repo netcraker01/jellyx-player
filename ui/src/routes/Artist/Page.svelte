@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { navigate } from 'svelte-routing';
+  import { navigate } from '@app/router/navigation';
   import { t } from '@i18n';
+  import { Heart } from 'lucide-svelte';
+  import { artistFavorites } from '@features/artist-favorites/stores/artistFavorites';
   import {
     artistDetail,
     isLoadingArtistDetail,
@@ -15,10 +17,28 @@
   export let id: string;
 
   let lastLoadedId: string | null = null;
+  let isFav = false;
+
+  async function checkFavorite() {
+    if (!id) return;
+    isFav = await artistFavorites.isFavorite(id);
+  }
+
+  async function toggleFavorite() {
+    if (!id || !$artistDetail) return;
+    if (isFav) {
+      await artistFavorites.remove(id);
+      isFav = false;
+    } else {
+      await artistFavorites.add(id, $artistDetail.name, $artistDetail.thumbnail);
+      isFav = true;
+    }
+  }
 
   $: if (id && id !== lastLoadedId) {
     lastLoadedId = id;
     artistDetail.load(id);
+    checkFavorite();
   }
 
   onDestroy(() => {
@@ -53,7 +73,22 @@
         </div>
       {/if}
       <div class="artist-header-info">
-        <h1 class="artist-name">{$artistDetail.name}</h1>
+        <div class="artist-header-row">
+          <h1 class="artist-name">{$artistDetail.name}</h1>
+          <button
+            class="heart-btn"
+            class:filled={isFav}
+            on:click={toggleFavorite}
+            title={isFav ? 'Remove from favorites' : 'Add to favorites'}
+            type="button"
+          >
+            {#if isFav}
+              <Heart size={24} fill="currentColor" />
+            {:else}
+              <Heart size={24} />
+            {/if}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -194,6 +229,34 @@
     gap: 0.5rem;
     position: relative;
     z-index: 1;
+  }
+
+  .artist-header-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .heart-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #9ca3af);
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.2s, background 0.2s;
+  }
+
+  .heart-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .heart-btn.filled {
+    color: #ef4444;
   }
 
   .artist-name {

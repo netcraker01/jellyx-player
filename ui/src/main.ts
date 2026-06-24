@@ -7,6 +7,7 @@
 
 import { initI18n } from './i18n';
 import { initPlayerEvents } from '@features/player/stores/player';
+import { mount } from 'svelte';
 import App from './app/App.svelte';
 
 // Global styles
@@ -15,7 +16,7 @@ import './styles/global.css';
 async function bootstrap() {
   try {
     await initI18n();
-    new App({
+    mount(App, {
       target: document.getElementById('app')!,
     });
 

@@ -1,14 +1,19 @@
 <script lang="ts">
-  import { Play, Plus, Heart, PlayCircle } from 'lucide-svelte';
+  import { Play, Plus, PlayCircle, ListMusic } from 'lucide-svelte';
   import { t } from '@i18n';
+  import ListPicker from '@features/playlists/components/ListPicker.svelte';
   import { playTrack, addToQueueAction, playNextAction } from '@shared/utils/actions';
-  import { favorites } from '@features/favorites/stores/favorites';
   import type { Track } from '@shared/types/models';
 
   export let tracks: Track[] = [];
   export let loading = false;
   export let error: string | null = null;
   export let hasSearched = false;
+
+  let showPicker = false;
+  let pickerTrack: Track | null = null;
+  let pickerAnchorX = 0;
+  let pickerAnchorY = 0;
 
   function formatDuration(seconds?: number): string {
     if (!seconds) return '--:--';
@@ -22,17 +27,29 @@
   }
 
   async function handleAddToQueue(track: Track) {
-    await addToQueueAction(track.id);
+    await addToQueueAction(track);
   }
 
   async function handlePlayNext(track: Track) {
-    await playNextAction(track.id);
+    await playNextAction(track);
   }
 
-  async function handleAddToFavorites(track: Track) {
-    await favorites.add(track);
+  function openListPicker(e: MouseEvent, track: Track) {
+    pickerAnchorX = e.clientX;
+    pickerAnchorY = e.clientY;
+    pickerTrack = track;
+    showPicker = true;
+  }
+
+  function closeListPicker() {
+    showPicker = false;
+    pickerTrack = null;
   }
 </script>
+
+{#if showPicker && pickerTrack}
+  <ListPicker track={pickerTrack} visible={showPicker} anchorX={pickerAnchorX} anchorY={pickerAnchorY} on:close={closeListPicker} />
+{/if}
 
 <div class="results-list">
   {#if loading}
@@ -68,8 +85,8 @@
           <button class="action-btn" on:click={() => handleAddToQueue(track)} title={$t('search.add_to_queue')} aria-label={$t('search.add_to_queue')}>
             <Plus size={14} />
           </button>
-          <button class="action-btn fav-btn" on:click={() => handleAddToFavorites(track)} title={$t('search.add_to_favorites')} aria-label={$t('search.add_to_favorites')}>
-            <Heart size={14} />
+          <button class="action-btn list-btn" on:click={(e) => openListPicker(e, track)} title={$t('playlists.add_to_list')} aria-label={$t('playlists.add_to_list')}>
+            <ListMusic size={14} />
           </button>
         </div>
       </div>
@@ -222,8 +239,8 @@
     background: rgba(99, 102, 241, 0.1);
   }
 
-  .fav-btn:hover {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
+  .list-btn:hover {
+    color: var(--color-helix-violet, #8A5CFF);
+    background: rgba(138, 92, 255, 0.12);
   }
 </style>

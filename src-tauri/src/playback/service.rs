@@ -24,6 +24,7 @@ use crate::models::source::Source;
 use crate::models::track::Track;
 use crate::persistence::db::Database;
 use crate::playback::events::PlaybackEventEmitter;
+use crate::playback::proxy::{proxied_url, start_proxy_server};
 use crate::playback::state::{QueueState, RepeatMode};
 use crate::sources::local::LocalResolver;
 use crate::sources::soundcloud::SoundCloudResolver;
@@ -58,6 +59,8 @@ pub struct PlaybackService<R: tauri::Runtime = tauri::Wry> {
     library: Arc<LibraryService>,
     /// Database used for local inventory cleanup on invalid files/folders.
     db: Arc<Database>,
+    /// Local proxy port for remote stream URLs. None if proxy failed to start.
+    proxy_port: Option<u16>,
 }
 
 /// Internal state protected by the Mutex.
@@ -98,6 +101,13 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         sources.register(Box::new(SoundCloudResolver::new()));
         sources.register(Box::new(LocalResolver::new(db.clone())));
 
+        // Start the local proxy server for remote stream URLs.
+        // Non-fatal: if it fails, remote playback falls back to direct URLs.
+        let proxy_port = start_proxy_server().map_err(|e| {
+            eprintln!("[PlaybackService] Failed to start proxy server: {:?}", e);
+            e
+        }).ok();
+
         Self {
             state: Arc::new(Mutex::new(InternalState {
                 playback_state: PlaybackState::Stopped,
@@ -115,6 +125,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             fft_channel,
             library,
             db,
+            proxy_port,
         }
     }
 
@@ -148,6 +159,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             thumbnail: None,
             stream_url: None,
             local_path: Some(path.to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
 
@@ -222,7 +234,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                 code: "UNKNOWN_ERROR".into(),
                 details: Some("mutex lock".into()),
             })?;
-            s.playback_state = PlaybackState::Buffering;
+            s.playback_state = PlaybackState::Buffering(0.0);
             s.current_track = Some(track.clone());
             s.position = 0.0;
             s.duration = duration;
@@ -231,7 +243,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
         // Emit events
         let _ = self.emitter.emit_track_changed(&track);
-        let _ = self.emitter.emit_state_changed(&PlaybackState::Buffering);
+        let _ = self.emitter.emit_state_changed(&PlaybackState::Buffering(0.0));
 
         // Store decoder and backend references for seek/volume
         let shared_decoder = self.decoder.clone();
@@ -245,6 +257,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             fft_channel: self.fft_channel.clone(),
             library: self.library.clone(),
             db: self.db.clone(),
+            proxy_port: self.proxy_port,
         };
 
         // Spawn decoder thread
@@ -523,6 +536,82 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         ))
     }
 
+    /// Play a remote track via the frontend HTMLAudio browser-native path.
+    ///
+    /// This is the **new primary remote playback entry point**, replacing the
+    /// temp-file download approach. Inspired by Nuclear's architecture:
+    ///
+    /// 1. Resolves the track's stream URL via `SourceRegistry.resolve()`
+    /// 2. Proxies the URL through the local proxy server for CORS/Range support
+    /// 3. Emits `stream-resolved` event to the frontend with the proxied URL
+    /// 4. The frontend loads the URL into HTMLAudio and drives playback natively
+    /// 5. Rust state is updated to Playing, but no local-file decode pipeline runs
+    ///
+    /// Local tracks still use the existing `play_local_track()` Symphonia/cpal path.
+    pub fn play_stream(&self, track: Track) -> Result<(), AppError> {
+        // Resolve the stream URL for this track's source
+        let source = track.source.clone();
+        let source_id = track.source_id.clone();
+
+        let resolved_track = self
+            .sources
+            .resolve(&source, &source_id)
+            .map_err(|e| AppError::from(e))?;
+
+        let remote_url = resolved_track.stream_url.clone().ok_or_else(|| {
+            AppError {
+                code: "STREAM_NOT_FOUND".into(),
+                details: Some("track has no stream URL".into()),
+            }
+        })?;
+
+        // Proxy the URL through the local server if available
+        let stream_url = match self.proxy_port {
+            Some(port) => proxied_url(port, &remote_url),
+            None => remote_url.clone(),
+        };
+
+        // Update state: set track, mark as playing
+        {
+            let mut s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            s.playback_state = PlaybackState::Playing;
+            s.current_track = Some(track.clone());
+            s.position = 0.0;
+            s.duration = track.duration.unwrap_or(0.0);
+
+            // Seed a single-track queue only if the queue is empty or
+            // this track is not already queued. This preserves queues
+            // set by replace_queue_and_play (play_album, playlists).
+            let needs_seed = s.queue.tracks.is_empty()
+                || s.queue.current_index.is_none()
+                || s.queue.tracks.get(s.queue.current_index.unwrap() as usize) != Some(&track);
+            if needs_seed {
+                s.queue.tracks = vec![track.clone()];
+                s.queue.current_index = Some(0);
+                s.queue.played_indices.clear();
+            }
+        }
+        if let Ok(queue) = self.get_queue() {
+            let _ = self.emitter.emit_queue_updated(&queue);
+        }
+
+        let _ = self.emitter.emit_track_changed(&track);
+        let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+
+        // Emit stream-resolved so frontend loads the URL into HTMLAudio
+        let _ = self
+            .emitter
+            .emit_stream_resolved(&track.id, &stream_url);
+
+        // Record history
+        self.record_history(&track);
+
+        Ok(())
+    }
+
     /// Pause playback. Emits state_changed.
     pub fn pause(&self) -> Result<(), AppError> {
         {
@@ -699,30 +788,108 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         self.state.lock().unwrap().volume
     }
 
-    /// Search for tracks across all registered sources (YouTube, SoundCloud, etc.).
+    /// Search for tracks on YouTube only.
     ///
-    /// Queries each source resolver registered in the SourceRegistry.
-    /// If a resolver fails (e.g., yt-dlp not installed), it is skipped
-    /// and results from other sources are still returned.
+    /// Only queries the YouTube resolver, bypassing SoundCloud and local sources.
+    /// This dramatically reduces search latency by eliminating sequential resolver calls.
     pub fn search(&self, query: &str) -> Result<Vec<Track>, AppError> {
         if query.trim().is_empty() {
             return Err(ValidationError::EmptyQuery.into());
         }
-        Ok(self.sources.search_all(query))
+        self.sources
+            .search_source(&Source::YouTube, query)
+            .map_err(AppError::from)
+    }
+
+    /// Search for tracks across ALL registered sources (YouTube, SoundCloud, etc.).
+    ///
+    /// Unlike `search` which only queries YouTube, this queries every resolver
+    /// and merges results. Used by grouped search to include remote tracks.
+    pub fn search_all_tracks(&self, query: &str) -> Vec<Track> {
+        self.sources.search_all(query)
+    }
+
+    /// Search tracks from enabled sources only.
+    pub fn search_all_tracks_enabled(
+        &self,
+        query: &str,
+        enabled_sources: &std::collections::HashSet<String>,
+    ) -> Vec<Track> {
+        self.sources.search_all_enabled(query, Some(enabled_sources))
+    }
+
+    /// Search playlists from enabled sources only.
+    pub fn search_playlists_enabled(
+        &self,
+        query: &str,
+        enabled_sources: &std::collections::HashSet<String>,
+    ) -> Vec<crate::models::playlist::Playlist> {
+        self.sources.search_playlists_all_enabled(query, Some(enabled_sources))
+    }
+
+    /// Resolve a playlist by source type and URL/identifier.
+    ///
+    /// Routes to the appropriate resolver for the given source.
+    pub fn resolve_playlist(
+        &self,
+        source: &Source,
+        url: &str,
+    ) -> Result<crate::models::playlist::Playlist, crate::errors::types::SourceError> {
+        self.sources.resolve_playlist(source, url)
+    }
+
+    /// Play all tracks in a playlist, resolving the URL first, then replacing the queue.
+    ///
+    /// Resolves the playlist, then delegates to `replace_queue_and_play`.
+    /// Returns an error if the playlist is empty or resolution fails.
+    pub fn play_playlist(&self, source: &Source, url: &str) -> Result<(), AppError> {
+        let playlist = self
+            .sources
+            .resolve_playlist(source, url)
+            .map_err(AppError::from)?;
+
+        if playlist.tracks.is_empty() {
+            return Err(PlaybackError::QueueEmpty.into());
+        }
+
+        self.replace_queue_and_play(playlist.tracks)
+    }
+
+    /// Resolve a track by source type and identifier without starting playback.
+    ///
+    /// Useful for previewing stream URLs or checking track availability.
+    pub fn resolve_track_by_source(
+        &self,
+        source: &Source,
+        id: &str,
+    ) -> Result<Track, crate::errors::types::SourceError> {
+        self.sources.resolve(source, id)
     }
 
     /// Add a track to the queue by resolving it from the appropriate source.
     ///
+    /// Add a track to the end of the queue by resolving its ID.
+    ///
     /// The track_id can be a YouTube video ID or SoundCloud URL/ID.
     /// The registry tries each resolver to find the matching track.
     /// Emits queue_updated.
+    ///
+    /// Prefer `add_to_queue_with_track` when the full Track object is already
+    /// available — it skips the slow resolve step.
     pub fn add_to_queue(&self, track_id: &str) -> Result<(), AppError> {
         if track_id.trim().is_empty() {
             return Err(ValidationError::InvalidInput("track_id must not be empty".into()).into());
         }
 
         let track = self.resolve_track(track_id)?;
+        self.add_to_queue_with_track(&track)
+    }
 
+    /// Add a track to the end of the queue using the full Track object.
+    ///
+    /// Skips the resolve step entirely — fast for both local and remote tracks.
+    /// Emits queue_updated.
+    pub fn add_to_queue_with_track(&self, track: &Track) -> Result<(), AppError> {
         let mut queue = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),
             details: Some("mutex lock".into()),
@@ -768,17 +935,8 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             return self.play_local_track(first_track.clone());
         }
 
-        self.record_history(&first_track);
-        {
-            let mut s = self.state.lock().map_err(|_| AppError {
-                code: "UNKNOWN_ERROR".into(),
-                details: Some("mutex lock".into()),
-            })?;
-            s.current_track = Some(first_track);
-            s.playback_state = PlaybackState::Playing;
-        }
-
-        Ok(())
+        // Remote track: use the new frontend-driven play_stream path
+        self.play_stream(first_track)
     }
 
     /// Play all tracks in an album, replacing the current queue in album order.
@@ -884,13 +1042,23 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     /// If no current index exists but the queue has tracks, the track is appended.
     /// Sequential play-next requests keep the newest choice next-up: a previous
     /// play-next insertion at `current_index + 1` is replaced by the new one.
+    /// Insert a track immediately after the current queue position by resolving its ID.
+    ///
+    /// Prefer `play_next_with_track` when the full Track object is already available.
     pub fn play_next(&self, track_id: &str) -> Result<(), AppError> {
         if track_id.trim().is_empty() {
             return Err(ValidationError::InvalidInput("track_id must not be empty".into()).into());
         }
 
         let track = self.resolve_track(track_id)?;
+        self.play_next_with_track(&track)
+    }
 
+    /// Insert a track immediately after the current queue position using the full Track object.
+    ///
+    /// Skips the resolve step entirely — fast for both local and remote tracks.
+    /// Emits queue_updated.
+    pub fn play_next_with_track(&self, track: &Track) -> Result<(), AppError> {
         let mut s = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),
             details: Some("mutex lock".into()),
@@ -912,7 +1080,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             None => s.queue.tracks.len(),
         };
 
-        s.queue.tracks.insert(insert_index, track);
+        s.queue.tracks.insert(insert_index, track.clone());
         s.queue.current_index = Some(insert_index);
 
         let snapshot = s.queue.clone();
@@ -952,8 +1120,6 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     }
 
     /// Look up a track by Helix ID in the current queue or source registry.
-    ///
-    /// Used by IPC commands like `toggle_favorite` that only receive a track ID.
     pub fn get_track_by_id(&self, track_id: &str) -> Result<Track, AppError> {
         {
             let s = self.state.lock().map_err(|_| AppError {
@@ -1152,17 +1318,8 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             return self.play_local(local_path);
         }
 
-        // For remote tracks (YouTube/SoundCloud), record history here
-        // since play_local() won't be called.
-        self.record_history(&track);
-
-        let mut s = self.state.lock().map_err(|_| AppError {
-            code: "UNKNOWN_ERROR".into(),
-            details: Some("mutex lock".into()),
-        })?;
-        s.current_track = Some(track);
-
-        Ok(())
+        // Remote track: use the new play_stream path
+        self.play_stream(track)
     }
 
     /// Go to the previous track in the queue.
@@ -1204,17 +1361,8 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             return self.play_local(local_path);
         }
 
-        // For remote tracks (YouTube/SoundCloud), record history here
-        // since play_local() won't be called.
-        self.record_history(&track);
-
-        let mut s = self.state.lock().map_err(|_| AppError {
-            code: "UNKNOWN_ERROR".into(),
-            details: Some("mutex lock".into()),
-        })?;
-        s.current_track = Some(track);
-
-        Ok(())
+        // Remote track: use the new play_stream path
+        self.play_stream(track)
     }
 
     /// Start a background timer that emits progress-tick events.
@@ -1299,7 +1447,7 @@ mod tests {
         for state in [
             PlaybackState::Playing,
             PlaybackState::Paused,
-            PlaybackState::Buffering,
+            PlaybackState::Buffering(0.0),
         ] {
             let _ = state; // suppress unused warning
             let new_state = PlaybackState::Stopped;
@@ -1314,7 +1462,7 @@ mod tests {
             PlaybackState::Stopped,
             PlaybackState::Playing,
             PlaybackState::Paused,
-            PlaybackState::Buffering,
+            PlaybackState::Buffering(0.0),
         ];
         for (i, a) in variants.iter().enumerate() {
             for (j, b) in variants.iter().enumerate() {
@@ -1348,6 +1496,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some("/music/song.mp3".to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
 
@@ -1569,6 +1718,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(format!("/music/{}.mp3", id)),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         }
     }
@@ -1589,6 +1739,7 @@ mod tests {
             thumbnail: None,
             stream_url: Some(format!("https://example.com/{}", id)),
             local_path: None,
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         }
     }
@@ -1610,6 +1761,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some("/music/song.mp3".to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
         db.upsert_local_track("/music/song.mp3", &local_track, "/music", Some("1000"))
@@ -1654,6 +1806,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some("/music/song.mp3".to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
         db.upsert_local_track("/music/song.mp3", &local_track, "/music", Some("1000"))
@@ -1708,6 +1861,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(missing_path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
 
@@ -1809,6 +1963,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(blocked_path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
 
@@ -1886,6 +2041,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(missing_path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
         let remote_track = sample_remote_track_for_tests("remote-next");
@@ -1953,6 +2109,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(blocked_path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
         let remote_track = sample_remote_track_for_tests("remote-next");
@@ -2355,6 +2512,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         }
     }

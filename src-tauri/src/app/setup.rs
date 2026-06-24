@@ -9,7 +9,7 @@ use tauri::Manager;
 
 use crate::errors::types::PersistenceError;
 use crate::ipc::commands::AppState;
-use crate::library::LibraryService;
+use crate::library::{LibraryService, PlaylistService, SettingsService};
 use crate::persistence::db::Database;
 use crate::playback::service::PlaybackService;
 use crate::shared::utils::ensure_art_cache_dir;
@@ -17,7 +17,7 @@ use crate::sources::local::ScannerService;
 
 /// Build and configure the Tauri application.
 ///
-/// Creates the AppState with PlaybackService, LibraryService, and ScannerService,
+/// Creates the AppState with PlaybackService, LibraryService, PlaylistService, and ScannerService,
 /// registers all command handlers, and returns a Tauri Builder ready to run.
 pub fn build_app() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
@@ -48,6 +48,8 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
                 Arc::new(Mutex::new(None));
 
             let library = Arc::new(LibraryService::new(db.clone()));
+            let playlist = Arc::new(PlaylistService::new(db.clone()));
+            let settings = Arc::new(SettingsService::new(db.clone()));
             let playback = PlaybackService::new(
                 app.handle().clone(),
                 db.clone(),
@@ -59,6 +61,8 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             app.manage(AppState {
                 playback: Arc::new(playback),
                 library,
+                playlist,
+                settings,
                 scanner: Arc::new(scanner),
                 fft_channel,
             });
@@ -79,19 +83,16 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::get_album_detail,
             crate::ipc::commands::play_album,
             crate::ipc::commands::add_to_queue,
+            crate::ipc::commands::add_to_queue_with_track,
             crate::ipc::commands::remove_from_queue,
             crate::ipc::commands::clear_queue,
             crate::ipc::commands::play_next,
+            crate::ipc::commands::play_next_with_track,
             crate::ipc::commands::get_queue,
             crate::ipc::commands::get_version,
             // Library commands
-            crate::ipc::commands::get_favorites,
-            crate::ipc::commands::add_favorite,
-            crate::ipc::commands::remove_favorite,
             crate::ipc::commands::get_history,
             crate::ipc::commands::clear_history,
-            crate::ipc::commands::toggle_favorite,
-            crate::ipc::commands::is_favorite,
             crate::ipc::commands::set_shuffle,
             crate::ipc::commands::set_repeat,
             crate::ipc::commands::cycle_repeat,
@@ -105,6 +106,30 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::get_home_recommendations,
             // FFT binary streaming
             crate::ipc::commands::start_fft_stream,
+            // Streaming & playlist commands
+            crate::ipc::commands::play_stream,
+            crate::ipc::commands::search_playlists,
+            crate::ipc::commands::resolve_playlist,
+            crate::ipc::commands::play_playlist,
+            crate::ipc::commands::resolve_track,
+            // User playlist commands
+            crate::ipc::commands::create_playlist,
+            crate::ipc::commands::rename_playlist,
+            crate::ipc::commands::delete_playlist,
+            crate::ipc::commands::get_all_playlists,
+            crate::ipc::commands::get_recent_playlists,
+            crate::ipc::commands::search_user_playlists,
+            crate::ipc::commands::add_track_to_playlist,
+            crate::ipc::commands::remove_track_from_playlist,
+            crate::ipc::commands::get_playlist_tracks,
+            crate::ipc::commands::count_playlist_tracks,
+            // Source settings commands
+            crate::ipc::commands::get_source_settings,
+            crate::ipc::commands::set_source_enabled,
+            crate::ipc::commands::add_artist_favorite,
+            crate::ipc::commands::remove_artist_favorite,
+            crate::ipc::commands::is_artist_favorite,
+            crate::ipc::commands::get_all_artist_favorites,
         ])
 }
 

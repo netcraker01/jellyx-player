@@ -5,6 +5,7 @@
 
 pub mod decoder;
 pub mod fft;
+pub mod http_stream;
 pub mod output;
 pub mod pipeline;
 
@@ -73,8 +74,11 @@ mod tests {
 
     #[test]
     fn playback_state_buffering_serializes_to_pascal_case() {
-        let json = serde_json::to_string(&PlaybackState::Buffering).unwrap();
-        assert_eq!(json, "\"Buffering\"");
+        let json = serde_json::to_string(&PlaybackState::Buffering(0.5)).unwrap();
+        assert!(
+            json.contains("\"Buffering\""),
+            "Buffering should serialize as PascalCase"
+        );
     }
 
     #[test]

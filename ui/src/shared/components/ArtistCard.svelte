@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { navigate } from 'svelte-routing';
+  import { navigate } from '@app/router/navigation';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import HelixLogo from './HelixLogo.svelte';
 

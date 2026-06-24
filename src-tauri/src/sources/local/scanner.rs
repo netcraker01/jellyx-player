@@ -192,6 +192,7 @@ impl ScannerService {
             thumbnail,
             stream_url: None,
             local_path: Some(path_str.clone()),
+            playlist_id: None,
             metadata: HashMap::new(),
         })
     }
@@ -657,6 +658,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(accessible_path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: HashMap::new(),
         };
         let blocked_track = Track {
@@ -670,6 +672,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(blocked_path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: HashMap::new(),
         };
 
@@ -739,6 +742,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(live_path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: HashMap::new(),
         };
         let stale_track = Track {
@@ -752,6 +756,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: Some(stale_path.to_string_lossy().to_string()),
+            playlist_id: None,
             metadata: HashMap::new(),
         };
 

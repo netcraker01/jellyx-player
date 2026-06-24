@@ -18,11 +18,19 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
  * `convertFileSrc` is synchronous in Tauri v2 — it just transforms the path
  * into a `http://asset.localhost/` URL. No IPC involved.
  *
- * @param thumbnail - Absolute filesystem path to the cached art file, or undefined
- * @returns Asset protocol URL string, or undefined if no thumbnail
+ * Remote HTTP/HTTPS URLs (e.g. YouTube thumbnails) are passed through
+ * directly without conversion.
+ *
+ * @param thumbnail - Absolute filesystem path or HTTP(S) URL, or undefined
+ * @returns Loadable URL string, or undefined if no thumbnail
  */
 export function albumArtUrl(thumbnail: string | undefined): string | undefined {
   if (!thumbnail) return undefined;
+
+  // Pass through remote HTTPS URLs (e.g. YouTube thumbnails)
+  if (thumbnail.startsWith('https://')) {
+    return thumbnail;
+  }
 
   if (isTauri) {
     return convertFileSrc(thumbnail);

@@ -14,7 +14,18 @@ use crate::models::source::Source;
 use crate::models::track::Track;
 
 /// Number of search results to request from yt-dlp.
-const SEARCH_RESULT_COUNT: usize = 5;
+const SEARCH_RESULT_COUNT: usize = 20;
+
+/// Preferred yt-dlp format selector for SoundCloud audio.
+///
+/// SoundCloud serves both HLS (m3u8) and direct HTTP formats.
+/// HLS streams are NOT supported by HTMLAudioElement in most browsers,
+/// so we prioritize direct HTTP formats (protocol=https) to ensure
+/// browser-native playback works without hls.js.
+///
+/// Priority: HTTP mp3 128k > HTTP aac > HLS aac > any bestaudio (fallback)
+const SOUNDCLOUD_AUDIO_FORMAT: &str =
+    "bestaudio[protocol=https]/bestaudio[protocol=http]/bestaudio";
 
 pub struct SoundCloudResolver;
 
@@ -39,19 +50,27 @@ impl SoundCloudResolver {
     fn parse_track_from_json(json_str: &str) -> Option<Track> {
         let value: serde_json::Value = serde_json::from_str(json_str).ok()?;
 
-        // SoundCloud tracks may use "id" as numeric or string
+        // SoundCloud needs a resolvable URL as source_id for play_stream -> resolve().
+        // The "url" field (API URL) works directly with yt-dlp resolve.
+        // "webpage_url" (human URL) may 404, so we prefer the API URL.
+        // Fall back through: url > webpage_url > string id > numeric id.
         let source_id = value
-            .get("id")
+            .get("url")
             .and_then(|v| v.as_str().map(|s| s.to_string()))
+            .or_else(|| {
+                value
+                    .get("webpage_url")
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+            })
+            .or_else(|| {
+                value
+                    .get("id")
+                    .and_then(|v| v.as_str().map(|s| s.to_string()))
+            })
             .or_else(|| {
                 value
                     .get("id")
                     .and_then(|v| v.as_u64().map(|n| n.to_string()))
-            })
-            .or_else(|| {
-                value
-                    .get("url")
-                    .and_then(|v| v.as_str().map(|s| s.to_string()))
             })
             .unwrap_or_default();
 
@@ -67,10 +86,28 @@ impl SoundCloudResolver {
 
         let duration = value.get("duration").and_then(|v| v.as_f64());
 
+        // SoundCloud returns "thumbnails" as an array of objects with "url" and optional "width".
+        // Fall back to "thumbnail" (string) for other yt-dlp versions.
         let thumbnail = value
-            .get("thumbnail")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+            .get("thumbnails")
+            .and_then(|v| v.as_array())
+            .and_then(|arr| {
+                // Pick the largest thumbnail by width, falling back to the last entry
+                arr.iter()
+                    .filter_map(|t| {
+                        let url = t.get("url")?.as_str()?.to_string().into();
+                        let width: Option<u32> = t.get("width").and_then(|w| w.as_u64()).map(|w| w as u32);
+                        Some((url, width))
+                    })
+                    .max_by_key(|(_, w)| *w)
+                    .map(|(url, _)| url)
+            })
+            .or_else(|| {
+                value
+                    .get("thumbnail")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
 
         let album = value
             .get("album")
@@ -100,6 +137,7 @@ impl SoundCloudResolver {
             thumbnail,
             stream_url: None, // Resolved lazily on play
             local_path: None,
+            playlist_id: None,
             metadata,
         })
     }
@@ -115,9 +153,9 @@ impl SourceResolver for SoundCloudResolver {
 
         let output = Command::new("yt-dlp")
             .arg(format!("scsearch{}:{}", SEARCH_RESULT_COUNT, query))
+            .arg("--flat-playlist")
             .arg("--dump-json")
             .arg("--no-download")
-            .arg("--no-playlist")
             .output()
             .map_err(|e| SourceError::NetworkError(e.to_string()))?;
 
@@ -160,16 +198,23 @@ impl SourceResolver for SoundCloudResolver {
             .arg(&url)
             .arg("--get-url")
             .arg("--format")
-            .arg("bestaudio")
+            .arg(SOUNDCLOUD_AUDIO_FORMAT)
             .arg("--no-playlist")
             .output()
             .map_err(|e| SourceError::NetworkError(e.to_string()))?;
 
         if !url_output.status.success() {
             let stderr = String::from_utf8_lossy(&url_output.stderr);
+            let err_msg = stderr.trim();
+            // Detect DRM-protected tracks and provide a user-friendly message
+            if err_msg.contains("DRM protected") {
+                return Err(SourceError::ResolveError(
+                    "This track is DRM-protected and cannot be played. SoundCloud restricts some tracks.".to_string(),
+                ));
+            }
             return Err(SourceError::ResolveError(format!(
                 "yt-dlp resolve failed: {}",
-                stderr.trim()
+                err_msg
             )));
         }
 
@@ -209,6 +254,7 @@ impl SourceResolver for SoundCloudResolver {
                 thumbnail: None,
                 stream_url: None,
                 local_path: None,
+                playlist_id: None,
                 metadata: HashMap::new(),
             })
         } else {
@@ -223,6 +269,7 @@ impl SourceResolver for SoundCloudResolver {
                 thumbnail: None,
                 stream_url: None,
                 local_path: None,
+                playlist_id: None,
                 metadata: HashMap::new(),
             }
         };
@@ -244,9 +291,9 @@ mod tests {
 
     #[test]
     fn soundcloud_resolver_parse_valid_json() {
-        let json = r#"{"id":"1234567","title":"Ambient Mix","artist":"DJ Chill","duration":3600.0,"thumbnail":"https://i1.sndcdn.com/artwork.jpg","webpage_url":"https://soundcloud.com/djchill/ambient-mix"}"#;
+        let json = r#"{"id":"1234567","title":"Ambient Mix","artist":"DJ Chill","duration":3600.0,"thumbnail":"https://i1.sndcdn.com/artwork.jpg","url":"https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1234567","webpage_url":"https://soundcloud.com/djchill/ambient-mix"}"#;
         let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
-        assert_eq!(track.source_id, "1234567");
+        assert_eq!(track.source_id, "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1234567");
         assert_eq!(track.title, "Ambient Mix");
         assert_eq!(track.artist, "DJ Chill");
         assert_eq!(track.duration, Some(3600.0));
@@ -257,6 +304,7 @@ mod tests {
 
     #[test]
     fn soundcloud_resolver_parse_numeric_id() {
+        // When no url/webpage_url, fall back to numeric id
         let json = r#"{"id":98765,"title":"Numeric ID Track","uploader":"Artist"}"#;
         let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
         assert_eq!(track.source_id, "98765");
@@ -265,11 +313,20 @@ mod tests {
 
     #[test]
     fn soundcloud_resolver_parse_missing_fields() {
+        // When only string id is present (no url/webpage_url), use it as source_id
         let json = r#"{"id":"sc-abc","title":"Minimal"}"#;
         let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
         assert_eq!(track.source_id, "sc-abc");
         assert_eq!(track.artist, "Unknown");
         assert!(track.duration.is_none());
+    }
+
+    #[test]
+    fn soundcloud_resolver_prefers_api_url_as_source_id() {
+        // "url" (API URL) should be source_id when present
+        let json = r#"{"id":12345,"title":"Track","url":"https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A12345","webpage_url":"https://soundcloud.com/artist/track"}"#;
+        let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
+        assert_eq!(track.source_id, "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A12345");
     }
 
     #[test]
@@ -280,6 +337,45 @@ mod tests {
 
     #[test]
     fn soundcloud_resolver_search_result_count_constant() {
-        assert_eq!(SEARCH_RESULT_COUNT, 5);
+        assert_eq!(SEARCH_RESULT_COUNT, 20);
+    }
+
+    #[test]
+    fn soundcloud_resolver_format_prefers_http_over_hls() {
+        assert!(SOUNDCLOUD_AUDIO_FORMAT.contains("protocol=https"), "Format should prefer HTTPS direct streams");
+        assert!(SOUNDCLOUD_AUDIO_FORMAT.contains("protocol=http"), "Format should fallback to HTTP direct streams");
+        assert!(SOUNDCLOUD_AUDIO_FORMAT.ends_with("bestaudio"), "Format should fallback to bestaudio");
+    }
+
+    #[test]
+    fn soundcloud_resolver_parse_thumbnails_array() {
+        // SoundCloud returns thumbnails as an array of objects with "url" and "width"
+        let json = r#"{"id":"123","title":"Test Track","uploader":"Artist","duration":180.0,"thumbnails":[{"id":"small","url":"https://i1.sndcdn.com/small.jpg","width":32},{"id":"t500x500","url":"https://i1.sndcdn.com/large.jpg","width":500},{"id":"original","url":"https://i1.sndcdn.com/original.jpg","width":1000}]}"#;
+        let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
+        assert_eq!(
+            track.thumbnail,
+            Some("https://i1.sndcdn.com/original.jpg".to_string()),
+            "Should pick the largest thumbnail by width"
+        );
+    }
+
+    #[test]
+    fn soundcloud_resolver_parse_thumbnail_string_fallback() {
+        // If "thumbnails" array is missing but "thumbnail" string exists, use it
+        let json = r#"{"id":"123","title":"Test Track","uploader":"Artist","duration":180.0,"thumbnail":"https://i1.sndcdn.com/artwork.jpg"}"#;
+        let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
+        assert_eq!(
+            track.thumbnail,
+            Some("https://i1.sndcdn.com/artwork.jpg".to_string()),
+            "Should fall back to thumbnail string field"
+        );
+    }
+
+    #[test]
+    fn soundcloud_resolver_parse_no_thumbnails() {
+        // Neither thumbnails array nor thumbnail string
+        let json = r#"{"id":"123","title":"Test Track","uploader":"Artist","duration":180.0}"#;
+        let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
+        assert!(track.thumbnail.is_none(), "Should be None when no thumbnail data");
     }
 }

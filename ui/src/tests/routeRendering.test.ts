@@ -6,7 +6,7 @@
  *
  * Spec: FR-011 — App shell navigation exposes all routes.
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render } from '@testing-library/svelte';
 import { initI18n } from '@i18n';
 import App from '../app/App.svelte';
@@ -33,6 +33,11 @@ vi.mock('@services/commands', () => ({
   getVersion: mocks.getVersion,
 }));
 
+function setHash(hash: string) {
+  window.history.replaceState({}, '', '/' + hash);
+  window.dispatchEvent(new HashChangeEvent('hashchange'));
+}
+
 describe('Route rendering', () => {
   beforeEach(async () => {
     window.history.replaceState({}, '', '/');
@@ -44,13 +49,13 @@ describe('Route rendering', () => {
   });
 
   it('renders the Library page at /library', () => {
-    window.location.hash = '#/library';
+    setHash('#/library');
     const { container } = render(App);
     expect(container.textContent).toContain('Local Library');
   });
 
   it('renders the Settings page at /settings', () => {
-    window.location.hash = '#/settings';
+    setHash('#/settings');
     const { container } = render(App);
     expect(container.textContent).toContain('Settings');
   });

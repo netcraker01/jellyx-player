@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Play, Plus, Heart, PlayCircle } from 'lucide-svelte';
-  import { favorites } from '@features/favorites/stores/favorites';
+  import { Play, Plus, PlayCircle, ListMusic } from 'lucide-svelte';
+  import ListPicker from '@features/playlists/components/ListPicker.svelte';
   import { playTrack, addToQueueAction, playNextAction } from '@shared/utils/actions';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import HelixLogo from './HelixLogo.svelte';
@@ -22,17 +22,31 @@
   }
 
   async function handleAddToQueue() {
-    await addToQueueAction(track.id);
+    await addToQueueAction(track);
   }
 
   async function handlePlayNext() {
-    await playNextAction(track.id);
+    await playNextAction(track);
   }
 
-  async function handleAddToFavorites() {
-    await favorites.add(track);
+  let showPicker = false;
+  let pickerAnchorX = 0;
+  let pickerAnchorY = 0;
+
+  function handleOpenPicker(e: MouseEvent) {
+    pickerAnchorX = e.clientX;
+    pickerAnchorY = e.clientY;
+    showPicker = true;
+  }
+
+  function handleClosePicker() {
+    showPicker = false;
   }
 </script>
+
+{#if showPicker}
+  <ListPicker {track} visible={showPicker} anchorX={pickerAnchorX} anchorY={pickerAnchorY} on:close={handleClosePicker} />
+{/if}
 
 <div class="track-row">
   <button class="play-btn" on:click={handlePlay} aria-label="Play {track.title}">
@@ -66,8 +80,8 @@
       <button class="action-btn" on:click={handleAddToQueue} title="Add to Queue" aria-label="Add {track.title} to queue">
         <Plus size={14} />
       </button>
-      <button class="action-btn fav-btn" on:click={handleAddToFavorites} title="Add to Favorites" aria-label="Add {track.title} to favorites">
-        <Heart size={14} />
+      <button class="action-btn list-btn" on:click={handleOpenPicker} title="Add to List" aria-label="Add {track.title} to a list">
+        <ListMusic size={14} />
       </button>
     </div>
   {/if}
@@ -222,8 +236,9 @@
     transform: scale(1.06);
   }
 
-  .fav-btn:hover {
-    color: var(--color-helix-magenta, #D946FF);
-    background: rgba(217, 70, 255, 0.12);
+  .list-btn:hover {
+    color: var(--color-helix-violet, #8A5CFF);
+    background: rgba(138, 92, 255, 0.12);
+    transform: scale(1.06);
   }
 </style>

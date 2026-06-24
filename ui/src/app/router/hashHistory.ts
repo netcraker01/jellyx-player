@@ -105,7 +105,6 @@ function createHashHistory() {
       }
 
       emit('PUSH', preserveScroll);
-      document.activeElement instanceof HTMLElement && document.activeElement.blur();
     },
   };
 }

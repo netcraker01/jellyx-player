@@ -9,13 +9,14 @@ use serde::{Deserialize, Serialize};
 /// Current playback state.
 ///
 /// Serialized as PascalCase to match the TypeScript frontend enum.
+/// `Buffering(f32)` carries the buffering progress percentage (0.0–1.0).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum PlaybackState {
     Stopped,
     Playing,
     Paused,
-    Buffering,
+    Buffering(f32),
 }
 
 /// Repeat mode for queue playback.
@@ -87,8 +88,16 @@ mod tests {
 
     #[test]
     fn playback_state_buffering_serializes_to_pascal_case() {
-        let json = serde_json::to_string(&PlaybackState::Buffering).unwrap();
-        assert_eq!(json, "\"Buffering\"");
+        let json = serde_json::to_string(&PlaybackState::Buffering(0.75)).unwrap();
+        // Buffering(0.75) should serialize as {"Buffering":0.75} or similar
+        assert!(
+            json.contains("\"Buffering\""),
+            "Buffering should serialize as PascalCase"
+        );
+        assert!(
+            json.contains("0.75"),
+            "Buffering progress value should be present"
+        );
     }
 
     #[test]
@@ -111,6 +120,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: None,
+            playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
         let qs = QueueState {

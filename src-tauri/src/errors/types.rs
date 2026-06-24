@@ -79,6 +79,17 @@ pub enum ScannerError {
     DatabaseError(String),
 }
 
+/// Stream playback errors.
+#[derive(Debug)]
+pub enum StreamError {
+    /// The stream URL has expired (e.g., HTTP 403 from YouTube CDN).
+    UrlExpired,
+    /// The stream connection or download failed.
+    StreamFailed(String),
+    /// Buffer underrun — not enough data to continue playback.
+    BufferUnderrun,
+}
+
 /// Structured error with a translatable code + optional details.
 /// Frontend maps `code` to a localized string and can use `details` for params.
 #[derive(Debug, Serialize)]
@@ -242,6 +253,25 @@ impl From<ScannerError> for AppError {
             ScannerError::DatabaseError(msg) => AppError {
                 code: "PERSISTENCE_ERROR".into(),
                 details: Some(msg),
+            },
+        }
+    }
+}
+
+impl From<StreamError> for AppError {
+    fn from(e: StreamError) -> Self {
+        match e {
+            StreamError::UrlExpired => AppError {
+                code: "STREAM_EXPIRED".into(),
+                details: Some("stream URL expired, re-resolve required".into()),
+            },
+            StreamError::StreamFailed(msg) => AppError {
+                code: "STREAM_ERROR".into(),
+                details: Some(msg),
+            },
+            StreamError::BufferUnderrun => AppError {
+                code: "STREAM_ERROR".into(),
+                details: Some("buffer underrun during stream playback".into()),
             },
         }
     }

@@ -30,7 +30,7 @@ describe('Sidebar navigation', () => {
 
   it('renders all primary routes', () => {
     const { getByText } = render(SidebarTestWrapper);
-    for (const label of ['Home', 'Search', 'Favorites', 'Now Playing', 'Library', 'Settings']) {
+    for (const label of ['Home', 'Search', 'Lists', 'Now Playing', 'Library', 'Settings']) {
       expect(getByText(label)).toBeTruthy();
     }
   });

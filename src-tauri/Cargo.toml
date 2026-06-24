@@ -17,10 +17,11 @@ tauri = { version = "2", features = ["devtools", "protocol-asset", "test"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-symphonia = { version = "0.6", features = ["mp3"] }
+symphonia = { version = "0.6", features = ["mp3", "isomp4", "aac"] }
 symphonia-core = "0.6"
 symphonia-bundle-mp3 = "0.6"
 symphonia-bundle-flac = "0.6"
+symphonia-format-isomp4 = "0.6"
 symphonia-codec-vorbis = "0.6"
 symphonia-codec-aac = "0.6"
 cpal = "0.15"
@@ -32,4 +33,7 @@ dirs = "5"
 walkdir = "2"
 tauri-plugin-dialog = "2"
 rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "default-tls", "charset", "http2"] }
 sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+percent-encoding = "2"

@@ -1,34 +1,43 @@
 /**
  * NowPlayingInfo component tests.
  *
- * Verifies artist/album navigation links are rendered and call navigate.
+ * Verifies artist/album navigation links are rendered and call navigate,
+ * thumbnail rendering, and list picker button.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent } from '@testing-library/svelte';
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
-  favoriteToggle: vi.fn(),
-  favoritedValue: false,
+  addTrackToPlaylist: vi.fn(),
+  getRecentPlaylists: vi.fn(),
+  getAllPlaylists: vi.fn(),
+  searchUserPlaylists: vi.fn(),
+  createPlaylist: vi.fn(),
+  getPlaylistTracks: vi.fn(),
 }));
 
 vi.mock('@app/router/navigation', () => ({
   navigate: mocks.navigate,
 }));
 
-vi.mock('@features/favorites/stores/favorites', () => ({
-  favorites: {
-    toggle: mocks.favoriteToggle,
+vi.mock('@features/playlists/stores/playlists', () => ({
+  playlists: {
+    subscribe: (fn: (v: any[]) => void) => { fn([]); return () => {}; },
+    load: vi.fn(),
+    addTrack: mocks.addTrackToPlaylist,
+    create: mocks.createPlaylist,
+  },
+  recentPlaylists: {
+    subscribe: (fn: (v: any[]) => void) => { fn([]); return () => {}; },
   },
 }));
 
-vi.mock('@features/player/stores/player', () => ({
-  isCurrentTrackFavorited: {
-    subscribe(fn: (v: boolean) => void) {
-      fn(mocks.favoritedValue);
-      return () => {};
-    },
-  },
+vi.mock('@services/commands', () => ({
+  getRecentPlaylists: mocks.getRecentPlaylists,
+  getAllPlaylists: mocks.getAllPlaylists,
+  searchUserPlaylists: mocks.searchUserPlaylists,
+  getPlaylistTracks: mocks.getPlaylistTracks,
 }));
 
 vi.mock('@shared/utils/assetUrl', () => ({
@@ -68,6 +77,17 @@ const trackWithoutArtist = {
   artist: '',
   duration: 180,
   metadata: {},
+};
+
+const remoteYouTubeTrack = {
+  id: 'track:yt:1',
+  source: Source.YouTube,
+  sourceId: 'yt-abc123',
+  title: 'Remote Song',
+  artist: 'Remote Artist',
+  duration: 240,
+  thumbnail: 'https://img.youtube.com/vi/yt-abc123/0.jpg',
+  metadata: { description: 'Live set recorded in the California high desert.' },
 };
 
 describe('NowPlayingInfo', () => {
@@ -114,5 +134,38 @@ describe('NowPlayingInfo', () => {
   it('does not render artist link when artist is missing', () => {
     const { container } = render(NowPlayingInfo, { props: { track: trackWithoutArtist } });
     expect(container.querySelector('.track-artist.link')).toBeFalsy();
+  });
+
+  it('renders thumbnail for local track with artwork', () => {
+    const { container } = render(NowPlayingInfo, { props: { track: trackWithMetadata } });
+    const img = container.querySelector('.album-art') as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(img.src.endsWith('/art/one.jpg')).toBe(true);
+  });
+
+  it('does not render artist or album links for remote YouTube track', () => {
+    const { container } = render(NowPlayingInfo, { props: { track: remoteYouTubeTrack } });
+    expect(container.querySelector('.track-artist.link')).toBeFalsy();
+    expect(container.querySelector('.track-album.link')).toBeFalsy();
+    expect(container.textContent).toContain('Remote Artist');
+    expect(container.textContent).not.toContain('Discovery');
+  });
+
+  it('renders thumbnail for remote YouTube track', () => {
+    const { container } = render(NowPlayingInfo, { props: { track: remoteYouTubeTrack } });
+    const img = container.querySelector('.album-art') as HTMLImageElement;
+    expect(img).toBeTruthy();
+    expect(img.src).toBe('https://img.youtube.com/vi/yt-abc123/0.jpg');
+  });
+
+  it('renders list picker button', () => {
+    const { container } = render(NowPlayingInfo, { props: { track: trackWithMetadata } });
+    expect(container.querySelector('.list-btn')).toBeTruthy();
+  });
+
+  it('renders placeholder when thumbnail is missing', () => {
+    const { container } = render(NowPlayingInfo, { props: { track: trackWithoutAlbum } });
+    expect(container.querySelector('.album-art')).toBeFalsy();
+    expect(container.querySelector('.album-art-placeholder')).toBeTruthy();
   });
 });

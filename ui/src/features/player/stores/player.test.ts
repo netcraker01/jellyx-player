@@ -10,13 +10,13 @@ import { Source } from '@shared/types/models';
 import type { Track } from '@shared/types/models';
 
 const mocks = vi.hoisted(() => ({
-  play: vi.fn(),
+  playStream: vi.fn(),
   playLocal: vi.fn(),
   push: vi.fn(),
 }));
 
 vi.mock('@services/commands', () => ({
-  play: mocks.play,
+  playStream: mocks.playStream,
   playLocal: mocks.playLocal,
   pause: vi.fn(),
   resume: vi.fn(),
@@ -81,12 +81,12 @@ describe('player store > playTrack', () => {
     vi.clearAllMocks();
   });
 
-  it('invokes play for remote tracks with a streamUrl', async () => {
-    mocks.play.mockResolvedValueOnce(undefined);
+  it('invokes playStream for remote tracks with a streamUrl', async () => {
+    mocks.playStream.mockResolvedValueOnce(undefined);
 
     await playTrack(remoteTrack);
 
-    expect(mocks.play).toHaveBeenCalledWith('https://stream.test/track.mp3');
+    expect(mocks.playStream).toHaveBeenCalledWith(remoteTrack);
     expect(mocks.playLocal).not.toHaveBeenCalled();
   });
 
@@ -96,6 +96,6 @@ describe('player store > playTrack', () => {
     await playTrack(localTrack);
 
     expect(mocks.playLocal).toHaveBeenCalledWith('/music/track.mp3');
-    expect(mocks.play).not.toHaveBeenCalled();
+    expect(mocks.playStream).not.toHaveBeenCalled();
   });
 });

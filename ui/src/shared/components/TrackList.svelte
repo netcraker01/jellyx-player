@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Play, Plus, Heart, PlayCircle } from 'lucide-svelte';
-  import { favorites } from '@features/favorites/stores/favorites';
+  import { Play, Plus, Heart, PlayCircle, ListMusic } from 'lucide-svelte';
+  import ListPicker from '@features/playlists/components/ListPicker.svelte';
   import { playTrack, addToQueueAction, playNextAction } from '@shared/utils/actions';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import HelixLogo from './HelixLogo.svelte';
@@ -10,6 +10,11 @@
   export let showActions: boolean = true;
   export let showSource: boolean = true;
   export let highlightTrackId: string | null = null;
+
+  let showPicker = false;
+  let pickerTrack: Track | null = null;
+  let pickerAnchorX = 0;
+  let pickerAnchorY = 0;
 
   function formatDuration(seconds?: number): string {
     if (!seconds) return '--:--';
@@ -23,17 +28,29 @@
   }
 
   async function handleAddToQueue(track: Track) {
-    await addToQueueAction(track.id);
+    await addToQueueAction(track);
   }
 
   async function handlePlayNext(track: Track) {
-    await playNextAction(track.id);
+    await playNextAction(track);
   }
 
-  async function handleAddToFavorites(track: Track) {
-    await favorites.add(track);
+  function openListPicker(e: MouseEvent, track: Track) {
+    pickerAnchorX = e.clientX;
+    pickerAnchorY = e.clientY;
+    pickerTrack = track;
+    showPicker = true;
+  }
+
+  function closeListPicker() {
+    showPicker = false;
+    pickerTrack = null;
   }
 </script>
+
+{#if showPicker && pickerTrack}
+  <ListPicker track={pickerTrack} visible={showPicker} anchorX={pickerAnchorX} anchorY={pickerAnchorY} on:close={closeListPicker} />
+{/if}
 
 <div class="track-list">
   {#each tracks as entry (entry.track.id)}
@@ -72,8 +89,8 @@
           <button class="action-btn" on:click={() => handleAddToQueue(entry.track)} title="Add to queue">
             <Plus size={14} />
           </button>
-          <button class="action-btn fav-btn" on:click={() => handleAddToFavorites(entry.track)} title="Add to favorites">
-            <Heart size={14} />
+          <button class="action-btn list-btn" on:click={(e) => openListPicker(e, entry.track)} title="Add to list">
+            <ListMusic size={14} />
           </button>
         </div>
       {/if}
@@ -227,8 +244,8 @@
     background: rgba(99, 102, 241, 0.1);
   }
 
-  .fav-btn:hover {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
+  .list-btn:hover {
+    color: var(--color-helix-violet, #8A5CFF);
+    background: rgba(138, 92, 255, 0.12);
   }
 </style>

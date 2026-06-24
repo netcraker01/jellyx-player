@@ -72,7 +72,7 @@ describe('TrackRow', () => {
     expect(queueBtn).toBeTruthy();
     await fireEvent.click(queueBtn!);
 
-    expect(mocks.addToQueueAction).toHaveBeenCalledWith('track:1');
+    expect(mocks.addToQueueAction).toHaveBeenCalledWith(sampleTrack);
   });
 
   it('calls playNextAction when play-next button is clicked', async () => {
@@ -83,6 +83,6 @@ describe('TrackRow', () => {
     expect(nextBtn).toBeTruthy();
     await fireEvent.click(nextBtn!);
 
-    expect(mocks.playNextAction).toHaveBeenCalledWith('track:1');
+    expect(mocks.playNextAction).toHaveBeenCalledWith(sampleTrack);
   });
 });

@@ -42,10 +42,9 @@ describe('App sidebar runtime navigation', () => {
     expect(container.textContent).toContain('Local Library');
   });
 
-  it('navigates to Favorites from the real App sidebar', async () => {
+  it('navigates to Playlists from the real App sidebar', async () => {
     const { getByText, container } = render(App);
-    await fireEvent.click(getByText('Favorites'));
-    expect(window.location.hash).toBe('#/favorites');
-    expect(container.textContent).toContain('Favorites');
+    await fireEvent.click(getByText('Lists'));
+    expect(window.location.hash).toBe('#/playlists');
   });
 });

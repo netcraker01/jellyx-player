@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
 }));
 
-vi.mock('svelte-routing', () => ({
+vi.mock('@app/router/navigation', () => ({
   navigate: mocks.navigate,
 }));
 
@@ -20,12 +20,6 @@ vi.mock('@shared/utils/actions', () => ({
   playTrack: vi.fn().mockResolvedValue(undefined),
   addToQueueAction: vi.fn().mockResolvedValue(undefined),
   playNextAction: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('@features/favorites/stores/favorites', () => ({
-  favorites: {
-    add: vi.fn().mockResolvedValue(undefined),
-  },
 }));
 
 import GroupedResults from '@features/search/components/GroupedResults.svelte';

@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
   playTrack: vi.fn(),
   addToQueueAction: vi.fn(),
   playNextAction: vi.fn(),
-  favoriteAdd: vi.fn(),
   notifyPush: vi.fn(),
   notifyGet: vi.fn(),
 }));
@@ -63,7 +62,7 @@ vi.mock('@services/commands', () => ({
   playAlbum: mocks.playAlbum,
 }));
 
-vi.mock('svelte-routing', () => ({
+vi.mock('@app/router/navigation', () => ({
   navigate: mocks.navigate,
 }));
 
@@ -71,10 +70,6 @@ vi.mock('@shared/utils/actions', () => ({
   playTrack: mocks.playTrack,
   addToQueueAction: mocks.addToQueueAction,
   playNextAction: mocks.playNextAction,
-}));
-
-vi.mock('@features/favorites/stores/favorites', () => ({
-  favorites: { add: mocks.favoriteAdd },
 }));
 
 vi.mock('@shared/stores/notifications', () => ({
@@ -103,7 +98,6 @@ describe('AlbumPage', () => {
         tracks: 'Tracks',
         not_found: 'Album not found',
       },
-      player: { add_to_favorites: 'Add to favorites' },
     });
   });
 

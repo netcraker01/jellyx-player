@@ -18,8 +18,8 @@
     "repeat_all": "Repetir todo",
     "repeat_one": "Repetir una",
     "repeat_off": "No repetir",
-    "add_to_favorites": "Añadir a favoritos",
-    "remove_from_favorites": "Eliminar de favoritos"
+    "add_to_list": "Añadir a lista",
+    "remove_from_list": "Eliminar de lista"
   },
   "home": {
     "recently_played": "Reproducido recientemente",
@@ -35,7 +35,12 @@
     "no_results": "No se encontraron resultados.",
     "add_to_queue": "Añadir a la cola",
     "play_next": "Reproducir después",
-    "add_to_favorites": "Añadir a favoritos"
+    "add_to_list": "Añadir a lista",
+    "playlists": "Listas de reproducción",
+    "songs": "Canciones",
+    "videos": "Videos",
+    "artists": "Artistas",
+    "play_playlist": "Reproducir lista"
   },
   "now_playing": {
     "no_track": "Nada está reproduciéndose",
@@ -45,8 +50,7 @@
     "clear_queue": "Vaciar cola"
   },
   "library": {
-    "favorites": "Favoritos",
-    "playlists": "Listas de reproducción",
+    "lists": "Listas",
     "history": "Historial",
     "local_files": "Archivos locales",
     "search": "Buscar en biblioteca..."
@@ -63,7 +67,9 @@
     "theme": "Tema",
     "audio": "Audio",
     "about": "Acerca de Helix",
-    "version": "Versión"
+    "version": "Versión",
+    "sources": "Fuentes",
+    "sources_desc": "Habilitá o deshabilitá las fuentes de búsqueda. Las fuentes deshabilitadas no aparecerán en los resultados."
   },
   "errors": {
     "NETWORK_TIMEOUT": "Tiempo de espera agotado. Verifica tu conexión.",
@@ -74,10 +80,32 @@
     "PLUGIN_LOAD_FAILED": "Error al cargar plugin: {name}",
     "UNKNOWN_ERROR": "Algo salió mal. Intenta de nuevo."
   },
+  "playback": {
+    "error_title": "Error de reproducción",
+    "drm_protected": "No se puede reproducir: pista protegida por DRM",
+    "aborted": "Reproducción cancelada",
+    "network_error": "Error de red durante la reproducción",
+    "decode_error": "Error de decodificación de audio",
+    "format_not_supported": "Formato de audio no soportado"
+  },
+  "playlists": {
+    "title": "Listas",
+    "create": "Crear nueva lista",
+    "empty": "Aún no hay listas. ¡Crea una!",
+    "add_to_list": "Añadir a lista",
+    "search_lists": "Buscar listas...",
+    "create_new": "Crear nueva lista",
+    "rename": "Renombrar",
+    "delete": "Eliminar",
+    "confirm_delete": "¿Estás seguro de que quieres eliminar esta lista?",
+    "tracks": "canciones",
+    "empty_list": "Esta lista está vacía",
+    "artist_favorites": "Artistas favoritos"
+  },
   "routes": {
     "home": "Inicio",
     "search": "Buscar",
-    "favorites": "Favoritos",
+    "playlists": "Listas",
     "now_playing": "Reproduciendo",
     "library": "Biblioteca",
     "settings": "Configuración",
@@ -107,8 +135,8 @@
     "not_found": "Álbum no encontrado"
   },
   "toasts": {
-    "favorite_added": "Añadido a favoritos",
-    "favorite_removed": "Eliminado de favoritos",
+    "track_added_to_list": "Pista añadida a la lista",
+    "track_removed_from_list": "Pista eliminada de la lista",
     "scan_completed": "Escaneo completado: {count} archivos añadidos",
     "track_added_to_queue": "Pista añadida a la cola",
     "play_next_set": "Pista añadida para reproducir después",

@@ -2,6 +2,7 @@
   import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize, Minimize, Shuffle, Repeat, Repeat1 } from 'lucide-svelte';
   import { t } from '@i18n';
   import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import { albumArtUrl } from '@shared/utils/assetUrl';
   import {
     currentTrack,
     isPlaying,
@@ -52,19 +53,38 @@
   }
 
   let previousVolume = 80;
+
+  // ── Marquee detection ───────────────────────────────────────────────
+  let titleEl: HTMLSpanElement | null = null;
+  let needsMarquee = false;
+
+  function checkMarquee() {
+    if (titleEl) {
+      needsMarquee = titleEl.scrollWidth > titleEl.clientWidth + 1;
+    }
+  }
+
+  // Check on track change and after DOM update
+  $: if ($currentTrack?.title) {
+    needsMarquee = false;
+    // Use requestAnimationFrame to measure after render
+    requestAnimationFrame(() => {
+      requestAnimationFrame(checkMarquee);
+    });
+  }
 </script>
 
 <div class="bottom-bar">
   <div class="track-info">
-    {#if $currentTrack?.thumbnail}
-      <img class="track-thumbnail" src={$currentTrack.thumbnail} alt="Album art" />
+    {#if albumArtUrl($currentTrack?.thumbnail)}
+      <img class="track-thumbnail" src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" />
     {:else}
       <div class="track-placeholder">
         <HelixLogo size={20} monochrome={true} />
       </div>
     {/if}
     <div class="track-text">
-      <span class="track-title">{$currentTrack?.title ?? $t('player.no_track')}</span>
+      <span class="track-title" class:marquee={needsMarquee} bind:this={titleEl}>{$currentTrack?.title ?? $t('player.no_track')}</span>
       {#if $currentTrack?.artist}
         <span class="track-artist">{$currentTrack.artist}</span>
       {/if}
@@ -165,10 +185,14 @@
   }
 
   .track-info {
+    --marquee-visible: 200px;
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    min-width: 200px;
+    min-width: 0;
+    max-width: 280px;
+    flex-shrink: 0;
+    overflow: hidden;
   }
 
   .track-thumbnail {
@@ -176,6 +200,7 @@
     height: 48px;
     border-radius: 4px;
     object-fit: cover;
+    flex-shrink: 0;
   }
 
   .track-placeholder {
@@ -193,6 +218,7 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+    overflow: hidden;
   }
 
   .track-title {
@@ -201,6 +227,28 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    display: inline-block;
+  }
+
+  .track-title.marquee {
+    text-overflow: clip;
+    animation: marquee-scroll 10s linear infinite;
+    padding-right: 2rem;
+  }
+
+  @keyframes marquee-scroll {
+    0% {
+      transform: translateX(0);
+    }
+    20% {
+      transform: translateX(0);
+    }
+    80% {
+      transform: translateX(calc(-100% + var(--marquee-visible, 200px)));
+    }
+    100% {
+      transform: translateX(calc(-100% + var(--marquee-visible, 200px)));
+    }
   }
 
   .track-artist {
@@ -218,6 +266,7 @@
     gap: 0.25rem;
     flex: 1;
     max-width: 600px;
+    min-width: 0;
   }
 
   .controls {

@@ -13,7 +13,6 @@ const mocks = vi.hoisted(() => ({
   playTrack: vi.fn(),
   addToQueueAction: vi.fn(),
   playNextAction: vi.fn(),
-  favoriteAdd: vi.fn(),
   storeSubscribe: vi.fn(),
   loadingSubscribe: vi.fn(),
   errorSubscribe: vi.fn(),
@@ -59,7 +58,7 @@ vi.mock('@features/library/stores/artistDetail', () => ({
   artistDetailError: artistStoreMock.artistDetailError,
 }));
 
-vi.mock('svelte-routing', () => ({
+vi.mock('@app/router/navigation', () => ({
   navigate: mocks.navigate,
 }));
 
@@ -67,10 +66,6 @@ vi.mock('@shared/utils/actions', () => ({
   playTrack: mocks.playTrack,
   addToQueueAction: mocks.addToQueueAction,
   playNextAction: mocks.playNextAction,
-}));
-
-vi.mock('@features/favorites/stores/favorites', () => ({
-  favorites: { add: mocks.favoriteAdd },
 }));
 
 import { translations } from '@i18n';

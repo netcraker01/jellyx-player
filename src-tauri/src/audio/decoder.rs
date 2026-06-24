@@ -107,6 +107,75 @@ impl SymphoniaDecoder {
         })
     }
 
+    /// Open an audio stream from any `Read + Seek` source (e.g., `HttpStreamReader`).
+    ///
+    /// This is the source-agnostic decode entry point used by `play_stream()`
+    /// for remote HTTP audio. The caller wraps the source in a
+    /// `MediaSourceStream` before passing it, since Symphonia requires
+    /// `MediaSource` (which is `Read + Seek + Send + Sync`).
+    ///
+    /// An optional `extension_hint` (e.g., "mp3", "m4a") helps Symphonia's
+    /// format probe identify the correct decoder.
+    pub fn open_stream(
+        media_source_stream: MediaSourceStream<'static>,
+        extension_hint: Option<&str>,
+    ) -> Result<Self, AudioError> {
+        let mut hint = Hint::new();
+        if let Some(ext) = extension_hint {
+            hint.with_extension(ext);
+        }
+
+        let format_opts: FormatOptions = Default::default();
+        let meta_opts: MetadataOptions = Default::default();
+
+        // Probe the media source stream for a format
+        let format = symphonia::default::get_probe()
+            .probe(&hint, media_source_stream, format_opts, meta_opts)
+            .map_err(|e| AudioError::DecodeFailed(format!("stream probe failed: {}", e)))?;
+
+        // Find the first audio track with a known (decodable) codec
+        let track = format
+            .default_track(TrackType::Audio)
+            .ok_or_else(|| AudioError::UnsupportedFormat)?;
+
+        let track_id = track.id;
+
+        let codec_params = track
+            .codec_params
+            .as_ref()
+            .ok_or_else(|| AudioError::DecodeFailed("no codec params on track".to_string()))?;
+
+        let audio_params = codec_params
+            .audio()
+            .ok_or_else(|| AudioError::DecodeFailed("track is not audio".to_string()))?;
+
+        let channels = audio_params
+            .channels
+            .clone()
+            .map(|c| c.count())
+            .ok_or_else(|| AudioError::DecodeFailed("no channel info".to_string()))?;
+
+        let sample_rate = audio_params
+            .sample_rate
+            .ok_or_else(|| AudioError::DecodeFailed("no sample rate".to_string()))?;
+
+        let duration_secs = calculate_duration(track);
+
+        let dec_opts: AudioDecoderOptions = Default::default();
+        let decoder = symphonia::default::get_codecs()
+            .make_audio_decoder(audio_params, &dec_opts)
+            .map_err(|e| AudioError::DecodeFailed(format!("codec init failed: {}", e)))?;
+
+        Ok(Self {
+            format_reader: format,
+            decoder,
+            track_id,
+            sample_rate,
+            duration_secs,
+            channels_u16: channels as u16,
+        })
+    }
+
     /// Decode the next chunk of audio into the provided buffer as interleaved f32 samples.
     ///
     /// The buffer should be large enough for at least one decode chunk.

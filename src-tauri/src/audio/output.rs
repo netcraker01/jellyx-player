@@ -117,7 +117,10 @@ impl CpalBackend {
     }
 
     /// Start audio playback by creating a cpal stream that reads from the subscriber.
-    fn start_stream(&self, sample_rate: u32, channels: u16) -> Result<(), AudioError> {
+    ///
+    /// This is the internal method that actually creates the cpal audio stream.
+    /// Called by `play_local()` and by streaming playback in PlaybackService.
+    pub(crate) fn start_stream(&self, sample_rate: u32, channels: u16) -> Result<(), AudioError> {
         use cpal::traits::{DeviceTrait, StreamTrait};
         use cpal::{SampleFormat, StreamConfig};
 

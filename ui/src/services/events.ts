@@ -18,6 +18,12 @@ export interface ProgressTick {
   duration: number;
 }
 
+/** Buffering progress payload for remote track buffering. */
+export interface BufferingProgressEvent {
+  progress: number;
+  trackId: string;
+}
+
 export function onTrackChanged(cb: (track: Track) => void): Promise<UnlistenFn> {
   return subscribeEvent<Track>('track-changed', cb);
 }
@@ -32,6 +38,20 @@ export function onQueueUpdated(cb: (state: QueueState) => void): Promise<Unliste
 
 export function onProgressTick(cb: (progress: ProgressTick) => void): Promise<UnlistenFn> {
   return subscribeEvent<ProgressTick>('progress-tick', cb);
+}
+
+export function onBufferingProgress(cb: (payload: BufferingProgressEvent) => void): Promise<UnlistenFn> {
+  return subscribeEvent<BufferingProgressEvent>('buffering-progress', cb);
+}
+
+/** Stream resolved payload emitted when a remote track's stream URL is ready. */
+export interface StreamResolvedEvent {
+  trackId: string;
+  streamUrl: string;
+}
+
+export function onStreamResolved(cb: (payload: StreamResolvedEvent) => void): Promise<UnlistenFn> {
+  return subscribeEvent<StreamResolvedEvent>('stream-resolved', cb);
 }
 
 /**

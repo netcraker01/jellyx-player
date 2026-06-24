@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { navigate } from 'svelte-routing';
+  import { navigate } from '@app/router/navigation';
   import { Play } from 'lucide-svelte';
   import { t } from '@i18n';
   import {

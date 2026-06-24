@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   albumArtUrl: vi.fn((path?: string) => path),
 }));
 
-vi.mock('svelte-routing', () => ({
+vi.mock('@app/router/navigation', () => ({
   navigate: mocks.navigate,
 }));
 

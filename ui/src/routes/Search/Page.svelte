@@ -1,35 +1,27 @@
 <script lang="ts">
   import { t } from '@i18n';
   import SearchBar from '@features/search/components/SearchBar.svelte';
-  import GroupedResults from '@features/search/components/GroupedResults.svelte';
-  import {
-    searchGrouped,
-    clearSearchGrouped,
-    groupedSearchResults,
-    isSearchingGrouped,
-    groupedSearchError,
-  } from '@features/search/stores/searchGrouped';
-  import type { GroupedSearchResult, SearchFilter } from '@shared/types/models';
+  import SearchResults from '@features/search/components/SearchResults.svelte';
+  import { searchQuery } from '@features/search/stores/search';
+  import { groupedSearchResults, isSearchingGrouped, groupedSearchError, searchGrouped } from '@features/search/stores/searchGrouped';
 
-  let hasSearched = false;
-  let currentQuery = '';
-  let currentFilter: SearchFilter | 'all' = 'all';
+  type SearchFilter = 'all' | 'videos' | 'artists';
+
+  // Derive "has searched" from the persistent store — survives navigation
+  $: hasSearched = $searchQuery.trim().length > 0;
+  let currentFilter: SearchFilter = 'all';
 
   function handleSearch(e: CustomEvent<{ query: string }>) {
-    hasSearched = true;
-    currentQuery = e.detail.query;
-    searchGrouped(currentQuery, currentFilter === 'all' ? undefined : currentFilter);
+    searchQuery.set(e.detail.query);
+    searchGrouped(e.detail.query, currentFilter === 'all' ? undefined : currentFilter === 'videos' ? 'songs' : 'artists');
   }
 
-  function handleFilter(filter: SearchFilter | 'all') {
+  function handleFilter(filter: SearchFilter) {
     currentFilter = filter;
-    if (currentQuery.trim()) {
-      searchGrouped(currentQuery, filter === 'all' ? undefined : filter);
+    if ($searchQuery) {
+      searchGrouped($searchQuery, filter === 'all' ? undefined : filter === 'videos' ? 'songs' : 'artists');
     }
   }
-
-  let result: GroupedSearchResult | null = null;
-  groupedSearchResults.subscribe((v) => { result = v; });
 </script>
 
 <div class="page-search">
@@ -38,13 +30,15 @@
     <SearchBar on:search={handleSearch} disabled={$isSearchingGrouped} />
   </div>
   <div class="results-container">
-    <GroupedResults
-      {result}
-      filter={currentFilter}
-      loading={$isSearchingGrouped}
-      error={$groupedSearchError}
-      onFilter={handleFilter}
-    />
+    {#if hasSearched}
+      <SearchResults
+        result={$groupedSearchResults}
+        filter={currentFilter}
+        loading={$isSearchingGrouped}
+        error={$groupedSearchError}
+        onFilter={handleFilter}
+      />
+    {/if}
   </div>
 </div>
 

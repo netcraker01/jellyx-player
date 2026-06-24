@@ -19,6 +19,7 @@ export interface Track {
   thumbnail?: string;
   streamUrl?: string;
   localPath?: string;
+  playlistId?: string;
   metadata: Record<string, string>;
 }
 
@@ -42,6 +43,20 @@ export interface Album {
 }
 
 /**
+ * A playlist of tracks from a remote source (YouTube, SoundCloud, etc.).
+ * Matches the Rust `Playlist` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface Playlist {
+  id: string;
+  source: Source;
+  sourceId: string;
+  title: string;
+  thumbnail?: string;
+  trackCount: number;
+  tracks: Track[];
+}
+
+/**
  * Frequency data payload decoded from binary FFT frames.
  *
  * Binary frame layout (all little-endian):
@@ -56,15 +71,6 @@ export interface FrequencyData {
   bins: Float32Array;   // f32 array from FFT binary frame, length = fft_size/2
   sampleRate: number;   // u32, decoded from binary frame header
   peak: number;         // f32, max bin value for amplitude reference
-}
-
-/**
- * A favorited track with metadata about when it was added.
- * Matches the Rust `FavoriteEntry` struct with `serde(rename_all = "camelCase")`.
- */
-export interface FavoriteEntry {
-  track: Track;
-  addedAt: string;
 }
 
 /**
@@ -197,7 +203,38 @@ export interface AlbumDetail {
   tracks: Track[];
 }
 
-// ── Home snapshot DTOs ───────────────────────────────────────────────
+/**
+ * A user-created local playlist.
+ * Matches the Rust `UserPlaylist` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface UserPlaylist {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * A track entry inside a user playlist.
+ * Matches the Rust `PlaylistTrackEntry` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface PlaylistTrackEntry {
+  playlistId: string;
+  position: number;
+  track: Track;
+  addedAt: string;
+}
+
+/**
+ * A favorited artist.
+ * Matches the Rust `ArtistFavorite` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface ArtistFavorite {
+  artistId: string;
+  artistName: string;
+  thumbnail?: string;
+  addedAt: string;
+}
 
 /**
  * A single recommendation item: a track, artist, or album with a reason.

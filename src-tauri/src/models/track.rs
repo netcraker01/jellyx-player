@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use crate::models::source::Source;
 
 /// Result from a source search or library lookup.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Track {
     pub id: String,
@@ -27,6 +27,9 @@ pub struct Track {
     pub stream_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub local_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub playlist_id: Option<String>,
     #[serde(default)]
     pub metadata: HashMap<String, String>,
 }
@@ -49,6 +52,7 @@ mod tests {
             thumbnail: Some("https://img.test/thumb.jpg".to_string()),
             stream_url: Some("https://stream.test/audio.mp3".to_string()),
             local_path: None,
+            playlist_id: None,
             metadata,
         }
     }
@@ -79,6 +83,7 @@ mod tests {
             thumbnail: Some("https://img.test/thumb.jpg".to_string()),
             stream_url: Some("https://stream.test/audio.mp3".to_string()),
             local_path: Some("/music/track.mp3".to_string()),
+            playlist_id: None,
             metadata: HashMap::new(),
         };
         let json = serde_json::to_string(&track).unwrap();
@@ -110,6 +115,7 @@ mod tests {
             thumbnail: None,
             stream_url: None,
             local_path: None,
+            playlist_id: None,
             metadata: HashMap::new(),
         };
         let json = serde_json::to_string(&track).unwrap();

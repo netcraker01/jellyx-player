@@ -10,7 +10,6 @@ import { invokeCommand } from './tauri';
 import type {
   Track,
   QueueState,
-  FavoriteEntry,
   HistoryEntry,
   WatchedFolder,
   LocalTrackEntry,
@@ -20,6 +19,10 @@ import type {
   AlbumDetail,
   HomeSnapshot,
   RecommendationItem,
+  Playlist,
+  UserPlaylist,
+  PlaylistTrackEntry,
+  ArtistFavorite,
 } from '@shared/types/models';
 
 // ── Playback commands ──────────────────────────────────────────────
@@ -84,6 +87,11 @@ export function addToQueue(trackId: string): Promise<void> {
   return invokeCommand<void>('add_to_queue', { trackId });
 }
 
+/** Add a track to the queue using the full Track object — skips slow resolve. */
+export function addToQueueWithTrack(track: Track): Promise<void> {
+  return invokeCommand<void>('add_to_queue_with_track', { track });
+}
+
 /** Remove a track from the queue by its Helix track ID. */
 export function removeFromQueue(trackId: string): Promise<void> {
   return invokeCommand<void>('remove_from_queue', { trackId });
@@ -99,22 +107,17 @@ export function playNext(trackId: string): Promise<void> {
   return invokeCommand<void>('play_next', { trackId });
 }
 
+/** Insert a track immediately after the current queue position using full Track — skips slow resolve. */
+export function playNextWithTrack(track: Track): Promise<void> {
+  return invokeCommand<void>('play_next_with_track', { track });
+}
+
 export function getQueue(): Promise<QueueState> {
   return invokeCommand<QueueState>('get_queue');
 }
 
 export function getVersion(): Promise<string> {
   return invokeCommand<string>('get_version');
-}
-
-/** Toggle favorite state for a track. Returns true if now favorited, false if removed. */
-export function toggleFavorite(trackId: string): Promise<boolean> {
-  return invokeCommand<boolean>('toggle_favorite', { trackId });
-}
-
-/** Check whether a track is currently favorited. */
-export function isFavorite(trackId: string): Promise<boolean> {
-  return invokeCommand<boolean>('is_favorite', { trackId });
 }
 
 /** Set shuffle mode on or off. */
@@ -133,21 +136,6 @@ export function cycleRepeat(): Promise<string> {
 }
 
 // ── Library commands ────────────────────────────────────────────────
-
-/** Get all favorited tracks, ordered by most recently added first. */
-export function getFavorites(): Promise<FavoriteEntry[]> {
-  return invokeCommand<FavoriteEntry[]>('get_favorites');
-}
-
-/** Add a track to favorites. */
-export function addFavorite(track: Track): Promise<void> {
-  return invokeCommand<void>('add_favorite', { track });
-}
-
-/** Remove a track from favorites by its Helix track ID. */
-export function removeFavorite(trackId: string): Promise<void> {
-  return invokeCommand<void>('remove_favorite', { trackId });
-}
 
 /** Get play history, ordered by most recent first (max 100). */
 export function getHistory(): Promise<HistoryEntry[]> {
@@ -190,4 +178,99 @@ export function getHomeRecommendations(): Promise<RecommendationItem[]> {
 /** Get the Home snapshot: recently played + recommendations. */
 export function getHomeSnapshot(): Promise<HomeSnapshot> {
   return invokeCommand<HomeSnapshot>('get_home_snapshot');
+}
+
+// ── Streaming & Playlist commands ──────────────────────────────────
+
+/** Play a remote track by resolving its stream URL. */
+export function playStream(track: Track): Promise<void> {
+  return invokeCommand<void>('play_stream', { track });
+}
+
+/** Search for playlists across all registered sources. */
+export function searchPlaylists(query: string): Promise<Playlist[]> {
+  return invokeCommand<Playlist[]>('search_playlists', { query });
+}
+
+/** Resolve a full playlist by source and URL. */
+export function resolvePlaylist(source: string, url: string): Promise<Playlist> {
+  return invokeCommand<Playlist>('resolve_playlist', { source, url });
+}
+
+/** Play all tracks in a playlist, replacing the current queue. */
+export function playPlaylist(source: string, url: string): Promise<void> {
+  return invokeCommand<void>('play_playlist', { source, url });
+}
+
+/** Resolve a track's stream URL without starting playback. */
+export function resolveTrack(source: string, id: string): Promise<Track> {
+  return invokeCommand<Track>('resolve_track', { source, id });
+}
+
+// ── User Playlist commands ────────────────────────────────────────
+
+export function createPlaylist(title: string): Promise<UserPlaylist> {
+  return invokeCommand<UserPlaylist>('create_playlist', { title });
+}
+export function renamePlaylist(id: string, title: string): Promise<void> {
+  return invokeCommand<void>('rename_playlist', { id, title });
+}
+export function deletePlaylist(id: string): Promise<void> {
+  return invokeCommand<void>('delete_playlist', { id });
+}
+export function getAllPlaylists(): Promise<UserPlaylist[]> {
+  return invokeCommand<UserPlaylist[]>('get_all_playlists');
+}
+export function getRecentPlaylists(limit?: number): Promise<UserPlaylist[]> {
+  return invokeCommand<UserPlaylist[]>('get_recent_playlists', { limit: limit ?? null });
+}
+export function searchUserPlaylists(query: string): Promise<UserPlaylist[]> {
+  return invokeCommand<UserPlaylist[]>('search_user_playlists', { query });
+}
+export function addTrackToPlaylist(playlistId: string, track: Track): Promise<void> {
+  return invokeCommand<void>('add_track_to_playlist', { playlistId, track });
+}
+export function removeTrackFromPlaylist(playlistId: string, position: number): Promise<void> {
+  return invokeCommand<void>('remove_track_from_playlist', { playlistId, position });
+}
+export function getPlaylistTracks(playlistId: string): Promise<PlaylistTrackEntry[]> {
+  return invokeCommand<PlaylistTrackEntry[]>('get_playlist_tracks', { playlistId });
+}
+
+/** Get track count for a playlist (without loading all tracks). */
+export function countPlaylistTracks(playlistId: string): Promise<number> {
+  return invokeCommand<number>('count_playlist_tracks', { playlistId });
+}
+
+// ── Artist Favorite commands ─────────────────────────────────────
+
+export function addArtistFavorite(artistId: string, artistName: string, thumbnail?: string): Promise<void> {
+  return invokeCommand<void>('add_artist_favorite', { artistId, artistName, thumbnail: thumbnail ?? null });
+}
+export function removeArtistFavorite(artistId: string): Promise<void> {
+  return invokeCommand<void>('remove_artist_favorite', { artistId });
+}
+export function isArtistFavorite(artistId: string): Promise<boolean> {
+  return invokeCommand<boolean>('is_artist_favorite', { artistId });
+}
+export function getAllArtistFavorites(): Promise<ArtistFavorite[]> {
+  return invokeCommand<ArtistFavorite[]>('get_all_artist_favorites');
+}
+
+// ── Source Settings commands ────────────────────────────────────────
+
+export interface SourceSetting {
+  source: string;
+  enabled: boolean;
+  label: string;
+}
+
+/** Get all source settings (YouTube, SoundCloud), defaulting to enabled. */
+export function getSourceSettings(): Promise<SourceSetting[]> {
+  return invokeCommand<SourceSetting[]>('get_source_settings');
+}
+
+/** Enable or disable a source plugin. */
+export function setSourceEnabled(source: string, enabled: boolean): Promise<void> {
+  return invokeCommand<void>('set_source_enabled', { source, enabled });
 }

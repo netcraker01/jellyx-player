@@ -1,22 +1,32 @@
 <script lang="ts">
-  import { Heart } from 'lucide-svelte';
+  import { ListMusic } from 'lucide-svelte';
   import { t } from '@i18n';
   import { navigate } from '@app/router/navigation';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import HelixLogo from '@shared/components/HelixLogo.svelte';
   import { normalizeArtistId, normalizeAlbumId } from '@shared/utils/ids';
-  import { isCurrentTrackFavorited } from '../stores/player';
-  import { favorites } from '@features/favorites/stores/favorites';
+  import ListPicker from '@features/playlists/components/ListPicker.svelte';
   import type { Track } from '@shared/types/models';
+  import { Source } from '@shared/types/models';
 
   export let track: Track | null = null;
 
-  $: artistId = track?.artist ? normalizeArtistId(track.artist) : null;
-  $: albumId = track?.album && track?.artist ? normalizeAlbumId(track.album, track.artist) : null;
+  $: isLocal = track?.source === Source.Local;
+  $: artistId = isLocal && track?.artist ? normalizeArtistId(track.artist) : null;
+  $: albumId = isLocal && track?.album && track?.artist ? normalizeAlbumId(track.album, track.artist) : null;
 
-  async function handleFavoriteToggle() {
-    if (!track?.id) return;
-    await favorites.toggle(track.id);
+  let showPicker = false;
+  let pickerX = 0;
+  let pickerY = 0;
+
+  function handleOpenListPicker(e: MouseEvent) {
+    pickerX = e.clientX;
+    pickerY = e.clientY;
+    showPicker = true;
+  }
+
+  function handleClosePicker() {
+    showPicker = false;
   }
 
   function handleOpenArtist() {
@@ -32,10 +42,19 @@
   }
 </script>
 
-<div class="now-playing-info">
+{#if track && showPicker}
+  <ListPicker track={track} visible={showPicker} anchorX={pickerX} anchorY={pickerY} on:close={handleClosePicker} />
+{/if}
+
+  <div class="now-playing-info">
+  {#if track && albumArtUrl(track.thumbnail)}
+    <div class="artwork-backdrop" aria-hidden="true">
+      <img class="artwork-backdrop-image" src={albumArtUrl(track.thumbnail)} alt="" />
+    </div>
+  {/if}
   {#if track}
     <div class="info-layout">
-      {#if track.thumbnail}
+      {#if albumArtUrl(track.thumbnail)}
         <img class="album-art" src={albumArtUrl(track.thumbnail)} alt={track.title} />
       {:else}
         <div class="album-art-placeholder">
@@ -46,12 +65,12 @@
         <div class="title-row">
           <h2 class="track-title">{track.title}</h2>
           <button
-            class="favorite-btn"
-            class:active={$isCurrentTrackFavorited}
-            on:click={handleFavoriteToggle}
-            aria-label={$isCurrentTrackFavorited ? $t('player.remove_from_favorites') : $t('player.add_to_favorites')}
+            class="list-btn"
+            on:click={handleOpenListPicker}
+            aria-label="Add to list"
+            type="button"
           >
-            <Heart size={20} fill={$isCurrentTrackFavorited ? 'currentColor' : 'none'} />
+            <ListMusic size={20} />
           </button>
         </div>
         {#if artistId}
@@ -76,10 +95,47 @@
 
 <style>
   .now-playing-info {
+    position: relative;
+    overflow: hidden;
     padding: 1rem;
+    border-radius: 24px;
+  }
+
+  .artwork-backdrop {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 0;
+  }
+
+  .artwork-backdrop::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(10, 10, 15, 0.72) 0%,
+      rgba(10, 10, 15, 0.82) 45%,
+      rgba(10, 10, 15, 0.9) 100%
+    );
+  }
+
+  .artwork-backdrop-image {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 140%;
+    height: 140%;
+    object-fit: cover;
+    transform: translate(-50%, -50%) scale(1.15);
+    filter: blur(36px) saturate(1.05);
+    opacity: 0.2;
   }
 
   .info-layout {
+    position: relative;
+    z-index: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -148,7 +204,7 @@
     letter-spacing: -0.01em;
   }
 
-  .favorite-btn {
+  .list-btn {
     background: none;
     border: none;
     color: var(--text-secondary, #9ca3af);
@@ -161,15 +217,11 @@
     transition: color 0.2s, transform 0.1s;
   }
 
-  .favorite-btn:hover {
-    color: var(--color-helix-magenta, #D946FF);
+  .list-btn:hover {
+    color: var(--color-helix-violet, #8A5CFF);
   }
 
-  .favorite-btn.active {
-    color: var(--color-helix-magenta, #D946FF);
-  }
-
-  .favorite-btn:active {
+  .list-btn:active {
     transform: scale(0.95);
   }
 

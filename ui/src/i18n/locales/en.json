@@ -18,8 +18,8 @@
     "repeat_all": "Repeat all",
     "repeat_one": "Repeat one",
     "repeat_off": "Repeat off",
-    "add_to_favorites": "Add to favorites",
-    "remove_from_favorites": "Remove from favorites"
+    "add_to_list": "Add to list",
+    "remove_from_list": "Remove from list"
   },
   "home": {
     "recently_played": "Recently Played",
@@ -35,7 +35,12 @@
     "no_results": "No results found.",
     "add_to_queue": "Add to Queue",
     "play_next": "Play Next",
-    "add_to_favorites": "Add to Favorites"
+    "add_to_list": "Add to list",
+    "playlists": "Playlists",
+    "songs": "Songs",
+    "videos": "Videos",
+    "artists": "Artists",
+    "play_playlist": "Play playlist"
   },
   "now_playing": {
     "no_track": "Nothing is playing",
@@ -45,8 +50,7 @@
     "clear_queue": "Clear queue"
   },
   "library": {
-    "favorites": "Favorites",
-    "playlists": "Playlists",
+    "lists": "Lists",
     "history": "History",
     "local_files": "Local Files",
     "search": "Search library..."
@@ -63,7 +67,9 @@
     "theme": "Theme",
     "audio": "Audio",
     "about": "About Helix",
-    "version": "Version"
+    "version": "Version",
+    "sources": "Sources",
+    "sources_desc": "Enable or disable search sources. Disabled sources won't appear in search results."
   },
   "errors": {
     "NETWORK_TIMEOUT": "Connection timed out. Check your network.",
@@ -74,10 +80,32 @@
     "PLUGIN_LOAD_FAILED": "Failed to load plugin: {name}",
     "UNKNOWN_ERROR": "Something went wrong. Try again."
   },
+  "playback": {
+    "error_title": "Playback Error",
+    "drm_protected": "Cannot play: DRM-protected track",
+    "aborted": "Playback aborted",
+    "network_error": "Network error during playback",
+    "decode_error": "Audio decoding error",
+    "format_not_supported": "Audio format not supported"
+  },
+  "playlists": {
+    "title": "Lists",
+    "create": "Create new list",
+    "empty": "No lists yet. Create one!",
+    "add_to_list": "Add to list",
+    "search_lists": "Search lists...",
+    "create_new": "Create new list",
+    "rename": "Rename",
+    "delete": "Delete",
+    "confirm_delete": "Are you sure you want to delete this list?",
+    "tracks": "tracks",
+    "empty_list": "This list is empty",
+    "artist_favorites": "Favorite Artists"
+  },
   "routes": {
     "home": "Home",
     "search": "Search",
-    "favorites": "Favorites",
+    "playlists": "Lists",
     "now_playing": "Now Playing",
     "library": "Library",
     "settings": "Settings",
@@ -107,8 +135,8 @@
     "not_found": "Album not found"
   },
   "toasts": {
-    "favorite_added": "Added to favorites",
-    "favorite_removed": "Removed from favorites",
+    "track_added_to_list": "Track added to list",
+    "track_removed_from_list": "Track removed from list",
     "scan_completed": "Scan completed: {count} files added",
     "track_added_to_queue": "Track added to queue",
     "play_next_set": "Track set to play next",
