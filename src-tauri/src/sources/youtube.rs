@@ -90,17 +90,9 @@ impl YouTubeResolver {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
-        // webpage_url is the full YouTube URL for resolve;
-        // "url" is the direct stream URL (populated when --format resolves a format)
+        // webpage_url is the full YouTube URL for resolve
         let webpage_url = value
             .get("webpage_url")
-            .or_else(|| value.get("url"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        // Direct stream URL from format resolution (present when using --format with --dump-json)
-        let stream_url = value
-            .get("url")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
 
@@ -124,7 +116,7 @@ impl YouTubeResolver {
             album,
             duration,
             thumbnail,
-            stream_url,
+            stream_url: None, // Resolved via --print %(url)s, not from JSON
             local_path: None,
             playlist_id: None,
             metadata,
@@ -307,15 +299,19 @@ impl SourceResolver for YouTubeResolver {
             format!("https://www.youtube.com/watch?v={}", id)
         };
 
-        // Single yt-dlp call: --dump-json includes the resolved URL in the "url" field.
-        // Using the format selector ensures yt-dlp picks the right stream and exposes its URL.
+        // Resolve stream URL and metadata in a single yt-dlp invocation.
+        // --print %(url)s outputs the resolved format URL on its own line,
+        // --dump-json outputs the full metadata as JSON on subsequent lines.
+        // This avoids running yt-dlp twice (which would double the extraction time).
         let output = Command::new("yt-dlp")
             .arg(&url)
+            .arg("--format")
+            .arg(YOUTUBE_AUDIO_FORMAT)
+            .arg("--print")
+            .arg("%(url)s")
             .arg("--dump-json")
             .arg("--no-download")
             .arg("--no-playlist")
-            .arg("--format")
-            .arg(YOUTUBE_AUDIO_FORMAT)
             .output()
             .map_err(|e| SourceError::NetworkError(e.to_string()))?;
 
@@ -328,9 +324,25 @@ impl SourceResolver for YouTubeResolver {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let first_line = stdout.lines().next().unwrap_or("");
+        let mut lines = stdout.lines().filter(|l| !l.trim().is_empty());
 
-        let mut track = Self::parse_track_from_json(first_line).unwrap_or_else(|| Track {
+        // First line: the resolved stream URL (--print %(url)s)
+        let stream_url = lines.next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        if stream_url.is_empty() {
+            return Err(SourceError::ResolveError(
+                "No stream URL returned by yt-dlp".to_string(),
+            ));
+        }
+
+        // Find the JSON line: it's the first line that starts with '{'
+        let json_line = lines.find(|l| l.trim().starts_with('{'))
+            .unwrap_or("");
+
+        let mut track = Self::parse_track_from_json(json_line).unwrap_or_else(|| Track {
             id: Uuid::new_v4().to_string(),
             source: Source::YouTube,
             source_id: id.to_string(),
@@ -339,37 +351,13 @@ impl SourceResolver for YouTubeResolver {
             album: None,
             duration: None,
             thumbnail: None,
-            stream_url: None,
+            stream_url: Some(stream_url.clone()),
             local_path: None,
             playlist_id: None,
             metadata: HashMap::new(),
         });
 
-        // Extract the stream URL from the JSON "url" field (the resolved format URL).
-        // Fallback to the "webpage_url" which is the YouTube watch URL — not ideal
-        // for streaming but better than nothing if format resolution failed silently.
-        if track.stream_url.is_none() {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(first_line) {
-                let resolved_url = value
-                    .get("url")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string())
-                    .or_else(|| {
-                        value
-                            .get("webpage_url")
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string())
-                    });
-                track.stream_url = resolved_url;
-            }
-        }
-
-        if track.stream_url.is_none() {
-            return Err(SourceError::ResolveError(
-                "No stream URL returned by yt-dlp".to_string(),
-            ));
-        }
-
+        track.stream_url = Some(stream_url);
         Ok(track)
     }
 
@@ -471,7 +459,8 @@ mod tests {
         assert_eq!(track.artist, "Rick Astley");
         assert_eq!(track.duration, Some(212.0));
         assert_eq!(track.source, Source::YouTube);
-        // stream_url is populated from the "url" JSON field when present
+        // stream_url comes from --print %(url)s, not from JSON parse
+        assert!(track.stream_url.is_none());
         assert!(track.metadata.contains_key("webpage_url"));
         assert!(track.metadata.contains_key("description"));
     }
