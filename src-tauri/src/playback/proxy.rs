@@ -15,12 +15,30 @@
 use percent_encoding::{percent_decode_str, NON_ALPHANUMERIC, percent_encode};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+use std::sync::{Arc, atomic::{AtomicBool, Ordering}, OnceLock};
 use std::thread;
 use std::time::Duration;
 
 /// Default port for the local stream proxy.
 const PROXY_PORT: u16 = 8765;
+
+/// Shared HTTP client — avoids creating a new reqwest client (with TLS context)
+/// on every proxy request, which is especially costly during seeks where the
+/// browser opens a new connection for each Range request.
+static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+
+fn http_client() -> &'static reqwest::blocking::Client {
+    HTTP_CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(300))
+            .no_proxy()
+            .pool_idle_timeout(Duration::from_secs(60))
+            .pool_max_idle_per_host(4)
+            .build()
+            .expect("failed to build proxy HTTP client")
+    })
+}
 
 /// Start a simple HTTP proxy server on a local port.
 ///
@@ -148,11 +166,10 @@ fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream) ->
         .find(|line| line.to_lowercase().starts_with("range:"))
         .map(|line| line.strip_prefix("Range:").or_else(|| line.strip_prefix("range:")).unwrap_or("").trim());
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(30))
-        .no_proxy()
-        .build()
-        .map_err(|e| e.to_string())?;
+    // Use the shared HTTP client — avoids TLS handshake overhead on each seek.
+    // Long timeout (300s) is per-read, not total — a long stream won't time out
+    // as long as data keeps flowing. Connect timeout is 15s for slow CDN responses.
+    let client = http_client();
 
     let mut request = client.get(url);
 
