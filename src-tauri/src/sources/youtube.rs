@@ -6,7 +6,8 @@
 
 use std::collections::HashMap;
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
@@ -25,6 +26,24 @@ const PLAYLIST_SEARCH_RESULT_COUNT: usize = 10;
 /// Preferred yt-dlp format selector for YouTube audio.
 /// Prefers m4a/AAC (itag 140) for Symphonia compatibility, then mp4a codecs, then any bestaudio.
 pub const YOUTUBE_AUDIO_FORMAT: &str = "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio";
+
+/// TTL for cached resolved tracks. YouTube stream URLs are signed with ~6h expiry;
+/// 5h is a safe margin that avoids stale-URL 403s while maximizing cache hits.
+const RESOLVE_CACHE_TTL: Duration = Duration::from_secs(3600 * 5);
+
+/// Cache entry: the resolved track plus the time it was cached.
+struct CacheEntry {
+    track: Track,
+    cached_at: Instant,
+}
+
+/// Global resolve cache keyed by video ID.
+/// Eliminates redundant yt-dlp invocations for recently resolved tracks.
+static RESOLVE_CACHE: OnceLock<Mutex<HashMap<String, CacheEntry>>> = OnceLock::new();
+
+fn resolve_cache() -> &'static Mutex<HashMap<String, CacheEntry>> {
+    RESOLVE_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 pub struct YouTubeResolver;
 
@@ -292,6 +311,16 @@ impl SourceResolver for YouTubeResolver {
     fn resolve(&self, id: &str) -> Result<Track, SourceError> {
         Self::check_yt_dlp()?;
 
+        // Check cache first — avoids yt-dlp invocation on replays/cache hits.
+        // Key by the raw id (video ID or full URL) for O(1) lookup.
+        if let Ok(cache) = resolve_cache().lock() {
+            if let Some(entry) = cache.get(id) {
+                if entry.cached_at.elapsed() < RESOLVE_CACHE_TTL {
+                    return Ok(entry.track.clone());
+                }
+            }
+        }
+
         // Build YouTube URL from video ID if it's not already a full URL
         let url = if id.starts_with("http") {
             id.to_string()
@@ -358,6 +387,15 @@ impl SourceResolver for YouTubeResolver {
         });
 
         track.stream_url = Some(stream_url);
+
+        // Store in cache for instant replays within the TTL window.
+        if let Ok(mut cache) = resolve_cache().lock() {
+            cache.insert(id.to_string(), CacheEntry {
+                track: track.clone(),
+                cached_at: Instant::now(),
+            });
+        }
+
         Ok(track)
     }
 
