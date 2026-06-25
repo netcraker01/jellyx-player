@@ -33,6 +33,9 @@ fn http_client() -> &'static reqwest::blocking::Client {
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(300))
             .no_proxy()
+            // Force HTTP/1.1 — reqwest's blocking Read trait only reads the first
+            // ~32KB of HTTP/2 responses then reports EOF. HTTP/1.1 works correctly.
+            .http1_only()
             .pool_idle_timeout(Duration::from_secs(60))
             .pool_max_idle_per_host(4)
             .build()
@@ -71,7 +74,12 @@ pub fn start_proxy_server() -> Result<u16, ProxyError> {
 
             match stream {
                 Ok(stream) => {
-                    handle_proxy_request(stream);
+                    // Spawn a thread per connection so slow upstream responses
+                    // don't block other requests (e.g. seek opens a new connection
+                    // while the previous one is still streaming).
+                    thread::spawn(move || {
+                        handle_proxy_request(stream);
+                    });
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(10));
@@ -131,9 +139,30 @@ fn handle_proxy_request(mut stream: TcpStream) {
 
     let path = parts[1];
 
-    // Extract URL from query string: /proxy?url=...
+    // Extract URL from query string: /proxy?url=...&seekto=<seconds>&duration=<seconds>
     if let Some(url_start) = path.find("?url=") {
-        let encoded_url = &path[url_start + 5..];
+        let query = &path[url_start + 5..];
+        
+        // Split URL and optional seekto/duration parameters
+        let (encoded_url, seekto, duration) = {
+            let mut url_part = query;
+            let mut seek_val: Option<f64> = None;
+            let mut dur_val: Option<f64> = None;
+            
+            if let Some(pos) = query.find("&seekto=") {
+                url_part = &query[..pos];
+                let rest = &query[pos + 8..];
+                let end = rest.find('&').unwrap_or(rest.len());
+                seek_val = rest[..end].parse::<f64>().ok();
+            }
+            if let Some(pos) = query.find("&duration=") {
+                let rest = &query[pos + 10..];
+                let end = rest.find('&').unwrap_or(rest.len());
+                dur_val = rest[..end].parse::<f64>().ok();
+            }
+            (url_part, seek_val, dur_val)
+        };
+
         let decoded_url = match percent_decode_str(encoded_url).decode_utf8() {
             Ok(url) => url.to_string(),
             Err(e) => {
@@ -144,7 +173,7 @@ fn handle_proxy_request(mut stream: TcpStream) {
         };
 
         // Forward the request to the remote URL
-        if let Err(e) = forward_request(&decoded_url, &request, &mut stream) {
+        if let Err(e) = forward_request(&decoded_url, &request, &mut stream, seekto, duration) {
             eprintln!("[Proxy] Forward error for {}: {}", decoded_url, e);
             send_response(&mut stream, 502, "Bad Gateway", format!("Proxy error: {}", e).as_bytes());
         }
@@ -159,33 +188,58 @@ fn handle_proxy_request(mut stream: TcpStream) {
 /// the response body in chunks to the client. Response headers are
 /// forwarded immediately so the browser can start buffering audio
 /// progressively.
-fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream) -> Result<(), String> {
+fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream, seekto: Option<f64>, duration: Option<f64>) -> Result<(), String> {
     // Extract Range header from original request if present
     let range_header = original_request
         .lines()
         .find(|line| line.to_lowercase().starts_with("range:"))
         .map(|line| line.strip_prefix("Range:").or_else(|| line.strip_prefix("range:")).unwrap_or("").trim());
 
-    // Use the shared HTTP client — avoids TLS handshake overhead on each seek.
-    // Long timeout (300s) is per-read, not total — a long stream won't time out
-    // as long as data keeps flowing. Connect timeout is 15s for slow CDN responses.
     let client = http_client();
 
     let mut request = client.get(url);
 
-    // Preserve Range header for audio seeking
-    if let Some(range) = range_header {
+    // If seekto and duration are provided, calculate byte offset and serve
+    // a Range response from that position. The browser will make its own
+    // Range requests for the init segment (first bytes) before requesting
+    // the seek position, so we just need to handle the Range header properly.
+    if let (Some(seek_seconds), Some(dur)) = (seekto, duration) {
+        if dur > 0.0 && seek_seconds < dur {
+            // Get total content size
+            let head_resp = client.get(url)
+                .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+                .header("Accept-Encoding", "identity")
+                .header("Range", "bytes=0-0")
+                .send()
+                .map_err(|e| format!("HEAD request failed: {}", e))?;
+
+            let total_size = head_resp.headers()
+                .get("content-range")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.split('/').nth(1))
+                .and_then(|s| s.parse::<u64>().ok())
+                .unwrap_or(0);
+            drop(head_resp);
+
+            if total_size > 0 {
+                let ratio = seek_seconds / dur;
+                let byte_offset = (ratio * total_size as f64) as u64;
+                eprintln!("[Proxy] Seek: {:.1}s / {:.1}s = ratio {:.3} -> byte {} / {}", seek_seconds, dur, ratio, byte_offset, total_size);
+                // Use Range from the calculated byte offset
+                request = request.header("Range", format!("bytes={}-", byte_offset));
+            }
+        }
+    } else if let Some(range) = range_header {
         request = request.header("Range", range);
     }
 
-    // Prevent compressed responses — we proxy raw bytes, so Content-Length
-    // must match the actual body. "identity" means no compression.
     request = request.header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36");
     request = request.header("Accept-Encoding", "identity");
 
     let mut response = request.send().map_err(|e| format!("Request failed: {}", e))?;
     let status = response.status();
     let headers = response.headers().clone();
+    let content_length = response.content_length();
 
     // Build HTTP response with CORS headers
     let mut response_text = format!(
@@ -194,43 +248,56 @@ fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream) ->
         status.canonical_reason().unwrap_or("OK")
     );
 
-    // Add CORS headers for WebView compatibility
     response_text.push_str("Access-Control-Allow-Origin: *\r\n");
     response_text.push_str("Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n");
     response_text.push_str("Access-Control-Allow-Headers: Range, Content-Type\r\n");
     response_text.push_str("Access-Control-Expose-Headers: Content-Range, Content-Length\r\n");
 
-    // Forward important headers from upstream
     if let Some(content_type) = headers.get("content-type") {
         if let Ok(ct) = content_type.to_str() {
             response_text.push_str(&format!("Content-Type: {}\r\n", ct));
         }
     }
 
-    // Use reqwest's parsed content-length; omit for chunked transfers
-    if let Some(content_length) = response.content_length() {
-        response_text.push_str(&format!("Content-Length: {}\r\n", content_length));
+    if let Some(cl) = content_length {
+        response_text.push_str(&format!("Content-Length: {}\r\n", cl));
     }
 
-    // Forward Content-Range if present (for Range requests)
     if let Some(content_range) = headers.get("content-range") {
         if let Ok(cr) = content_range.to_str() {
             response_text.push_str(&format!("Content-Range: {}\r\n", cr));
         }
     }
 
-    // Accept-Ranges for seeking support
     response_text.push_str("Accept-Ranges: bytes\r\n");
-
     response_text.push_str("Connection: close\r\n");
     response_text.push_str("\r\n");
 
     stream.write_all(response_text.as_bytes())
         .map_err(|e| format!("Failed to write response headers: {}", e))?;
 
-    // Stream body to the client progressively using copy_to
-    if let Err(e) = response.copy_to(stream) {
-        eprintln!("[Proxy] Stream copy error: {}", e);
+    // Stream body to the client. The browser may close the connection early
+    // (BrokenPipe) after receiving enough data for buffering, then open a new
+    // one with a Range request for seeking — this is normal and not an error.
+    let mut buf = [0u8; 32768];
+    let mut total_written: u64 = 0;
+    loop {
+        match response.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => {
+                if let Err(e) = stream.write_all(&buf[..n]) {
+                    if e.kind() != std::io::ErrorKind::BrokenPipe
+                        && e.kind() != std::io::ErrorKind::ConnectionReset
+                    {
+                        eprintln!("[Proxy] Write error after {} bytes: {}", total_written, e);
+                    }
+                    break;
+                }
+                let _ = stream.flush();
+                total_written += n as u64;
+            }
+            Err(_) => break,
+        }
     }
 
     Ok(())

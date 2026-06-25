@@ -235,10 +235,15 @@ export async function previousTrack(): Promise<void> {
 /** Seek to a position (in seconds). */
 export async function seekTo(position: number): Promise<void> {
   try {
-    if (get(remoteActive)) {
+    // Always try remote seek first — if there's an audio element playing,
+    // it's a remote track. Local tracks use the Symphonia backend.
+    if (get(remoteActive) || get(currentTrack)?.source) {
       seekRemote(position);
     }
-    await commands.seek(position);
+    if (!get(remoteActive)) {
+      // Local tracks use the Symphonia/cpal pipeline — seek via backend.
+      await commands.seek(position);
+    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });

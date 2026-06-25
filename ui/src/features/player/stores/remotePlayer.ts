@@ -25,6 +25,22 @@ import type { Track } from '@shared/types/models';
 /** The underlying HTMLAudio element for remote playback. */
 let audioEl: HTMLAudioElement | null = null;
 
+/** The current stream URL - stored for seek reload. Survives HMR. */
+let currentStreamUrl = '';
+
+/** The source of the current track (YouTube, SoundCloud, Local). */
+let currentSource = '';
+
+/** Known duration of the current track (from yt-dlp metadata), used as fallback
+ *  when HTMLAudioElement.duration returns Infinity (common with YouTube m4a). */
+let trackDuration = 0;
+
+/** Whether a seek is in progress — suppresses error handling for aborts. */
+let seeking = false;
+
+/** Whether audio was playing before the seek started — used to resume after seek. */
+let wasPlayingBeforeSeek = false;
+
 /** Whether a remote track is currently loaded. */
 export const remoteActive = writable(false);
 
@@ -33,12 +49,19 @@ function getAudio(): HTMLAudioElement {
   if (!audioEl) {
     audioEl = new Audio();
     audioEl.crossOrigin = 'anonymous';
+    audioEl.preload = 'auto';
 
-    // Sync timeupdate → progress store
+    // Sync timeupdate → progress store, and drive MSE segment prefetching
     audioEl.addEventListener('timeupdate', () => {
-      if (audioEl) {
-        progress.set({ position: audioEl.currentTime, duration: audioEl.duration || 0 });
-      }
+      const el = audioEl;
+      if (!el) return;
+
+      const dur = el.duration;
+      // YouTube m4a streams report Infinity for duration. Use the track's
+      // known duration from yt-dlp metadata as a reliable fallback.
+      const safeDuration = Number.isFinite(dur) && dur > 0 ? dur : trackDuration;
+      const safePosition = Number.isFinite(el.currentTime) ? el.currentTime : 0;
+      progress.set({ position: safePosition, duration: safeDuration });
     });
 
     // Sync play → isPlaying store
@@ -46,9 +69,28 @@ function getAudio(): HTMLAudioElement {
       isPlaying.set(true);
     });
 
-    // Sync pause → isPlaying store
+    // Sync pause → isPlaying store (but not during seek — browser pauses
+    // briefly while fetching the new Range, then resumes automatically)
     audioEl.addEventListener('pause', () => {
-      isPlaying.set(false);
+      if (!seeking) {
+        isPlaying.set(false);
+      }
+    });
+
+    // Sync seeking complete — reanudar reproducción si estaba sonando antes
+    audioEl.addEventListener('seeked', () => {
+      const el = audioEl;
+      if (!el) return;
+      seeking = false;
+      // After a seek, the browser may pause and not auto-resume.
+      // If we were playing before the seek, resume playback now.
+      if (wasPlayingBeforeSeek && el.paused) {
+        el.play().catch((e) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
+        });
+      }
+      wasPlayingBeforeSeek = false;
     });
 
     // Sync ended → advance to next track in queue
@@ -64,6 +106,14 @@ function getAudio(): HTMLAudioElement {
     audioEl.addEventListener('error', (e) => {
       const target = e.target as HTMLAudioElement;
       const errorCode = target.error?.code;
+
+      // Suppress ALL errors during seek — the browser fires error events
+      // when we reload audio.src for seek, and calling skipToNext() would
+      // cause an infinite loop of errors.
+      if (seeking) {
+        return;
+      }
+
       const translate = get(t);
       let message = translate('playback.error_title', { default: 'Remote playback failed' });
       switch (errorCode) {
@@ -95,18 +145,30 @@ function getAudio(): HTMLAudioElement {
  *
  * Called when the `stream-resolved` event arrives from Rust.
  * Stops any existing remote playback first.
+ *
+ * YouTube m4a streams go through MSE (Media Source Extensions) because the
+ * browser reports Infinity for duration and native `currentTime` seek breaks.
+ * SoundCloud MP3 streams work fine with direct `audio.src` + `currentTime`.
  */
 export async function loadRemoteStream(track: Track, streamUrl: string): Promise<void> {
   const audio = getAudio();
 
-  // Stop any current playback
+  // Store the track's known duration from yt-dlp metadata as fallback.
+  // YouTube m4a streams report Infinity for audioEl.duration.
+  trackDuration = track.duration ?? 0;
+  currentSource = track.source;
+
+  // Stop any current playback, including any prior MSE session.
   audio.pause();
   audio.src = '';
 
   // Set volume (0-1)
   audio.volume = get(volume) / 100;
+  currentStreamUrl = streamUrl;
 
-  // Load new stream — play() triggers buffering automatically
+  // All remote tracks use direct audio.src via the proxy.
+  // SoundCloud seek works natively. YouTube seek is handled by
+  // reloading the source with a seekto param in seekRemote().
   audio.src = streamUrl;
 
   try {
@@ -138,10 +200,39 @@ export function resumeRemote(): void {
 
 /** Seek to a position in seconds. */
 export function seekRemote(position: number): void {
-  if (audioEl) {
-    audioEl.currentTime = position;
-  }
+  const el = audioEl;
+  if (!el) return;
+
+  wasPlayingBeforeSeek = !el.paused;
+  seeking = true;
+
+  // YouTube: try native currentTime seek. The browser will make Range
+  // requests to the proxy. If duration is Infinity, the browser can't
+  // seek but we still need to resume playback.
+  wasPlayingBeforeSeek = !el.paused;
+  el.currentTime = position;
+
+  // After setting currentTime, the browser fires 'seeking' then 'seeked'.
+  // If it was playing before, resume playback after the seek completes.
+  const resumeAfterSeek = () => {
+    el.removeEventListener('seeked', resumeAfterSeek);
+    if (wasPlayingBeforeSeek && el.paused) {
+      el.play().catch(() => {});
+    }
+    seeking = false;
+  };
+  el.addEventListener('seeked', resumeAfterSeek);
+
+  // Fallback: if 'seeked' never fires (Infinity duration), resume after 1s
+  setTimeout(() => {
+    el.removeEventListener('seeked', resumeAfterSeek);
+    if (wasPlayingBeforeSeek && el.paused) {
+      el.play().catch(() => {});
+    }
+    seeking = false;
+  }, 1000);
 }
+
 
 /** Set volume for remote playback (0-100). */
 export function setRemoteVolume(value: number): void {

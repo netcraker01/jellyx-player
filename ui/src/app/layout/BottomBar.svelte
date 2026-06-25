@@ -21,6 +21,7 @@
   } from '@features/player/stores/player';
 
   function formatTime(seconds: number): string {
+    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -33,7 +34,7 @@
     const rect = bar.getBoundingClientRect();
     const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     const duration = $progress.duration;
-    if (duration > 0) {
+    if (Number.isFinite(duration) && duration > 0) {
       seekTo(ratio * duration);
     }
   }
