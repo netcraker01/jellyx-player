@@ -248,6 +248,9 @@ export function searchUserPlaylists(query: string): Promise<UserPlaylist[]> {
 export function addTrackToPlaylist(playlistId: string, track: Track): Promise<void> {
   return invokeCommand<void>('add_track_to_playlist', { playlistId, track });
 }
+export function addTracksToPlaylist(playlistId: string, tracks: Track[]): Promise<number> {
+  return invokeCommand<number>('add_tracks_to_playlist', { playlistId, tracks });
+}
 export function removeTrackFromPlaylist(playlistId: string, position: number): Promise<void> {
   return invokeCommand<void>('remove_track_from_playlist', { playlistId, position });
 }

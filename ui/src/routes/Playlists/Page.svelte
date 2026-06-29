@@ -3,12 +3,13 @@
   import { get } from 'svelte/store';
   import { navigate } from '@app/router/navigation';
   import { t } from '@i18n';
-  import { Plus, Music, Heart, Trash2, Play } from 'lucide-svelte';
+  import { Plus, Music, Heart, Trash2, Play, Link } from 'lucide-svelte';
   import { playlists } from '@features/playlists/stores/playlists';
   import { artistFavorites } from '@features/artist-favorites/stores/artistFavorites';
   import { playTrack, addToQueueAction } from '@shared/utils/actions';
-  import { countPlaylistTracks, getPlaylistThumbnails, getPlaylistTracks } from '@services/commands';
+  import { countPlaylistTracks, getPlaylistThumbnails, getPlaylistTracks, resolvePlaylist, addTracksToPlaylist } from '@services/commands';
   import { albumArtUrl } from '@shared/utils/assetUrl';
+  import { notifications } from '@shared/stores/notifications';
   import HelixLogo from '@shared/components/HelixLogo.svelte';
   import type { UserPlaylist, ArtistFavorite } from '@shared/types/models';
 
@@ -19,6 +20,11 @@
   let playlistTrackCounts: Map<string, number> = new Map();
   let playlistThumbnails: Map<string, string[]> = new Map();
   let cancelled = false;
+
+  // Import-from-URL state
+  let showImportDialog = false;
+  let importUrl = '';
+  let importing = false;
 
   onMount(async () => {
     await playlists.load();
@@ -102,15 +108,63 @@
     deleteTargetId = null;
     deleteTargetTitle = '';
   }
+
+  async function handleImportPlaylist() {
+    const url = importUrl.trim();
+    if (!url) return;
+
+    importing = true;
+    try {
+      // Detect source from URL
+      const source = url.includes('soundcloud.com') ? 'SoundCloud' : 'YouTube';
+
+      const resolved = await resolvePlaylist(source, url);
+      if (!resolved.tracks || resolved.tracks.length === 0) {
+        notifications.push({ type: 'error', title: 'Import', message: 'No tracks found in playlist', dismissible: true });
+        return;
+      }
+
+      // Create a local playlist with the resolved title
+      const created = await playlists.create(resolved.title);
+      if (!created) return;
+
+      // Batch-add all tracks in a single IPC call
+      const added = await addTracksToPlaylist(created.id, resolved.tracks);
+
+      notifications.push({
+        type: 'success',
+        title: 'Import',
+        message: `Imported ${added} tracks`,
+        dismissible: true,
+      });
+
+      // Reload counts and thumbnails
+      await loadTrackCounts();
+      await loadThumbnails();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      notifications.push({ type: 'error', title: 'Import Failed', message: msg, dismissible: true });
+    } finally {
+      importing = false;
+      importUrl = '';
+      showImportDialog = false;
+    }
+  }
 </script>
 
 <div class="page-playlists">
   <div class="page-header">
     <h1 class="page-title">{$t('playlists.title')}</h1>
-    <button class="create-btn" on:click={() => (showCreateDialog = true)}>
-      <Plus size={18} />
-      <span>{$t('playlists.create')}</span>
-    </button>
+    <div class="header-actions">
+      <button class="import-btn" on:click={() => (showImportDialog = true)}>
+        <Link size={18} />
+        <span>{$t('playlists.import_url')}</span>
+      </button>
+      <button class="create-btn" on:click={() => (showCreateDialog = true)}>
+        <Plus size={18} />
+        <span>{$t('playlists.create')}</span>
+      </button>
+    </div>
   </div>
 
   <!-- Artist Favorites Section -->
@@ -224,6 +278,35 @@
   </div>
 {/if}
 
+<!-- Import from URL Dialog -->
+{#if showImportDialog}
+  <div class="dialog-overlay" on:click={() => !importing && (showImportDialog = false)} role="dialog" aria-modal="true">
+    <div class="dialog" on:click|stopPropagation>
+      <h3>{$t('playlists.import_url')}</h3>
+      <p class="dialog-text">{$t('playlists.import_url_desc')}</p>
+      <input
+        type="text"
+        bind:value={importUrl}
+        placeholder="https://www.youtube.com/playlist?list=..."
+        on:keydown={(e) => e.key === 'Enter' && !importing && handleImportPlaylist()}
+        disabled={importing}
+        autofocus
+      />
+      {#if importing}
+        <p class="dialog-text importing-hint">{$t('playlists.importing')}...</p>
+      {/if}
+      <div class="dialog-actions">
+        <button class="btn-secondary" on:click={() => (showImportDialog = false)} disabled={importing} type="button">
+          {$t('common.cancel')}
+        </button>
+        <button class="btn-primary" on:click={handleImportPlaylist} disabled={importing || !importUrl.trim()} type="button">
+          {$t('playlists.import')}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <!-- Delete Confirmation Dialog -->
 {#if deleteTargetId}
   <div class="dialog-overlay" on:click={() => (deleteTargetId = null)} role="dialog" aria-modal="true">
@@ -257,6 +340,30 @@
     font-size: 1.75rem;
     font-weight: 700;
     color: var(--text-primary, #e0e0e0);
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .import-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color, #1f2937);
+    border-radius: 8px;
+    background: var(--bg-elevated, #1f2937);
+    color: var(--text-primary, #e0e0e0);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  .import-btn:hover {
+    background: var(--bg-hover, #374151);
+    border-color: var(--color-accent, #6366f1);
   }
 
   .create-btn {
@@ -570,6 +677,11 @@
     margin: 0;
     color: var(--text-secondary, #9ca3af);
     font-size: 0.9rem;
+  }
+
+  .importing-hint {
+    color: var(--color-accent, #6366f1);
+    font-style: italic;
   }
 
   .btn-danger {

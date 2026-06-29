@@ -203,50 +203,78 @@ impl YouTubeResolver {
     ///   line 0: playlist metadata (with `_type: "playlist"` and `entries` array)
     ///   lines 1+: individual entry metadata (each with `_type: "video"` or absent)
     fn parse_playlist_dump(stdout: &str) -> Result<Playlist, SourceError> {
-        let mut lines = stdout.lines().filter(|l| !l.trim().is_empty());
+        let lines: Vec<&str> = stdout.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        if lines.is_empty() {
+            return Err(SourceError::ResolveError(
+                "Empty yt-dlp playlist output".to_string(),
+            ));
+        }
 
-        // First line: playlist metadata
-        let first_line = lines.next().ok_or_else(|| {
-            SourceError::ResolveError("Empty yt-dlp playlist output".to_string())
-        })?;
-
-        let playlist_value: serde_json::Value = serde_json::from_str(first_line)
-            .map_err(|e| SourceError::ResolveError(format!("Invalid playlist JSON: {}", e)))?;
-
-        let source_id = playlist_value
-            .get("id")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown")
-            .to_string();
-
-        let title = playlist_value
-            .get("title")
-            .and_then(|v| v.as_str())
-            .unwrap_or("Untitled Playlist")
-            .to_string();
-
-        let thumbnail = playlist_value
-            .get("thumbnail")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-
-        // Remaining lines: individual video entries
-        let mut tracks = Vec::new();
-        for line in lines {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
+        // Parse all JSON entries. With --flat-playlist, every line is a video
+        // entry and playlist metadata is embedded in each entry's `playlist_*`
+        // fields. Without --flat-playlist, the first line is playlist metadata.
+        let mut entries: Vec<serde_json::Value> = Vec::new();
+        for line in &lines {
+            match serde_json::from_str::<serde_json::Value>(line) {
+                Ok(v) => entries.push(v),
+                Err(_) => continue,
             }
-            if let Some(mut track) = Self::parse_track_from_json(line) {
-                // Filter out non-audio entries (e.g., playlists nested inside)
-                let entry_type = serde_json::from_str::<serde_json::Value>(line)
-                    .ok()
-                    .and_then(|v| v.get("_type").cloned())
-                    .and_then(|v| v.as_str().map(|s| s.to_string()));
-                if let Some(t) = entry_type {
-                    if t != "video" && !t.is_empty() {
-                        continue; // Skip non-video entries (playlists, etc.)
-                    }
+        }
+
+        if entries.is_empty() {
+            return Err(SourceError::ResolveError(
+                "No valid JSON entries in playlist output".to_string(),
+            ));
+        }
+
+        // Extract playlist-level metadata.
+        // Check if the first entry is a playlist (has _type: "playlist")
+        // or if all entries are videos (flat-playlist mode).
+        let first = &entries[0];
+        let first_type = first.get("_type").and_then(|v| v.as_str()).unwrap_or("");
+
+        let (source_id, title, thumbnail) = if first_type == "playlist" {
+            // Non-flat mode: first entry is playlist metadata, rest are videos.
+            let source_id = first.get("id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
+            let title = first.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled Playlist").to_string();
+            let thumbnail = first.get("thumbnail").and_then(|v| v.as_str()).map(|s| s.to_string());
+            (source_id, title, thumbnail)
+        } else {
+            // Flat mode: all entries are videos. Extract playlist metadata
+            // from the `playlist_*` fields present in each video entry.
+            // Fall back to top-level `id`/`title` for test/edge cases.
+            let source_id = first
+                .get("playlist_id")
+                .and_then(|v| v.as_str())
+                .or_else(|| first.get("id").and_then(|v| v.as_str()))
+                .unwrap_or("unknown")
+                .to_string();
+            let title = first
+                .get("playlist_title")
+                .and_then(|v| v.as_str())
+                .or_else(|| first.get("title").and_then(|v| v.as_str()))
+                .unwrap_or("Untitled Playlist")
+                .to_string();
+            let thumbnail = first
+                .get("playlist_thumbnail")
+                .and_then(|v| v.as_str())
+                .or_else(|| first.get("thumbnail").and_then(|v| v.as_str()))
+                .map(|s| s.to_string());
+            (source_id, title, thumbnail)
+        };
+
+        // Parse tracks from entries. In non-flat mode, skip the first entry
+        // (playlist metadata). In flat mode, all entries are videos.
+        let track_entries = if first_type == "playlist" { &entries[1..] } else { &entries[..] };
+
+        let mut tracks = Vec::new();
+        for entry in track_entries {
+            let line = serde_json::to_string(entry).unwrap_or_default();
+            if let Some(mut track) = Self::parse_track_from_json(&line) {
+                // Filter out non-video entries (e.g., nested playlists)
+                let entry_type = entry.get("_type").and_then(|v| v.as_str()).unwrap_or("");
+                if !entry_type.is_empty() && entry_type != "video" && entry_type != "url" {
+                    continue;
                 }
                 track.playlist_id = Some(source_id.clone());
                 tracks.push(track);
@@ -452,8 +480,13 @@ impl SourceResolver for YouTubeResolver {
     fn resolve_playlist(&self, url: &str) -> Result<Playlist, SourceError> {
         Self::check_yt_dlp()?;
 
+        // --flat-playlist fetches all entries from the playlist page in a single
+        // request, without resolving each video individually. Without it, yt-dlp
+        // makes one HTTP request per video, which is extremely slow for large
+        // playlists (50+ videos = 50+ sequential requests).
         let output = Command::new("yt-dlp")
             .arg(url)
+            .arg("--flat-playlist")
             .arg("--dump-json")
             .arg("--no-download")
             .arg("--yes-playlist")
@@ -633,13 +666,19 @@ mod tests {
 
     #[test]
     fn youtube_resolver_parse_playlist_dump_defaults_on_missing_fields() {
+        // In flat-playlist mode, entries without _type are treated as video
+        // entries. Playlist metadata is extracted from playlist_* fields with
+        // fallback to top-level id/title.
         let playlist_json = r#"{"id":"PLminimal","title":"Minimal Playlist"}"#;
         let stdout = playlist_json.to_string();
         let playlist = YouTubeResolver::parse_playlist_dump(&stdout).unwrap();
 
+        // No playlist_id field, so falls back to top-level id
         assert_eq!(playlist.source_id, "PLminimal");
+        // No playlist_title field, so falls back to top-level title
         assert_eq!(playlist.title, "Minimal Playlist");
         assert!(playlist.thumbnail.is_none());
-        assert_eq!(playlist.tracks.len(), 0);
+        // The single entry is treated as a video track
+        assert_eq!(playlist.tracks.len(), 1);
     }
 }

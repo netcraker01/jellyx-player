@@ -123,6 +123,7 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::get_recent_playlists,
             crate::ipc::commands::search_user_playlists,
             crate::ipc::commands::add_track_to_playlist,
+            crate::ipc::commands::add_tracks_to_playlist,
             crate::ipc::commands::remove_track_from_playlist,
             crate::ipc::commands::get_playlist_tracks,
             crate::ipc::commands::count_playlist_tracks,

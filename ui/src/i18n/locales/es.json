@@ -108,7 +108,11 @@
     "confirm_delete": "¿Estás seguro de que quieres eliminar esta lista?",
     "tracks": "canciones",
     "empty_list": "Esta lista está vacía",
-    "artist_favorites": "Artistas favoritos"
+    "artist_favorites": "Artistas favoritos",
+    "import_url": "Importar desde URL",
+    "import_url_desc": "Pegá una URL de lista de YouTube o SoundCloud para importar sus pistas.",
+    "import": "Importar",
+    "importing": "Importando pistas"
   },
   "routes": {
     "home": "Inicio",

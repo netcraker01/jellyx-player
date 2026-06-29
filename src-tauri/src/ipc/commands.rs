@@ -271,6 +271,22 @@ pub fn add_track_to_playlist(state: tauri::State<AppState>, playlist_id: String,
     state.playlist.add_track_to_playlist(&playlist_id, &track)
 }
 
+/// Batch-add multiple tracks to a playlist in a single IPC call.
+/// Used by the playlist import flow to avoid N sequential IPC round-trips.
+#[tauri::command]
+pub fn add_tracks_to_playlist(state: tauri::State<AppState>, playlist_id: String, tracks: Vec<Track>) -> Result<usize, AppError> {
+    let mut added = 0;
+    for track in &tracks {
+        match state.playlist.add_track_to_playlist(&playlist_id, track) {
+            Ok(()) => added += 1,
+            Err(e) => {
+                eprintln!("Failed to add track to playlist {}: {:?}", playlist_id, e);
+            }
+        }
+    }
+    Ok(added)
+}
+
 #[tauri::command]
 pub fn remove_track_from_playlist(state: tauri::State<AppState>, playlist_id: String, position: i64) -> Result<(), AppError> {
     state.playlist.remove_track_from_playlist(&playlist_id, position)
