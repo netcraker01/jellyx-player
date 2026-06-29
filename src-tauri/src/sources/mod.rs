@@ -8,6 +8,7 @@
 pub mod local;
 pub mod soundcloud;
 pub mod youtube;
+pub mod yt_dlp;
 
 use crate::errors::types::SourceError;
 use crate::models::playlist::Playlist;

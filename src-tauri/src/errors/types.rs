@@ -16,7 +16,7 @@ use crate::audio::AudioError;
 use serde::Serialize;
 
 /// Error type for source resolution failures.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SourceError {
     NetworkError(String),
     #[allow(dead_code)]

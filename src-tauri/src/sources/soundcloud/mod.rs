@@ -4,13 +4,13 @@
 //! yt-dlp supports SoundCloud natively via `scsearch<N>:<query>` prefix.
 
 use std::collections::HashMap;
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
 use super::SourceResolver;
+use super::yt_dlp;
 use crate::errors::types::SourceError;
 use crate::models::source::Source;
 use crate::models::track::Track;
@@ -50,7 +50,7 @@ fn resolve_cache() -> &'static Mutex<HashMap<String, CacheEntry>> {
 pub struct SoundCloudResolver;
 
 /// Cached result of yt-dlp availability check.
-/// Shared across YouTube and SoundCloud resolvers to avoid redundant subprocess spawns.
+/// Delegates to the shared `yt_dlp` module which resolves bundled or PATH yt-dlp.
 static YT_DLP_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
 impl SoundCloudResolver {
@@ -58,18 +58,20 @@ impl SoundCloudResolver {
         Self
     }
 
-    /// Check if yt-dlp is available on PATH.
+    /// Check if yt-dlp is available (auto-downloaded, bundled, or system PATH).
     /// Cached after first check — avoids ~100-300ms subprocess spawn per resolve.
+    /// On first call, triggers auto-download if no yt-dlp is found.
     fn check_yt_dlp() -> Result<(), SourceError> {
         let available = *YT_DLP_AVAILABLE.get_or_init(|| {
-            Command::new("yt-dlp").arg("--version").output().is_ok()
+            yt_dlp::check_yt_dlp().is_ok()
         });
 
         if available {
             Ok(())
         } else {
             Err(SourceError::DependencyMissing(
-                "yt-dlp is not installed or not on PATH. Install it from https://github.com/yt-dlp/yt-dlp".to_string(),
+                "yt-dlp is not available and auto-download failed. \
+                 Install it from https://github.com/yt-dlp/yt-dlp or check your internet connection.".to_string(),
             ))
         }
     }
@@ -179,7 +181,7 @@ impl SourceResolver for SoundCloudResolver {
         Self::check_yt_dlp()?;
 
         let end = offset + limit;
-        let output = Command::new("yt-dlp")
+        let output = yt_dlp::yt_dlp_command()?
             .arg(format!("scsearch{}:{}", end, query))
             .arg("--flat-playlist")
             .arg("--dump-json")
@@ -237,7 +239,7 @@ impl SourceResolver for SoundCloudResolver {
         // Resolve stream URL and metadata in a single yt-dlp invocation.
         // --print %(url)s outputs the resolved format URL on its own line,
         // --dump-json outputs the full metadata as JSON on subsequent lines.
-        let output = Command::new("yt-dlp")
+        let output = yt_dlp::yt_dlp_command()?
             .arg(&url)
             .arg("--format")
             .arg(SOUNDCLOUD_AUDIO_FORMAT)

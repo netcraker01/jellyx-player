@@ -28,7 +28,8 @@
     "empty": "No listening history yet.",
     "go_search": "Search for music to get started",
     "welcome": "Welcome",
-    "discover": "Discover"
+    "discover": "Discover",
+    "recent_lists": "Recent Lists"
   },
   "search": {
     "placeholder": "Search for songs, artists, albums...",

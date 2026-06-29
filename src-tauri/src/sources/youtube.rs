@@ -5,13 +5,13 @@
 //! Supports playlist search and resolution via `--yes-playlist`.
 
 use std::collections::HashMap;
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
 use super::SourceResolver;
+use super::yt_dlp;
 use crate::errors::types::SourceError;
 use crate::models::playlist::Playlist;
 use crate::models::source::Source;
@@ -48,7 +48,7 @@ fn resolve_cache() -> &'static Mutex<HashMap<String, CacheEntry>> {
 pub struct YouTubeResolver;
 
 /// Cached result of yt-dlp availability check.
-/// Avoids spawning a subprocess on every resolve call.
+/// Delegates to the shared `yt_dlp` module which resolves bundled or PATH yt-dlp.
 static YT_DLP_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
 impl YouTubeResolver {
@@ -56,18 +56,20 @@ impl YouTubeResolver {
         Self
     }
 
-    /// Check if yt-dlp is available on PATH.
+    /// Check if yt-dlp is available (auto-downloaded, bundled, or system PATH).
     /// Cached after first check — avoids ~100-300ms subprocess spawn per resolve.
+    /// On first call, triggers auto-download if no yt-dlp is found.
     fn check_yt_dlp() -> Result<(), SourceError> {
         let available = *YT_DLP_AVAILABLE.get_or_init(|| {
-            Command::new("yt-dlp").arg("--version").output().is_ok()
+            yt_dlp::check_yt_dlp().is_ok()
         });
 
         if available {
             Ok(())
         } else {
             Err(SourceError::DependencyMissing(
-                "yt-dlp is not installed or not on PATH. Install it from https://github.com/yt-dlp/yt-dlp".to_string(),
+                "yt-dlp is not available and auto-download failed. \
+                 Install it from https://github.com/yt-dlp/yt-dlp or check your internet connection.".to_string(),
             ))
         }
     }
@@ -306,7 +308,7 @@ impl SourceResolver for YouTubeResolver {
         // yt-dlp pagination: request enough results to cover offset+limit, then
         // use --playlist-start/--playlist-end to extract only the requested page.
         let end = offset + limit;
-        let output = Command::new("yt-dlp")
+        let output = yt_dlp::yt_dlp_command()?
             .arg(format!("ytsearch{}:{}", end, query))
             .arg("--flat-playlist")
             .arg("--dump-json")
@@ -367,7 +369,7 @@ impl SourceResolver for YouTubeResolver {
         // --print %(url)s outputs the resolved format URL on its own line,
         // --dump-json outputs the full metadata as JSON on subsequent lines.
         // This avoids running yt-dlp twice (which would double the extraction time).
-        let output = Command::new("yt-dlp")
+        let output = yt_dlp::yt_dlp_command()?
             .arg(&url)
             .arg("--format")
             .arg(YOUTUBE_AUDIO_FORMAT)
@@ -437,7 +439,7 @@ impl SourceResolver for YouTubeResolver {
     fn search_playlists(&self, query: &str) -> Result<Vec<Playlist>, SourceError> {
         Self::check_yt_dlp()?;
 
-        let output = Command::new("yt-dlp")
+        let output = yt_dlp::yt_dlp_command()?
             .arg(format!(
                 "ytsearch{}:{}",
                 PLAYLIST_SEARCH_RESULT_COUNT, query
@@ -484,7 +486,7 @@ impl SourceResolver for YouTubeResolver {
         // request, without resolving each video individually. Without it, yt-dlp
         // makes one HTTP request per video, which is extremely slow for large
         // playlists (50+ videos = 50+ sequential requests).
-        let output = Command::new("yt-dlp")
+        let output = yt_dlp::yt_dlp_command()?
             .arg(url)
             .arg("--flat-playlist")
             .arg("--dump-json")

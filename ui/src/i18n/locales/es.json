@@ -28,7 +28,8 @@
     "empty": "Aún no hay historial de reproducción.",
     "go_search": "Busca música para empezar",
     "welcome": "Bienvenido",
-    "discover": "Explorar"
+    "discover": "Explorar",
+    "recent_lists": "Listas recientes"
   },
   "search": {
     "placeholder": "Buscar canciones, artistas, álbumes...",

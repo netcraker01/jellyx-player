@@ -10,6 +10,10 @@ ui/.svelte-kit/
 # Tauri
 src-tauri/target/
 
+# Bundled yt-dlp binaries (large, platform-specific — download separately for release)
+# These are placed next to the app executable at build time, not committed to git.
+src-tauri/binaries/yt-dlp-*
+
 # OS
 .DS_Store
 Thumbs.db
