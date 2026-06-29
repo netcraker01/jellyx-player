@@ -6,7 +6,7 @@
   import { Play, Trash2, Edit3, ArrowLeft, Music } from 'lucide-svelte';
   import { playlists } from '@features/playlists/stores/playlists';
   import { playTrack, addToQueueAction } from '@shared/utils/actions';
-  import { getPlaylistTracks, removeTrackFromPlaylist } from '@services/commands';
+  import { getPlaylistTracks, removeTrackFromPlaylist, getPlaylistThumbnails } from '@services/commands';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import HelixLogo from '@shared/components/HelixLogo.svelte';
   import type { Track, PlaylistTrackEntry } from '@shared/types/models';
@@ -14,12 +14,15 @@
   export let id: string;
 
   let tracks: PlaylistTrackEntry[] = [];
+  let thumbnails: string[] = [];
   let loading = true;
   let editingTitle = false;
   let editTitleValue = '';
+  let showDeleteDialog = false;
 
   onMount(() => {
     loadTracks();
+    loadThumbnails();
   });
 
   async function loadTracks() {
@@ -29,6 +32,14 @@
       // error handled by notifications store
     } finally {
       loading = false;
+    }
+  }
+
+  async function loadThumbnails() {
+    try {
+      thumbnails = await getPlaylistThumbnails(id);
+    } catch {
+      thumbnails = [];
     }
   }
 
@@ -64,6 +75,11 @@
     editingTitle = false;
   }
 
+  async function handleDeleteList() {
+    await playlists.delete(id);
+    navigate('/playlists');
+  }
+
   function formatDuration(seconds?: number): string {
     if (!seconds) return '--:--';
     const mins = Math.floor(seconds / 60);
@@ -79,25 +95,56 @@
   </button>
 
   <div class="playlist-header">
-    {#if editingTitle}
-      <input
-        class="title-input"
-        bind:value={editTitleValue}
-        on:blur={finishRename}
-        on:keydown={(e) => e.key === 'Enter' && finishRename()}
-        autofocus
-      />
+    {#if thumbnails.length >= 4}
+      {@const thumbs = thumbnails.slice(0, 4)}
+      <div class="header-cover grid-2x2">
+        {#each thumbs as thumb (thumb)}
+          <img src={albumArtUrl(thumb)} alt="" class="header-cover-img" />
+        {/each}
+      </div>
+    {:else if thumbnails.length === 1}
+      <div class="header-cover single">
+        <img src={albumArtUrl(thumbnails[0])} alt="" class="header-cover-img" />
+      </div>
+    {:else if thumbnails.length >= 2}
+      {@const thumbs = thumbnails.slice(0, 4)}
+      <div class="header-cover grid-2x2">
+        {#each thumbs as thumb (thumb)}
+          <img src={albumArtUrl(thumb)} alt="" class="header-cover-img" />
+        {/each}
+        {#each { length: 4 - thumbs.length } as _}
+          <div class="header-cover-placeholder"><Music size={16} /></div>
+        {/each}
+      </div>
     {:else}
-      <h1 class="playlist-title">{getPlaylistTitle()}</h1>
+      <div class="header-cover-placeholder">
+        <Music size={48} />
+      </div>
     {/if}
-    <div class="header-actions">
-      <button class="icon-btn" on:click={startRename} title="Rename" type="button">
-        <Edit3 size={16} />
-      </button>
-      <button class="icon-btn play-btn" on:click={handlePlayAll} disabled={tracks.length === 0} title="Play all" type="button">
-        <Play size={16} />
-        <span>Play all</span>
-      </button>
+    <div class="header-text">
+      {#if editingTitle}
+        <input
+          class="title-input"
+          bind:value={editTitleValue}
+          on:blur={finishRename}
+          on:keydown={(e) => e.key === 'Enter' && finishRename()}
+          autofocus
+        />
+      {:else}
+        <h1 class="playlist-title">{getPlaylistTitle()}</h1>
+      {/if}
+      <div class="header-actions">
+        <button class="icon-btn" on:click={startRename} title="Rename" type="button">
+          <Edit3 size={16} />
+        </button>
+        <button class="icon-btn play-btn" on:click={handlePlayAll} disabled={tracks.length === 0} title="Play all" type="button">
+          <Play size={16} />
+          <span>Play all</span>
+        </button>
+        <button class="icon-btn delete-btn" on:click={() => (showDeleteDialog = true)} title="Delete list" type="button">
+          <Trash2 size={16} />
+        </button>
+      </div>
     </div>
   </div>
 
@@ -134,6 +181,19 @@
       {/each}
     </div>
   {/if}
+
+  {#if showDeleteDialog}
+    <div class="dialog-overlay" on:click={() => (showDeleteDialog = false)} role="dialog" aria-modal="true">
+      <div class="dialog" on:click|stopPropagation>
+        <h3>Delete playlist?</h3>
+        <p class="dialog-text">This will permanently delete <strong>{getPlaylistTitle()}</strong> and all its tracks.</p>
+        <div class="dialog-actions">
+          <button class="btn-secondary" on:click={() => (showDeleteDialog = false)} type="button">Cancel</button>
+          <button class="btn-danger" on:click={handleDeleteList} type="button">Delete</button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -163,10 +223,68 @@
 
   .playlist-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
+    gap: 1.25rem;
     flex-wrap: wrap;
-    gap: 1rem;
+  }
+
+  .header-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .header-cover {
+    width: 80px;
+    height: 80px;
+    border-radius: 12px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .header-cover.single {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .header-cover.single .header-cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .header-cover.grid-2x2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 2px;
+  }
+
+  .header-cover.grid-2x2 .header-cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .header-cover-placeholder {
+    width: 80px;
+    height: 80px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--color-accent, #6366f1);
+    flex-shrink: 0;
+  }
+
+  .header-cover .header-cover-placeholder {
+    width: auto;
+    height: auto;
+    border-radius: 0;
   }
 
   .playlist-title {
@@ -330,5 +448,76 @@
 
   .remove-btn:hover {
     color: #ef4444;
+  }
+
+  .delete-btn {
+    color: #ef4444;
+  }
+
+  .delete-btn:hover {
+    background: rgba(239, 68, 68, 0.15);
+    color: #f87171;
+  }
+
+  .dialog-overlay {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    z-index: 100;
+  }
+
+  .dialog {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1.5rem;
+    background: var(--bg-surface, #111827);
+    border-radius: 12px;
+    border: 1px solid var(--border-color, #1f2937);
+    min-width: 320px;
+  }
+
+  .dialog h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .dialog-text {
+    margin: 0;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.9rem;
+  }
+
+  .dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+  }
+
+  .btn-secondary {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary, #9ca3af);
+    cursor: pointer;
+  }
+
+  .btn-danger {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 8px;
+    background: #ef4444;
+    color: white;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .btn-danger:hover {
+    background: #dc2626;
   }
 </style>

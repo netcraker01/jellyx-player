@@ -88,6 +88,11 @@ impl PlaylistService {
         self.db.count_playlist_tracks(playlist_id).map_err(AppError::from)
     }
 
+    /// Get up to 4 thumbnail URLs from a playlist's tracks.
+    pub fn get_playlist_thumbnails(&self, playlist_id: &str) -> Result<Vec<String>, AppError> {
+        self.db.get_playlist_thumbnails(playlist_id).map_err(AppError::from)
+    }
+
     // ── Artist Favorites ────────────────────────────────────────────────
 
     /// Add an artist to favorites.

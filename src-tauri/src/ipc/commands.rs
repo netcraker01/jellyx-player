@@ -23,7 +23,7 @@ use crate::ipc::dto::{
     PlaylistTrackEntry as PlaylistTrackEntryDto,
     ArtistFavorite as ArtistFavoriteDto,
 };
-use crate::library::{LibraryService, PlaylistService, SettingsService};
+use crate::library::{LibraryService, PlaylistService, SettingsService, SuggestionCategory};
 use crate::models::playlist::Playlist;
 use crate::models::track::Track;
 use crate::persistence::models::{HistoryEntry, LocalTrackEntry, WatchedFolder};
@@ -87,6 +87,15 @@ pub fn seek(state: tauri::State<AppState>, position: f64) -> Result<(), AppError
 #[tauri::command]
 pub fn set_volume(state: tauri::State<AppState>, volume: f32) -> Result<(), AppError> {
     state.playback.set_volume(volume)
+}
+
+/// Set whether audio normalization is enabled for local (Symphonia/cpal) playback.
+#[tauri::command]
+pub fn set_playback_normalize_audio(
+    state: tauri::State<AppState>,
+    enabled: bool,
+) -> Result<(), AppError> {
+    state.playback.set_normalize_audio(enabled)
 }
 
 #[tauri::command]
@@ -162,6 +171,16 @@ pub fn get_home_recommendations(
     state: tauri::State<AppState>,
 ) -> Result<Vec<RecommendationItem>, AppError> {
     state.library.get_home_recommendations()
+}
+
+/// Get suggestion categories with dynamic year injection.
+///
+/// Returns the full list of genre/mood categories for the Discover section
+/// on the Home and Search pages. Each category includes a search query
+/// template with `{YEAR}` already resolved to the current year.
+#[tauri::command]
+pub fn get_suggestion_categories() -> Vec<SuggestionCategory> {
+    crate::library::suggestions::get_suggestion_categories()
 }
 
 /// Remove a watched folder and its associated tracks.
@@ -273,6 +292,11 @@ pub fn count_playlist_tracks(state: tauri::State<AppState>, playlist_id: String)
     state.playlist.count_playlist_tracks(&playlist_id)
 }
 
+#[tauri::command]
+pub fn get_playlist_thumbnails(state: tauri::State<AppState>, playlist_id: String) -> Result<Vec<String>, AppError> {
+    state.playlist.get_playlist_thumbnails(&playlist_id)
+}
+
 // ── Artist Favorite commands (fast SQLite) ──────────────────────────
 
 #[tauri::command]
@@ -332,11 +356,18 @@ pub async fn search(state: tauri::State<'_, AppState>, query: String) -> Result<
 ///
 /// Combines local library results with remote (YouTube, SoundCloud) results.
 /// Offloaded to `spawn_blocking` because source search invokes yt-dlp.
+///
+/// Pagination: `offset` and `limit` control the remote song results slice.
+/// Page 1 = offset 0, limit 50. Page 2 = offset 50, limit 50. Etc.
+/// Local library songs are always included in full (typically small).
+/// `has_more_songs` in the response indicates more remote results are available.
 #[tauri::command]
 pub async fn search_grouped(
     state: tauri::State<'_, AppState>,
     query: String,
     filter: Option<String>,
+    offset: Option<usize>,
+    limit: Option<usize>,
 ) -> Result<GroupedSearchResult, AppError> {
     let parsed_filter = filter
         .map(|f| match f.to_lowercase().as_str() {
@@ -352,6 +383,9 @@ pub async fn search_grouped(
         })
         .transpose()?;
 
+    let page_offset = offset.unwrap_or(0);
+    let page_limit = limit.unwrap_or(50);
+
     let library = state.library.clone();
     let playback = state.playback.clone();
     // If source settings are unavailable, fall back to all sources enabled
@@ -366,8 +400,8 @@ pub async fn search_grouped(
         // 1. Local grouped results (songs, artists, albums from library)
         let mut result = library.search_grouped(&query, parsed_filter)?;
 
-        // 2. Remote tracks from enabled sources only
-        let remote_tracks = playback.search_all_tracks_enabled(&query, &enabled);
+        // 2. Remote tracks from enabled sources only, paginated
+        let remote_tracks = playback.search_all_tracks_enabled(&query, &enabled, page_offset, page_limit);
         if !remote_tracks.is_empty() {
             // Merge remote tracks into songs if filter allows
             let include_songs = parsed_filter.is_none()
@@ -414,6 +448,13 @@ pub async fn search_grouped(
                 result.artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
             }
         }
+
+        // Indicate whether more song results are available.
+        // If we got a full page of remote results from at least one source,
+        // assume there are more. With multiple enabled sources (YouTube +
+        // SoundCloud), remote_tracks can exceed page_limit (e.g. 100 for
+        // a 50-item page). Use >= so multi-source searches paginate too.
+        result.has_more_songs = remote_tracks.len() >= page_limit;
 
         Ok(result)
     })
@@ -783,4 +824,39 @@ impl From<crate::persistence::models::SourceSetting> for SourceSettingDto {
             label: s.label,
         }
     }
+}
+
+// ── Audio Settings commands ─────────────────────────────────────────────
+
+/// DTO for audio settings sent to the frontend.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioSettingsDto {
+    pub normalize_audio: bool,
+}
+
+impl From<crate::persistence::models::AudioSettings> for AudioSettingsDto {
+    fn from(s: crate::persistence::models::AudioSettings) -> Self {
+        Self {
+            normalize_audio: s.normalize_audio,
+        }
+    }
+}
+
+/// Get audio settings (normalization toggle, etc.).
+#[tauri::command]
+pub fn get_audio_settings(
+    state: tauri::State<AppState>,
+) -> Result<AudioSettingsDto, AppError> {
+    let settings = state.settings.get_audio_settings()?;
+    Ok(AudioSettingsDto::from(settings))
+}
+
+/// Enable or disable audio normalization.
+#[tauri::command]
+pub fn set_normalize_audio(
+    state: tauri::State<AppState>,
+    enabled: bool,
+) -> Result<(), AppError> {
+    state.settings.set_normalize_audio(enabled)
 }

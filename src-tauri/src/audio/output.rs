@@ -22,6 +22,10 @@ use super::{AudioBackend, AudioError, PlaybackState};
 /// Shared state between the main thread and the audio callback.
 struct AudioState {
     volume: f32,
+    /// Normalization gain factor applied on top of volume.
+    /// When normalization is enabled, this is set to ~2.0 (+6dB) to boost
+    /// quiet tracks. The compressor in the playback service clips peaks.
+    normalize_gain: f32,
     position: f64,
     playback_state: PlaybackState,
     /// Buffer accumulating PCM data from PcmBus before writing to cpal.
@@ -58,6 +62,7 @@ impl CpalBackend {
         Self {
             state: Arc::new(Mutex::new(AudioState {
                 volume: 1.0,
+                normalize_gain: 1.0,
                 position: 0.0,
                 playback_state: PlaybackState::Stopped,
                 pcm_buffer: Vec::with_capacity(8192),
@@ -161,9 +166,11 @@ impl CpalBackend {
                 &config,
                 move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                     let vol;
+                    let norm_gain;
                     {
                         let s = state.lock().unwrap();
                         vol = s.volume;
+                        norm_gain = s.normalize_gain;
                     }
 
                     // Read available PCM data from the bus
@@ -177,13 +184,15 @@ impl CpalBackend {
                             }
 
                             // Map source samples to output buffer with channel conversion
+                            // Apply normalization gain on top of user volume
+                            let effective_volume = norm_gain * vol;
                             let source_channels = channels as usize;
                             let consumed = CpalBackend::map_channels(
                                 &s.pcm_buffer,
                                 source_channels,
                                 data,
                                 actual_channels,
-                                vol,
+                                effective_volume,
                             );
                             s.pcm_buffer.drain(..consumed);
 
@@ -280,6 +289,16 @@ impl CpalBackend {
         s.position = 0.0;
         s.pcm_buffer.clear();
 
+        Ok(())
+    }
+
+    /// Set the normalization gain factor (1.0 = no boost, ~2.0 = +6dB boost).
+    /// Applied on top of the user volume in the audio callback.
+    pub fn set_normalize_gain(&self, gain: f32) -> Result<(), AudioError> {
+        let mut s = self.state.lock().unwrap();
+        // Soft-clip the gain to prevent extreme amplification.
+        // Max 4x (+12dB) is generous; most cases use 2x (+6dB).
+        s.normalize_gain = gain.clamp(0.0, 4.0);
         Ok(())
     }
 }

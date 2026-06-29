@@ -33,23 +33,39 @@ describe('Grouped search commands', () => {
       songs: [],
       artists: [{ id: 'artist:queen', name: 'Queen', trackCount: 10 }],
       albums: [],
+      hasMoreSongs: false,
     };
     mocks.invokeCommand.mockResolvedValueOnce(expected);
 
     const result = await searchGrouped('queen');
 
-    expect(mocks.invokeCommand).toHaveBeenCalledWith('search_grouped', { query: 'queen', filter: null });
+    expect(mocks.invokeCommand).toHaveBeenCalledWith('search_grouped', { query: 'queen', filter: null, offset: null, limit: null });
     expect(result).toEqual(expected);
   });
 
   it('searchGrouped passes filter when provided', async () => {
-    mocks.invokeCommand.mockResolvedValueOnce({ songs: [], artists: [], albums: [] });
+    mocks.invokeCommand.mockResolvedValueOnce({ songs: [], artists: [], albums: [], hasMoreSongs: false });
 
     await searchGrouped('daft', 'artists');
 
     expect(mocks.invokeCommand).toHaveBeenCalledWith('search_grouped', {
       query: 'daft',
       filter: 'artists',
+      offset: null,
+      limit: null,
+    });
+  });
+
+  it('searchGrouped passes offset and limit for pagination', async () => {
+    mocks.invokeCommand.mockResolvedValueOnce({ songs: [], artists: [], albums: [], hasMoreSongs: false });
+
+    await searchGrouped('daft', undefined, 50, 50);
+
+    expect(mocks.invokeCommand).toHaveBeenCalledWith('search_grouped', {
+      query: 'daft',
+      filter: null,
+      offset: 50,
+      limit: 50,
     });
   });
 

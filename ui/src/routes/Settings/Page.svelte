@@ -1,9 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t, locale, switchLocale } from '@i18n';
-  import { getVersion, getSourceSettings, setSourceEnabled } from '@services/commands';
+  import { getVersion, getSourceSettings, setSourceEnabled, getAudioSettings } from '@services/commands';
   import type { SourceSetting } from '@services/commands';
-  import { Library, Info, Languages, Plug } from 'lucide-svelte';
+  import { normalizeAudio, toggleNormalizeAudio } from '@features/player/stores/player';
+  import { Library, Info, Languages, Plug, Volume2 } from 'lucide-svelte';
 
   let version = '';
   let versionError: string | null = null;
@@ -44,6 +45,15 @@
     }
   }
 
+  async function handleNormalizeToggle() {
+    const newVal = !$normalizeAudio;
+    try {
+      await toggleNormalizeAudio(newVal);
+    } catch {
+      // Rollback handled by toggleNormalizeAudio
+    }
+  }
+
   function handleLocaleChange(e: Event) {
     const select = e.target as HTMLSelectElement;
     switchLocale(select.value).catch((err) => {
@@ -61,6 +71,25 @@
 
 <div class="page-settings">
   <h1>{$t('settings.title')}</h1>
+
+  <section class="settings-section">
+    <div class="section-header">
+      <Volume2 size={20} />
+      <h2>{$t('settings.audio')}</h2>
+    </div>
+    <p class="section-desc">{$t('settings.normalize_audio_desc')}</p>
+    <div class="setting-row">
+      <span class="setting-label">{$t('settings.normalize_audio')}</span>
+      <label class="toggle">
+        <input
+          type="checkbox"
+          checked={$normalizeAudio}
+          on:change={handleNormalizeToggle}
+        />
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+  </section>
 
   <section class="settings-section">
     <div class="section-header">

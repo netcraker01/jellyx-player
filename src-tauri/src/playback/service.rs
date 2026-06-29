@@ -658,21 +658,39 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             return Err("empty cache id after sanitization".to_string());
         }
 
-        let cache_path = cache_dir.join(format!("{}.m4a", safe_id));
+        // Check if audio normalization is enabled. When ON, we cache a
+        // normalized variant ({id}.n.m4a) produced by ffmpeg loudnorm (EBU
+        // R128, target -14 LUFS). When OFF, we cache the raw stream ({id}.m4a).
+        // This keeps both variants independent so toggling the setting doesn't
+        // require re-downloading the raw stream.
+        let normalize_enabled = self
+            .db
+            .get_normalize_audio()
+            .unwrap_or(true); // default: enabled (matches DB default)
+        let suffix = if normalize_enabled { ".n.m4a" } else { ".m4a" };
+        let cache_path = cache_dir.join(format!("{}{}", safe_id, suffix));
         let cache_path_str = cache_path.to_string_lossy().to_string();
 
-        // Cache hit: if the file already exists and is non-empty, reuse it.
-        // This avoids re-downloading the same stream within a session.
+        // Cache hit: if the file already exists and is a valid m4a, reuse it.
+        // We validate the file header (ftyp box) and a minimum size to avoid
+        // serving corrupt or truncated files from previous failed downloads.
         if let Ok(metadata) = std::fs::metadata(&cache_path) {
-            if metadata.len() > 0 {
-                return Ok(cache_path_str);
+            if metadata.len() > 1024 {
+                if is_valid_m4a(&cache_path) {
+                    return Ok(cache_path_str);
+                }
             }
+            // File exists but is invalid — delete it so we re-download.
+            let _ = std::fs::remove_file(&cache_path);
+            let _ = self.emitter.emit_cache_corrupted(
+                &safe_id,
+                "cache hit file failed m4a validation; re-downloading",
+            );
         }
 
-        // Download the stream to the cache file.
-        // We write to a .part file first, then rename, so a partial download
-        // never appears as a valid cache file.
-        let part_path = cache_dir.join(format!("{}.m4a.part", safe_id));
+        // Download the stream to a .part file first, then rename, so a partial
+        // download never appears as a valid cache file.
+        let part_path = cache_dir.join(format!("{}{}.part", safe_id, suffix));
 
         // Clean up any stale .part file from a previous interrupted download.
         let _ = std::fs::remove_file(&part_path);
@@ -712,6 +730,71 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         file.write_all(&body)
             .map_err(|e| format!("cache file write failed: {}", e))?;
         drop(file);
+
+        // Validate the downloaded file before promoting it to a cache hit.
+        // A truncated or non-m4a body would fail the ftyp header check.
+        if !is_valid_m4a(&part_path) {
+            let _ = std::fs::remove_file(&part_path);
+            let _ = self.emitter.emit_cache_corrupted(
+                &safe_id,
+                "downloaded stream failed m4a validation; staying on proxy",
+            );
+            return Err("cached stream failed m4a validation".to_string());
+        }
+
+        // If normalization is enabled, run ffmpeg loudnorm to produce a
+        // loudness-normalized file (EBU R128, -14 LUFS). We normalize the .part
+        // file in-place by writing to a temp file and renaming. If ffmpeg fails
+        // (not installed, decode error), fall back to the raw file so playback
+        // still works — the user just gets un-normalized audio.
+        if normalize_enabled {
+            let norm_part = cache_dir.join(format!("{}{}.norm.part", safe_id, suffix));
+            let _ = std::fs::remove_file(&norm_part);
+            let ffmpeg_result = std::process::Command::new("ffmpeg")
+                .arg("-y")
+                .arg("-i")
+                .arg(&part_path)
+                .arg("-af")
+                .arg("loudnorm=I=-14:TP=-1.5:LRA=11")
+                .arg("-c:a")
+                .arg("aac")
+                .arg("-b:a")
+                .arg("128k")
+                .arg(&norm_part)
+                .output();
+
+            match ffmpeg_result {
+                Ok(out) if out.status.success() && is_valid_m4a(&norm_part) => {
+                    // Normalization succeeded — replace .part with normalized file.
+                    let _ = std::fs::remove_file(&part_path);
+                    std::fs::rename(&norm_part, &cache_path).map_err(|e| {
+                        let _ = std::fs::remove_file(&norm_part);
+                        format!("failed to rename normalized cache file: {}", e)
+                    })?;
+                    return Ok(cache_path_str);
+                }
+                Ok(out) => {
+                    // ffmpeg ran but failed — fall back to raw file.
+                    let _ = std::fs::remove_file(&norm_part);
+                    let _ = self.emitter.emit_cache_corrupted(
+                        &safe_id,
+                        &format!(
+                            "ffmpeg loudnorm failed: {}; using raw stream",
+                            String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
+                        ),
+                    );
+                    // Fall through to raw rename below.
+                }
+                Err(_) => {
+                    // ffmpeg not installed — fall back to raw file.
+                    let _ = self.emitter.emit_cache_corrupted(
+                        &safe_id,
+                        "ffmpeg not found; using raw (un-normalized) stream",
+                    );
+                    // Fall through to raw rename below.
+                }
+            }
+        }
 
         // Rename .part → final cache file (atomic on same filesystem).
         std::fs::rename(&part_path, &cache_path)
@@ -900,6 +983,22 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         self.state.lock().unwrap().volume
     }
 
+    /// Set whether audio normalization is enabled for local playback.
+    ///
+    /// When enabled, applies a +6dB gain boost to the cpal output.
+    /// This works alongside the Web Audio API compressor on the frontend
+    /// for remote tracks. The boost helps quiet tracks be heard at the
+    /// same perceived level as louder ones.
+    pub fn set_normalize_audio(&self, enabled: bool) -> Result<(), AppError> {
+        let gain = if enabled { 2.0 } else { 1.0 }; // +6dB ≈ 2x linear
+        if let Ok(shared) = self.backend.lock() {
+            if let Some(ref backend) = *shared {
+                let _ = backend.set_normalize_gain(gain);
+            }
+        }
+        Ok(())
+    }
+
     /// Search for tracks on YouTube only.
     ///
     /// Only queries the YouTube resolver, bypassing SoundCloud and local sources.
@@ -921,13 +1020,15 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         self.sources.search_all(query)
     }
 
-    /// Search tracks from enabled sources only.
+    /// Search tracks from enabled sources only, with pagination.
     pub fn search_all_tracks_enabled(
         &self,
         query: &str,
         enabled_sources: &std::collections::HashSet<String>,
+        offset: usize,
+        limit: usize,
     ) -> Vec<Track> {
-        self.sources.search_all_enabled(query, Some(enabled_sources))
+        self.sources.search_all_enabled(query, Some(enabled_sources), offset, limit)
     }
 
     /// Search playlists from enabled sources only.
@@ -2746,16 +2847,28 @@ mod tests {
     fn cache_remote_stream_reuses_existing_file() {
         // Verify that cache_remote_stream returns an existing file without
         // re-downloading when the cache file already exists and is non-empty.
+        // Normalization defaults to enabled, so the cache file uses the .n.m4a
+        // suffix (the in-memory test DB has no audio_settings table, so
+        // get_normalize_audio returns the default: true).
         let cache_dir = crate::shared::utils::youtube_cache_dir();
         let test_id = "cache_test_reuse_123";
-        let cache_path = cache_dir.join(format!("{}.m4a", test_id));
+        let cache_path = cache_dir.join(format!("{}.n.m4a", test_id));
 
         // Clean up from any previous test run
         let _ = std::fs::remove_file(&cache_path);
         std::fs::create_dir_all(&cache_dir).unwrap();
 
-        // Write a fake cached file
-        std::fs::write(&cache_path, b"fake_audio_data_for_testing").unwrap();
+        // Write a fake cached file with a valid m4a ftyp header so the
+        // cache-hit validation passes. The header is a minimal ISO BMFF ftyp box.
+        let mut fake_m4a = Vec::new();
+        fake_m4a.extend_from_slice(&[0x00, 0x00, 0x00, 0x20]); // box size (32)
+        fake_m4a.extend_from_slice(b"ftyp");                   // box type
+        fake_m4a.extend_from_slice(b"isom");                   // major brand
+        fake_m4a.extend_from_slice(&[0x00, 0x00, 0x02, 0x00]); // minor version
+        fake_m4a.extend_from_slice(b"isomiso2mp41");           // compatible brands
+        // Pad to > 1KB so the size check passes.
+        fake_m4a.resize(2048, 0);
+        std::fs::write(&cache_path, &fake_m4a).unwrap();
 
         let service = PlaybackService::<tauri::test::MockRuntime>::new(
             tauri::test::mock_app().handle().clone(),
@@ -2781,18 +2894,27 @@ mod tests {
     fn cache_remote_stream_sanitizes_id() {
         // Verify that special characters in the cache ID are stripped
         // but alphanumeric + dash + underscore are preserved.
+        // Normalization defaults to enabled, so the cache file uses .n.m4a.
         let cache_dir = crate::shared::utils::youtube_cache_dir();
         let dirty_id = "abc-123_def";
         // Only alphanumeric + dash/underscore survive — this ID is already clean
         let expected_safe = "abc-123_def";
-        let expected_path = cache_dir.join(format!("{}.m4a", expected_safe));
+        let expected_path = cache_dir.join(format!("{}.n.m4a", expected_safe));
 
         // Clean up
         let _ = std::fs::remove_file(&expected_path);
         std::fs::create_dir_all(&cache_dir).unwrap();
 
-        // Create a file at the expected path so the test doesn't hit the network
-        std::fs::write(&expected_path, b"test_data").unwrap();
+        // Create a valid m4a file at the expected path so the test doesn't
+        // hit the network. Uses a minimal ftyp box header.
+        let mut fake_m4a = Vec::new();
+        fake_m4a.extend_from_slice(&[0x00, 0x00, 0x00, 0x20]);
+        fake_m4a.extend_from_slice(b"ftyp");
+        fake_m4a.extend_from_slice(b"isom");
+        fake_m4a.extend_from_slice(&[0x00, 0x00, 0x02, 0x00]);
+        fake_m4a.extend_from_slice(b"isomiso2mp41");
+        fake_m4a.resize(2048, 0);
+        std::fs::write(&expected_path, &fake_m4a).unwrap();
 
         let service = PlaybackService::<tauri::test::MockRuntime>::new(
             tauri::test::mock_app().handle().clone(),
@@ -2831,4 +2953,31 @@ mod tests {
             "Error should mention empty ID"
         );
     }
+}
+
+/// Validate that a file is a non-truncated m4a/MP4 container.
+///
+/// Checks:
+/// 1. File size > 1KB (rejects empty or near-empty files).
+/// 2. First 8 bytes contain the ISO BMFF ftyp box signature at offset 4.
+///
+/// This catches the common failure mode where a partial download leaves a
+/// truncated file that `convertFileSrc` serves as silence.
+fn is_valid_m4a(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    if let Ok(metadata) = std::fs::metadata(path) {
+        if metadata.len() <= 1024 {
+            return false;
+        }
+    } else {
+        return false;
+    }
+    if let Ok(mut f) = std::fs::File::open(path) {
+        let mut header = [0u8; 8];
+        if f.read(&mut header).unwrap_or(0) >= 8 {
+            // ISO BMFF: bytes 0-3 = box size, bytes 4-7 = "ftyp"
+            return &header[4..8] == b"ftyp";
+        }
+    }
+    false
 }

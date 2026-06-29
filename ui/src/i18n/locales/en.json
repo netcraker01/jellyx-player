@@ -27,7 +27,8 @@
     "empty_recommendations": "No listening history yet.",
     "empty": "No listening history yet.",
     "go_search": "Search for music to get started",
-    "welcome": "Welcome"
+    "welcome": "Welcome",
+    "discover": "Discover"
   },
   "search": {
     "placeholder": "Search for songs, artists, albums...",
@@ -40,7 +41,8 @@
     "songs": "Songs",
     "videos": "Videos",
     "artists": "Artists",
-    "play_playlist": "Play playlist"
+    "play_playlist": "Play playlist",
+    "suggestions": "Suggestions"
   },
   "now_playing": {
     "no_track": "Nothing is playing",
@@ -69,7 +71,9 @@
     "about": "About Helix",
     "version": "Version",
     "sources": "Sources",
-    "sources_desc": "Enable or disable search sources. Disabled sources won't appear in search results."
+    "sources_desc": "Enable or disable search sources. Disabled sources won't appear in search results.",
+    "normalize_audio": "Audio Normalization",
+    "normalize_audio_desc": "Even out volume differences between tracks. Quiet tracks are boosted, loud peaks are compressed."
   },
   "errors": {
     "NETWORK_TIMEOUT": "Connection timed out. Check your network.",

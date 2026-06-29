@@ -23,6 +23,7 @@ import type {
   UserPlaylist,
   PlaylistTrackEntry,
   ArtistFavorite,
+  SuggestionCategory,
 } from '@shared/types/models';
 
 // ── Playback commands ──────────────────────────────────────────────
@@ -63,9 +64,15 @@ export function search(query: string): Promise<Track[]> {
   return invokeCommand<Track[]>('search', { query });
 }
 
-/** Search with grouped results (songs, artists, albums). Optional filter: songs, artists, albums, or none for all. */
-export function searchGrouped(query: string, filter?: string): Promise<GroupedSearchResult> {
-  return invokeCommand<GroupedSearchResult>('search_grouped', { query, filter: filter ?? null });
+/** Search with grouped results (songs, artists, albums). Optional filter: songs, artists, albums, or none for all.
+ *  Pagination: offset and limit control the remote song results slice. */
+export function searchGrouped(query: string, filter?: string, offset?: number, limit?: number): Promise<GroupedSearchResult> {
+  return invokeCommand<GroupedSearchResult>('search_grouped', {
+    query,
+    filter: filter ?? null,
+    offset: offset ?? null,
+    limit: limit ?? null,
+  });
 }
 
 /** Get full artist detail by artist ID. */
@@ -180,6 +187,11 @@ export function getHomeSnapshot(): Promise<HomeSnapshot> {
   return invokeCommand<HomeSnapshot>('get_home_snapshot');
 }
 
+/** Get suggestion categories for the Discover section. */
+export function getSuggestionCategories(): Promise<SuggestionCategory[]> {
+  return invokeCommand<SuggestionCategory[]>('get_suggestion_categories');
+}
+
 // ── Streaming & Playlist commands ──────────────────────────────────
 
 /** Play a remote track by resolving its stream URL. */
@@ -248,6 +260,11 @@ export function countPlaylistTracks(playlistId: string): Promise<number> {
   return invokeCommand<number>('count_playlist_tracks', { playlistId });
 }
 
+/** Get up to 4 thumbnail URLs from a playlist's tracks for cover art. */
+export function getPlaylistThumbnails(playlistId: string): Promise<string[]> {
+  return invokeCommand<string[]>('get_playlist_thumbnails', { playlistId });
+}
+
 // ── Artist Favorite commands ─────────────────────────────────────
 
 export function addArtistFavorite(artistId: string, artistName: string, thumbnail?: string): Promise<void> {
@@ -279,4 +296,25 @@ export function getSourceSettings(): Promise<SourceSetting[]> {
 /** Enable or disable a source plugin. */
 export function setSourceEnabled(source: string, enabled: boolean): Promise<void> {
   return invokeCommand<void>('set_source_enabled', { source, enabled });
+}
+
+// ── Audio Settings commands ────────────────────────────────────────
+
+export interface AudioSettings {
+  normalizeAudio: boolean;
+}
+
+/** Get audio settings (normalization toggle, etc.). */
+export function getAudioSettings(): Promise<AudioSettings> {
+  return invokeCommand<AudioSettings>('get_audio_settings');
+}
+
+/** Enable or disable audio normalization (persists to DB). */
+export function setNormalizeAudio(enabled: boolean): Promise<void> {
+  return invokeCommand<void>('set_normalize_audio', { enabled });
+}
+
+/** Set normalization on the local playback backend (immediate effect). */
+export function setPlaybackNormalizeAudio(enabled: boolean): Promise<void> {
+  return invokeCommand<void>('set_playback_normalize_audio', { enabled });
 }

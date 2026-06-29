@@ -16,7 +16,8 @@ use crate::models::source::Source;
 use crate::models::track::Track;
 
 /// Number of search results to request from yt-dlp.
-const SEARCH_RESULT_COUNT: usize = 20;
+/// Page size for paginated search results.
+const SEARCH_PAGE_SIZE: usize = 50;
 
 /// Preferred yt-dlp format selector for SoundCloud audio.
 ///
@@ -174,14 +175,19 @@ impl SourceResolver for SoundCloudResolver {
         Source::SoundCloud
     }
 
-    fn search(&self, query: &str) -> Result<Vec<Track>, SourceError> {
+    fn search(&self, query: &str, offset: usize, limit: usize) -> Result<Vec<Track>, SourceError> {
         Self::check_yt_dlp()?;
 
+        let end = offset + limit;
         let output = Command::new("yt-dlp")
-            .arg(format!("scsearch{}:{}", SEARCH_RESULT_COUNT, query))
+            .arg(format!("scsearch{}:{}", end, query))
             .arg("--flat-playlist")
             .arg("--dump-json")
             .arg("--no-download")
+            .arg("--playlist-start")
+            .arg((offset + 1).to_string())
+            .arg("--playlist-end")
+            .arg(end.to_string())
             .output()
             .map_err(|e| SourceError::NetworkError(e.to_string()))?;
 
@@ -365,7 +371,7 @@ mod tests {
 
     #[test]
     fn soundcloud_resolver_search_result_count_constant() {
-        assert_eq!(SEARCH_RESULT_COUNT, 20);
+        assert_eq!(SEARCH_PAGE_SIZE, 50);
     }
 
     #[test]

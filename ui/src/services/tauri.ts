@@ -34,6 +34,7 @@ export async function invokeCommand<T>(
     'get_watched_folders',
     'get_history',
     'get_home_recommendations',
+    'get_suggestion_categories',
     'search',
     'search_playlists',
     'search_grouped',

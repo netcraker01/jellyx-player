@@ -145,6 +145,7 @@ impl LibraryService {
             songs,
             artists,
             albums,
+            has_more_songs: false,
         })
     }
 

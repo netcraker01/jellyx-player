@@ -104,6 +104,8 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             // Home snapshot
             crate::ipc::commands::get_home_snapshot,
             crate::ipc::commands::get_home_recommendations,
+            // Suggestion categories
+            crate::ipc::commands::get_suggestion_categories,
             // FFT binary streaming
             crate::ipc::commands::start_fft_stream,
             // Streaming & playlist commands
@@ -124,9 +126,14 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::remove_track_from_playlist,
             crate::ipc::commands::get_playlist_tracks,
             crate::ipc::commands::count_playlist_tracks,
+            crate::ipc::commands::get_playlist_thumbnails,
             // Source settings commands
             crate::ipc::commands::get_source_settings,
             crate::ipc::commands::set_source_enabled,
+            // Audio settings commands
+            crate::ipc::commands::get_audio_settings,
+            crate::ipc::commands::set_normalize_audio,
+            crate::ipc::commands::set_playback_normalize_audio,
             crate::ipc::commands::add_artist_favorite,
             crate::ipc::commands::remove_artist_favorite,
             crate::ipc::commands::is_artist_favorite,

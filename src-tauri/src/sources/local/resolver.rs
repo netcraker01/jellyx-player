@@ -29,7 +29,7 @@ impl SourceResolver for LocalResolver {
         Source::Local
     }
 
-    fn search(&self, query: &str) -> Result<Vec<Track>, SourceError> {
+    fn search(&self, query: &str, _offset: usize, _limit: usize) -> Result<Vec<Track>, SourceError> {
         self.db
             .search_local_tracks(query)
             .map_err(|e| SourceError::NetworkError(format!("local search failed: {:?}", e)))
@@ -88,7 +88,7 @@ mod tests {
     #[test]
     fn local_resolver_search_empty_db() {
         let resolver = setup_resolver();
-        let results = resolver.search("anything").unwrap();
+        let results = resolver.search("anything", 0, 50).unwrap();
         assert!(results.is_empty());
     }
 
@@ -113,7 +113,7 @@ mod tests {
         let resolver = LocalResolver::new(Arc::new(db));
 
         // Search should find the track via JSON LIKE query
-        let results = resolver.search("Song").unwrap();
+        let results = resolver.search("Song", 0, 50).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].id, "t1");
 

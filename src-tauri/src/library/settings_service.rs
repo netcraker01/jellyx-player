@@ -1,12 +1,12 @@
-//! Settings service — manages source plugin enable/disable state.
+//! Settings service — manages source plugin enable/disable state and audio settings.
 
 use std::sync::Arc;
 
 use crate::errors::types::AppError;
 use crate::persistence::db::Database;
-use crate::persistence::models::SourceSetting;
+use crate::persistence::models::{AudioSettings, SourceSetting};
 
-/// Service for managing application settings, including source enablement.
+/// Service for managing application settings, including source enablement and audio normalization.
 pub struct SettingsService {
     db: Arc<Database>,
 }
@@ -31,5 +31,16 @@ impl SettingsService {
     /// Get the set of currently enabled source names.
     pub fn get_enabled_sources(&self) -> Result<std::collections::HashSet<String>, AppError> {
         self.db.get_enabled_sources().map_err(AppError::from)
+    }
+
+    /// Get audio settings (normalization toggle, etc.).
+    pub fn get_audio_settings(&self) -> Result<AudioSettings, AppError> {
+        let normalize_audio = self.db.get_normalize_audio().map_err(AppError::from)?;
+        Ok(AudioSettings { normalize_audio })
+    }
+
+    /// Set whether audio normalization is enabled.
+    pub fn set_normalize_audio(&self, enabled: bool) -> Result<(), AppError> {
+        self.db.set_normalize_audio(enabled).map_err(AppError::from)
     }
 }

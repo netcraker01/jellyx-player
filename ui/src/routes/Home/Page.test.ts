@@ -12,6 +12,26 @@ vi.mock('@app/router/navigation', () => ({
   navigate: vi.fn(),
 }));
 
+const { readable } = await vi.hoisted(() => import('svelte/store'));
+
+vi.mock('@features/search/stores/suggestions', () => ({
+  suggestionCategories: readable([]),
+  isLoadingCategories: readable(false),
+  loadSuggestionCategories: vi.fn().mockResolvedValue(undefined),
+  reloadSuggestionCategories: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@features/search/stores/search', () => ({
+  searchQuery: readable(''),
+}));
+
+vi.mock('@features/search/stores/searchGrouped', () => ({
+  searchGrouped: vi.fn().mockResolvedValue(undefined),
+  groupedSearchResults: readable(null),
+  isSearchingGrouped: readable(false),
+  groupedSearchError: readable(null),
+}));
+
 import { navigate } from '@app/router/navigation';
 const mockedNavigate = vi.mocked(navigate);
 

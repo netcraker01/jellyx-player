@@ -18,7 +18,7 @@ use crate::models::track::Track;
 use crate::persistence::models::{ArtistFavorite, HistoryEntry, LocalTrackEntry, PlaylistTrackEntry, SourceSetting, UserPlaylist, WatchedFolder};
 
 /// Current schema version — increment when adding migrations.
-const SCHEMA_VERSION: u32 = 4;
+const SCHEMA_VERSION: u32 = 5;
 
 /// Default history query limit.
 const HISTORY_LIMIT: u32 = 100;
@@ -146,13 +146,18 @@ impl Database {
                     enabled INTEGER NOT NULL DEFAULT 1
                 );
 
+                CREATE TABLE IF NOT EXISTS audio_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+
                 CREATE TABLE IF NOT EXISTS _meta (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
 
                 INSERT OR IGNORE INTO _meta (key, value)
-                    VALUES ('schema_version', '4');
+                    VALUES ('schema_version', '5');
                 ",
         )
         .map_err(|e| {
@@ -1154,6 +1159,60 @@ impl Database {
         Ok(entries)
     }
 
+    /// Get up to 4 thumbnail URLs from the first tracks in a playlist that have thumbnails.
+    ///
+    /// Used to build a cover image grid for the playlists page. Returns an
+    /// empty Vec if no tracks have thumbnails.
+    pub fn get_playlist_thumbnails(
+        &self,
+        playlist_id: &str,
+    ) -> Result<Vec<String>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT track_json FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position ASC",
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare playlist thumbnails query: {}",
+                    e
+                ))
+            })?;
+
+        let mut thumbnails: Vec<String> = Vec::new();
+        let rows = stmt
+            .query_map(params![playlist_id], |row| {
+                let track_json: String = row.get(0)?;
+                Ok(track_json)
+            })
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to query playlist thumbnails: {}",
+                    e
+                ))
+            })?;
+
+        for row_result in rows {
+            if thumbnails.len() >= 4 {
+                break;
+            }
+            if let Ok(track_json) = row_result {
+                if let Ok(track) = serde_json::from_str::<Track>(&track_json) {
+                    if let Some(thumb) = track.thumbnail {
+                        if !thumb.is_empty() {
+                            thumbnails.push(thumb);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(thumbnails)
+    }
+
     /// Count tracks in a playlist.
     pub fn count_playlist_tracks(
         &self,
@@ -1279,6 +1338,49 @@ impl Database {
             .collect();
 
         Ok(entries)
+    }
+
+    // ── Audio Settings ────────────────────────────────────────────────
+
+    /// Get whether audio normalization is enabled.
+    /// Defaults to true (enabled).
+    pub fn get_normalize_audio(&self) -> Result<bool, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let result = conn.query_row(
+            "SELECT value FROM audio_settings WHERE key = 'normalize_audio'",
+            [],
+            |row| row.get::<_, String>(0),
+        );
+
+        match result {
+            Ok(val) => Ok(val == "1" || val == "true"),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(true), // default: enabled
+            Err(e) => Err(PersistenceError::DatabaseError(format!(
+                "failed to get normalize_audio: {}", e
+            ))),
+        }
+    }
+
+    /// Set whether audio normalization is enabled.
+    pub fn set_normalize_audio(&self, enabled: bool) -> Result<(), PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let val = if enabled { "1" } else { "0" };
+        conn.execute(
+            "INSERT INTO audio_settings (key, value) VALUES ('normalize_audio', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = ?1",
+            params![val],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to set normalize_audio: {}", e))
+        })?;
+
+        Ok(())
     }
 
     // ── Source Settings ────────────────────────────────────────────────
@@ -1793,5 +1895,69 @@ mod tests {
             all.is_empty(),
             "Should return empty vec when no local tracks"
         );
+    }
+
+    // ── Playlist Thumbnails tests ─────────────────────────────────────
+
+    #[test]
+    fn get_playlist_thumbnails_returns_thumbnails_from_tracks() {
+        let db = Database::open_in_memory().unwrap();
+        let pl = db.create_playlist("Test").unwrap();
+
+        let mut t1 = sample_track("t1");
+        t1.thumbnail = Some("https://img.test/thumb1.jpg".to_string());
+        let mut t2 = sample_track("t2");
+        t2.thumbnail = Some("https://img.test/thumb2.jpg".to_string());
+        let t3 = sample_track("t3"); // no thumbnail
+
+        db.add_track_to_playlist(&pl.id, &t1).unwrap();
+        db.add_track_to_playlist(&pl.id, &t2).unwrap();
+        db.add_track_to_playlist(&pl.id, &t3).unwrap();
+
+        let thumbs = db.get_playlist_thumbnails(&pl.id).unwrap();
+        assert_eq!(thumbs.len(), 2);
+        assert_eq!(thumbs[0], "https://img.test/thumb1.jpg");
+        assert_eq!(thumbs[1], "https://img.test/thumb2.jpg");
+    }
+
+    #[test]
+    fn get_playlist_thumbnails_limits_to_four() {
+        let db = Database::open_in_memory().unwrap();
+        let pl = db.create_playlist("Test").unwrap();
+
+        for i in 0..6 {
+            let mut t = sample_track(&format!("t{}", i));
+            t.thumbnail = Some(format!("https://img.test/thumb{}.jpg", i));
+            db.add_track_to_playlist(&pl.id, &t).unwrap();
+        }
+
+        let thumbs = db.get_playlist_thumbnails(&pl.id).unwrap();
+        assert_eq!(thumbs.len(), 4, "Should cap at 4 thumbnails");
+    }
+
+    #[test]
+    fn get_playlist_thumbnails_empty_playlist() {
+        let db = Database::open_in_memory().unwrap();
+        let pl = db.create_playlist("Empty").unwrap();
+
+        let thumbs = db.get_playlist_thumbnails(&pl.id).unwrap();
+        assert!(thumbs.is_empty(), "Empty playlist should have no thumbnails");
+    }
+
+    #[test]
+    fn get_playlist_thumbnails_skips_null_thumbnails() {
+        let db = Database::open_in_memory().unwrap();
+        let pl = db.create_playlist("Test").unwrap();
+
+        let t1 = sample_track("t1"); // no thumbnail
+        let mut t2 = sample_track("t2");
+        t2.thumbnail = Some("https://img.test/thumb.jpg".to_string());
+
+        db.add_track_to_playlist(&pl.id, &t1).unwrap();
+        db.add_track_to_playlist(&pl.id, &t2).unwrap();
+
+        let thumbs = db.get_playlist_thumbnails(&pl.id).unwrap();
+        assert_eq!(thumbs.len(), 1);
+        assert_eq!(thumbs[0], "https://img.test/thumb.jpg");
     }
 }

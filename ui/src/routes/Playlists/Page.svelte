@@ -3,23 +3,30 @@
   import { get } from 'svelte/store';
   import { navigate } from '@app/router/navigation';
   import { t } from '@i18n';
-  import { Plus, Music, Heart } from 'lucide-svelte';
+  import { Plus, Music, Heart, Trash2, Play } from 'lucide-svelte';
   import { playlists } from '@features/playlists/stores/playlists';
   import { artistFavorites } from '@features/artist-favorites/stores/artistFavorites';
-  import { countPlaylistTracks } from '@services/commands';
+  import { playTrack, addToQueueAction } from '@shared/utils/actions';
+  import { countPlaylistTracks, getPlaylistThumbnails, getPlaylistTracks } from '@services/commands';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import HelixLogo from '@shared/components/HelixLogo.svelte';
   import type { UserPlaylist, ArtistFavorite } from '@shared/types/models';
 
   let showCreateDialog = false;
   let newListTitle = '';
+  let deleteTargetId: string | null = null;
+  let deleteTargetTitle = '';
   let playlistTrackCounts: Map<string, number> = new Map();
+  let playlistThumbnails: Map<string, string[]> = new Map();
   let cancelled = false;
 
   onMount(async () => {
     await playlists.load();
     await artistFavorites.load();
-    if (!cancelled) loadTrackCounts();
+    if (!cancelled) {
+      loadTrackCounts();
+      loadThumbnails();
+    }
   });
 
   onDestroy(() => {
@@ -40,12 +47,27 @@
     playlistTrackCounts = new Map(playlistTrackCounts);
   }
 
+  async function loadThumbnails() {
+    const all = get(playlists);
+    for (const pl of all) {
+      if (cancelled) return;
+      try {
+        const thumbs = await getPlaylistThumbnails(pl.id);
+        playlistThumbnails.set(pl.id, thumbs);
+      } catch {
+        playlistThumbnails.set(pl.id, []);
+      }
+    }
+    playlistThumbnails = new Map(playlistThumbnails);
+  }
+
   async function handleCreateList() {
     if (!newListTitle.trim()) return;
     await playlists.create(newListTitle.trim());
     newListTitle = '';
     showCreateDialog = false;
     await loadTrackCounts();
+    await loadThumbnails();
   }
 
   function openPlaylist(id: string) {
@@ -54,6 +76,31 @@
 
   function goToArtist(artistId: string) {
     navigate(`/artist/${encodeURIComponent(artistId)}`);
+  }
+
+  function confirmDeletePlaylist(id: string, title: string) {
+    deleteTargetId = id;
+    deleteTargetTitle = title;
+  }
+
+  async function handlePlayPlaylist(id: string) {
+    try {
+      const entries = await getPlaylistTracks(id);
+      if (entries.length === 0) return;
+      await playTrack(entries[0].track);
+      for (let i = 1; i < entries.length; i++) {
+        await addToQueueAction(entries[i].track);
+      }
+    } catch {
+      // ignore — user will see no playback
+    }
+  }
+
+  async function handleDeletePlaylist() {
+    if (!deleteTargetId) return;
+    await playlists.delete(deleteTargetId);
+    deleteTargetId = null;
+    deleteTargetTitle = '';
   }
 </script>
 
@@ -105,17 +152,48 @@
     {:else}
       <div class="playlists-grid">
         {#each $playlists as pl (pl.id)}
-          <button class="playlist-card" on:click={() => openPlaylist(pl.id)} type="button">
-            <div class="playlist-icon">
-              <Music size={32} />
-            </div>
+          <div class="playlist-card" on:click={() => openPlaylist(pl.id)} on:keydown={(e) => e.key === 'Enter' && openPlaylist(pl.id)} role="button" tabindex="0">
+            {#if (playlistThumbnails.get(pl.id) ?? []).length >= 4}
+              {@const thumbs = (playlistThumbnails.get(pl.id) ?? []).slice(0, 4)}
+              <div class="playlist-cover grid-2x2">
+                {#each thumbs as thumb (thumb)}
+                  <img src={albumArtUrl(thumb)} alt="" class="cover-img" />
+                {/each}
+              </div>
+            {:else if (playlistThumbnails.get(pl.id) ?? []).length === 1}
+              {@const thumb = (playlistThumbnails.get(pl.id) ?? [])[0]}
+              <div class="playlist-cover single">
+                <img src={albumArtUrl(thumb)} alt="" class="cover-img" />
+              </div>
+            {:else if (playlistThumbnails.get(pl.id) ?? []).length >= 2}
+              {@const thumbs = (playlistThumbnails.get(pl.id) ?? []).slice(0, 4)}
+              <!-- Pad to 4 for grid layout, show only the available ones -->
+              <div class="playlist-cover grid-2x2">
+                {#each thumbs as thumb (thumb)}
+                  <img src={albumArtUrl(thumb)} alt="" class="cover-img" />
+                {/each}
+                {#each { length: 4 - thumbs.length } as _}
+                  <div class="cover-placeholder"><Music size={16} /></div>
+                {/each}
+              </div>
+            {:else}
+              <div class="playlist-icon">
+                <Music size={32} />
+              </div>
+            {/if}
             <div class="playlist-info">
               <span class="playlist-title">{pl.title}</span>
               <span class="playlist-meta">
                 {playlistTrackCounts.get(pl.id) ?? 0} {$t('playlists.tracks')}
               </span>
             </div>
-          </button>
+            <button class="card-play-btn" on:click|stopPropagation={() => handlePlayPlaylist(pl.id)} title="Play" type="button">
+              <Play size={14} fill="currentColor" />
+            </button>
+            <button class="card-delete-btn" on:click|stopPropagation={() => confirmDeletePlaylist(pl.id, pl.title)} title="Delete" type="button">
+              <Trash2 size={14} />
+            </button>
+          </div>
         {/each}
       </div>
     {/if}
@@ -141,6 +219,20 @@
         <button class="btn-primary" on:click={handleCreateList}>
           {$t('common.save')}
         </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Delete Confirmation Dialog -->
+{#if deleteTargetId}
+  <div class="dialog-overlay" on:click={() => (deleteTargetId = null)} role="dialog" aria-modal="true">
+    <div class="dialog" on:click|stopPropagation>
+      <h3>Delete playlist?</h3>
+      <p class="dialog-text">This will permanently delete <strong>{deleteTargetTitle}</strong> and all its tracks.</p>
+      <div class="dialog-actions">
+        <button class="btn-secondary" on:click={() => (deleteTargetId = null)} type="button">Cancel</button>
+        <button class="btn-danger" on:click={handleDeletePlaylist} type="button">Delete</button>
       </div>
     </div>
   </div>
@@ -271,6 +363,7 @@
   }
 
   .playlist-card {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 1rem;
@@ -297,6 +390,47 @@
     background: rgba(99, 102, 241, 0.15);
     color: var(--color-accent, #6366f1);
     flex-shrink: 0;
+  }
+
+  .playlist-cover {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  .playlist-cover.single {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .playlist-cover.single .cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .playlist-cover.grid-2x2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 2px;
+  }
+
+  .playlist-cover.grid-2x2 .cover-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .cover-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--color-accent, #6366f1);
   }
 
   .playlist-info {
@@ -378,5 +512,77 @@
     background: var(--color-accent, #6366f1);
     color: white;
     cursor: pointer;
+  }
+
+  .card-play-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 2.5rem;
+    background: none;
+    border: none;
+    color: var(--color-accent, #6366f1);
+    cursor: pointer;
+    padding: 0.3rem;
+    border-radius: 6px;
+    opacity: 0;
+    transition: opacity 0.2s, color 0.2s, background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .playlist-card:hover .card-play-btn {
+    opacity: 1;
+  }
+
+  .card-play-btn:hover {
+    color: var(--color-accent-hover, #4f52d9);
+    background: rgba(99, 102, 241, 0.15);
+  }
+
+  .card-delete-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary, #9ca3af);
+    cursor: pointer;
+    padding: 0.3rem;
+    border-radius: 6px;
+    opacity: 0;
+    transition: opacity 0.2s, color 0.2s, background 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .playlist-card:hover .card-delete-btn {
+    opacity: 1;
+  }
+
+  .card-delete-btn:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.15);
+  }
+
+  .dialog-text {
+    margin: 0;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.9rem;
+  }
+
+  .btn-danger {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 8px;
+    background: #ef4444;
+    color: white;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .btn-danger:hover {
+    background: #dc2626;
   }
 </style>

@@ -61,6 +61,9 @@ export const repeatMode = writable<QueueState['repeatMode']>('Off');
 /** Current volume level (0-100). */
 export const volume = writable(80);
 
+/** Whether audio normalization is enabled. Persisted in DB. */
+export const normalizeAudio = writable(true);
+
 /** Latest frequency data from the Rust FFT engine (null until first event). */
 export const frequencyData = writable<FrequencyData | null>(null);
 
@@ -136,6 +139,19 @@ export async function initPlayerEvents(): Promise<void> {
       });
     }
   });
+
+  // Load persisted audio normalization setting.
+  // Normalization is applied in the backend during cache download (ffmpeg
+  // loudnorm), so we only need to persist the setting here. The next track
+  // load will cache the normalized variant automatically.
+  try {
+    const settings = await commands.getAudioSettings();
+    normalizeAudio.set(settings.normalizeAudio);
+    // Apply to local (Rust) audio backend immediately
+    await commands.setPlaybackNormalizeAudio(settings.normalizeAudio);
+  } catch {
+    // Defaults to enabled — leave the store's default (true)
+  }
 }
 
 // ── Actions ────────────────────────────────────────────────────────
@@ -319,6 +335,21 @@ export async function clearQueue(): Promise<void> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     notifications.push({ type: 'error', title: 'Queue Error', message: msg, dismissible: true });
+  }
+}
+
+/** Toggle audio normalization on/off. Persists to DB.
+ *  Normalization is applied during cache download in the backend (ffmpeg
+ *  loudnorm). The setting takes effect on the next track load; tracks
+ *  already cached with the previous setting are not re-normalized. */
+export async function toggleNormalizeAudio(enabled: boolean): Promise<void> {
+  try {
+    await commands.setNormalizeAudio(enabled);
+    await commands.setPlaybackNormalizeAudio(enabled);
+    normalizeAudio.set(enabled);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    notifications.push({ type: 'error', title: 'Settings Error', message: msg, dismissible: true });
   }
 }
 

@@ -17,7 +17,7 @@
  */
 
 import { writable, get } from 'svelte/store';
-import { progress, isPlaying, currentTrack, volume, nextTrack } from './player';
+import { progress, isPlaying, currentTrack, volume, nextTrack, normalizeAudio } from './player';
 import { skipToNext } from './player';
 import { notifications } from '@shared/stores/notifications';
 import { t } from '@i18n';
@@ -28,6 +28,9 @@ import { Source } from '@shared/types/models';
 
 /** The underlying HTMLAudio element for remote playback. */
 let audioEl: HTMLAudioElement | null = null;
+
+/** Whether normalization is currently active (read-only flag for UI). */
+let normalizationActive = false;
 
 /** The current stream URL - stored for diagnostics. Survives HMR. */
 let currentStreamUrl = '';
@@ -86,8 +89,10 @@ function localFileUrl(localPath: string): string {
 function getAudio(): HTMLAudioElement {
   if (!audioEl) {
     audioEl = new Audio();
-    audioEl.crossOrigin = 'anonymous';
     audioEl.preload = 'auto';
+    // Do NOT set crossOrigin — it forces CORS on ALL sources including local
+    // asset:// files via convertFileSrc. When combined with Web Audio API's
+    // createMediaElementSource, non-CORS-compliant sources produce silent output.
 
     // Sync timeupdate → progress store, and drive MSE segment prefetching
     audioEl.addEventListener('timeupdate', () => {
@@ -225,6 +230,12 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
   // SoundCloud stays on the remote proxy (its seek works fine over HTTP Range).
   // Only cache tracks shorter than 15 minutes — longer tracks produce files
   // >15MB that take too long to download and can fail with body read errors.
+  //
+  // Audio normalization is now handled in the backend: when the setting is ON,
+  // cache_remote_stream runs ffmpeg loudnorm (EBU R128, -14 LUFS) on the
+  // downloaded file before caching. The frontend always swaps to the local
+  // cache file regardless of the normalization setting — the cached file is
+  // already normalized (or raw) as appropriate.
   const MAX_CACHE_DURATION_SEC = 15 * 60;
   if (track.source === Source.YouTube && remoteUrl && trackDuration > 0 && trackDuration <= MAX_CACHE_DURATION_SEC) {
     cachingStream.set(true);
@@ -239,28 +250,64 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
         // can be set — setting it immediately after src change is a no-op.
         const currentPosition = audio.currentTime;
         const wasPlaying = !audio.paused;
+
         swappingSource = true;
+
+        // Revert to the proxy URL if the local file fails to load.
+        // This handles: corrupt file, unsupported codec, asset protocol error.
+        const revertToProxy = () => {
+          if (!swappingSource) return; // already handled
+          swappingSource = false;
+          audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+          audio.removeEventListener('error', onSwapError);
+          // Restore the proxy URL and playback position.
+          audio.src = playableUrl;
+          currentStreamUrl = playableUrl;
+          const restorePos = () => {
+            audio.currentTime = currentPosition;
+            if (wasPlaying) audio.play().catch(() => {});
+          };
+          audio.addEventListener('loadedmetadata', restorePos, { once: true });
+          notifications.push({
+            type: 'warning',
+            title: 'Usando transmisión remota',
+            message: 'No se pudo usar la caché local; el seek puede ser más lento.',
+            dismissible: true,
+          });
+        };
+
         const onLoadedMetadata = () => {
           audio.currentTime = currentPosition;
           swappingSource = false;
           if (wasPlaying) {
-            audio.play().catch(() => {});
+            audio.play().catch(() => {
+              // Play failed after swap — revert to proxy.
+              revertToProxy();
+            });
           }
         };
+
+        const onSwapError = () => {
+          // Audio element error loading local file — revert to proxy.
+          revertToProxy();
+        };
+
         audio.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
-        // Fallback: if loadedmetadata doesn't fire within 3s, clear the flag
+        audio.addEventListener('error', onSwapError, { once: true });
+        // Fallback: if loadedmetadata doesn't fire within 3s, revert to proxy.
         setTimeout(() => {
-          swappingSource = false;
+          if (swappingSource) {
+            revertToProxy();
+          }
         }, 3000);
         audio.src = localUrl;
         currentStreamUrl = localUrl;
       }
     } catch (e) {
-      // Cache download failed — continue playing from the remote proxy URL.
+      // Cache download failed (backend validation rejected the file, network
+      // error, etc.) — continue playing from the remote proxy URL.
       // This is not a playback error; seek just won't be as fast.
       swappingSource = false;
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn('[remotePlayer] YouTube cache download failed, continuing on remote proxy:', msg);
     } finally {
       cachingStream.set(false);
     }
@@ -366,6 +413,40 @@ export function setRemoteVolume(value: number): void {
   }
 }
 
+/** Initialize the Web Audio API chain for normalization.
+ *
+ *  DEPRECATED: Web Audio API is no longer used for normalization.
+ *  createMediaElementSource silences non-CORS-compliant sources (asset://
+ *  URLs from convertFileSrc), which broke the cache swap for instant seeking.
+ *  Normalization is now handled in the backend via ffmpeg loudnorm during
+ *  cache download. These functions remain as no-ops for API compatibility.
+ */
+function initWebAudioChain(): void {
+  // No-op: kept for API compatibility.
+}
+
+/** Enable audio normalization for remote playback.
+ *
+ *  No-op: normalization is applied during cache download in the backend.
+ */
+export function enableRemoteNormalization(): void {
+  // No-op: normalization is applied during cache download in the backend.
+}
+
+/** Disable audio normalization for remote playback.
+ *
+ *  No-op: normalization is applied during cache download in the backend.
+ */
+export function disableRemoteNormalization(): void {
+  // No-op: normalization is applied during cache download in the backend.
+}
+
+/** Set normalization state for remote playback.
+ *  No-op now: the setting is persisted and applied on next cache download. */
+export function setRemoteNormalization(_enabled: boolean): void {
+  // No-op: normalization is applied during cache download in the backend.
+}
+
 /** Stop and cleanup remote playback. */
 export function stopRemote(): void {
   if (audioEl) {
@@ -373,6 +454,7 @@ export function stopRemote(): void {
     audioEl.src = '';
     audioEl.load();
   }
+  normalizationActive = false;
   remoteActive.set(false);
 }
 

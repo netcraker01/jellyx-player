@@ -69,3 +69,10 @@ pub struct SourceSetting {
     pub enabled: bool,
     pub label: String,
 }
+
+/// Audio settings returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioSettings {
+    pub normalize_audio: bool,
+}

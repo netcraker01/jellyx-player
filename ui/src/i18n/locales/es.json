@@ -27,7 +27,8 @@
     "empty_recommendations": "Aún no hay historial de reproducción.",
     "empty": "Aún no hay historial de reproducción.",
     "go_search": "Busca música para empezar",
-    "welcome": "Bienvenido"
+    "welcome": "Bienvenido",
+    "discover": "Explorar"
   },
   "search": {
     "placeholder": "Buscar canciones, artistas, álbumes...",
@@ -40,7 +41,8 @@
     "songs": "Canciones",
     "videos": "Videos",
     "artists": "Artistas",
-    "play_playlist": "Reproducir lista"
+    "play_playlist": "Reproducir lista",
+    "suggestions": "Sugerencias"
   },
   "now_playing": {
     "no_track": "Nada está reproduciéndose",
@@ -69,7 +71,9 @@
     "about": "Acerca de Helix",
     "version": "Versión",
     "sources": "Fuentes",
-    "sources_desc": "Habilitá o deshabilitá las fuentes de búsqueda. Las fuentes deshabilitadas no aparecerán en los resultados."
+    "sources_desc": "Habilitá o deshabilitá las fuentes de búsqueda. Las fuentes deshabilitadas no aparecerán en los resultados.",
+    "normalize_audio": "Normalizar audio",
+    "normalize_audio_desc": "Equilibrá las diferencias de volumen entre pistas. Las pistas quietas se amplifican, los picos fuertes se comprimen."
   },
   "errors": {
     "NETWORK_TIMEOUT": "Tiempo de espera agotado. Verifica tu conexión.",

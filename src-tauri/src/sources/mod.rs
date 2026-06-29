@@ -24,7 +24,9 @@ pub trait SourceResolver: Send + Sync {
     fn source_type(&self) -> Source;
 
     /// Search for tracks matching the given query.
-    fn search(&self, query: &str) -> Result<Vec<Track>, SourceError>;
+    /// Returns up to `limit` results starting at `offset` (0-indexed).
+    /// Default implementation ignores pagination and returns all results.
+    fn search(&self, query: &str, offset: usize, limit: usize) -> Result<Vec<Track>, SourceError>;
 
     /// Resolve a track by its source-specific identifier to a full Track
     /// with stream_url populated.
@@ -72,17 +74,20 @@ impl SourceRegistry {
     /// its error is silently logged and other resolvers continue.
     /// This ensures partial results even if one source is unavailable.
     pub fn search_all(&self, query: &str) -> Vec<Track> {
-        self.search_all_enabled(query, None)
+        self.search_all_enabled(query, None, 0, 50)
     }
 
-    /// Search all enabled sources and merge results.
+    /// Search all enabled sources and merge results with pagination.
     ///
     /// If `enabled_sources` is provided, only resolvers whose source type
     /// is in the set are queried. Local is always included.
+    /// `offset` and `limit` control pagination (0-indexed offset, max results).
     pub fn search_all_enabled(
         &self,
         query: &str,
         enabled_sources: Option<&std::collections::HashSet<String>>,
+        offset: usize,
+        limit: usize,
     ) -> Vec<Track> {
         let mut all_tracks = Vec::new();
 
@@ -96,7 +101,7 @@ impl SourceRegistry {
                 continue;
             }
 
-            match resolver.search(query) {
+            match resolver.search(query, offset, limit) {
                 Ok(tracks) => all_tracks.extend(tracks),
                 Err(e) => {
                     eprintln!("Search failed for {:?}: {:?}", resolver.source_type(), e);
@@ -177,7 +182,7 @@ impl SourceRegistry {
     pub fn search_source(&self, source: &Source, query: &str) -> Result<Vec<Track>, SourceError> {
         for resolver in &self.resolvers {
             if resolver.source_type() == *source {
-                return resolver.search(query);
+                return resolver.search(query, 0, 50);
             }
         }
         Err(SourceError::UnsupportedSource)
@@ -229,7 +234,7 @@ mod tests {
             Source::Local
         }
 
-        fn search(&self, _query: &str) -> Result<Vec<Track>, SourceError> {
+        fn search(&self, _query: &str, _offset: usize, _limit: usize) -> Result<Vec<Track>, SourceError> {
             Ok(Vec::new())
         }
 

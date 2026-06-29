@@ -17,6 +17,7 @@ pub const EVENT_QUEUE_UPDATED: &str = "queue-updated";
 pub const EVENT_PROGRESS_TICK: &str = "progress-tick";
 pub const EVENT_BUFFERING_PROGRESS: &str = "buffering-progress";
 pub const EVENT_STREAM_RESOLVED: &str = "stream-resolved";
+pub const EVENT_CACHE_CORRUPTED: &str = "cache-corrupted";
 
 /// Buffering progress payload emitted when a remote track is buffering.
 ///
@@ -113,6 +114,25 @@ impl<R: Runtime> PlaybackEventEmitter<R> {
         };
         self.app
             .emit(EVENT_STREAM_RESOLVED, payload)
+            .map_err(|e| IPCError::CommandFailed(e.to_string()))
+    }
+
+    /// Emit a cache-corrupted event when a cached stream file fails validation.
+    ///
+    /// This signals that a previous download left a corrupt file and the
+    /// frontend should stay on the proxy URL instead of swapping to local.
+    /// Logged to stdout so issues are visible without DevTools.
+    pub fn emit_cache_corrupted(&self, source_id: &str, reason: &str) -> Result<(), IPCError> {
+        eprintln!(
+            "[cache] corrupted cache file for source_id={}: {}",
+            source_id, reason
+        );
+        let payload = serde_json::json!({
+            "sourceId": source_id,
+            "reason": reason,
+        });
+        self.app
+            .emit(EVENT_CACHE_CORRUPTED, payload)
             .map_err(|e| IPCError::CommandFailed(e.to_string()))
     }
 

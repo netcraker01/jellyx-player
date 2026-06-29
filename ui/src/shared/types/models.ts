@@ -151,6 +151,8 @@ export interface GroupedSearchResult {
   songs: Track[];
   artists: ArtistSummary[];
   albums: AlbumSummary[];
+  /** Whether more song results are available via pagination. */
+  hasMoreSongs?: boolean;
 }
 
 /**
@@ -252,4 +254,16 @@ export type RecommendationItem =
 export interface HomeSnapshot {
   recentlyPlayed: HistoryEntry[];
   recommendations: RecommendationItem[];
+}
+
+/**
+ * A suggestion category for the Discover section.
+ * Matches the Rust `SuggestionCategory` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface SuggestionCategory {
+  id: string;
+  label: string;
+  icon: string;
+  query: string;
+  color: string;
 }

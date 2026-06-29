@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   playPlaylistCmd: vi.fn(),
 }));
 
+const { readable } = await vi.hoisted(() => import('svelte/store'));
+
 vi.mock('@services/commands', () => ({
   search: vi.fn(),
   searchGrouped: mocks.searchGroupedCmd,
@@ -37,7 +39,12 @@ vi.mock('@shared/utils/actions', () => ({
   playNextAction: vi.fn().mockResolvedValue(undefined),
 }));
 
-const { readable } = await vi.hoisted(() => import('svelte/store'));
+vi.mock('@features/search/stores/suggestions', () => ({
+  suggestionCategories: readable([]),
+  isLoadingCategories: readable(false),
+  loadSuggestionCategories: vi.fn().mockResolvedValue(undefined),
+  reloadSuggestionCategories: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock('@i18n', () => {
   const translateFn = (key: string) => {
@@ -90,6 +97,7 @@ describe('Search page', () => {
         { id: 'artist--daft-punk', name: 'Daft Punk', thumbnail: undefined, trackCount: 1 },
       ],
       albums: [],
+      hasMoreSongs: false,
     });
 
     const { container } = render(SearchPage);
@@ -101,7 +109,7 @@ describe('Search page', () => {
     await fireEvent.submit(form!);
 
     await waitFor(() => {
-      expect(mocks.searchGroupedCmd).toHaveBeenCalledWith('daft punk', undefined);
+      expect(mocks.searchGroupedCmd).toHaveBeenCalledWith('daft punk', undefined, 0, 50);
     });
 
     expect(container.textContent).toContain('One More Time');
@@ -112,6 +120,7 @@ describe('Search page', () => {
       songs: [],
       artists: [],
       albums: [],
+      hasMoreSongs: false,
     });
 
     const { container } = render(SearchPage);

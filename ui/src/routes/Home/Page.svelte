@@ -1,8 +1,26 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { navigate } from '@app/router/navigation';
-  import { Search } from 'lucide-svelte';
+  import { Search, Sparkles } from 'lucide-svelte';
   import { t } from '@i18n';
   import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import {
+    suggestionCategories,
+    isLoadingCategories,
+    loadSuggestionCategories,
+  } from '@features/search/stores/suggestions';
+  import { searchQuery } from '@features/search/stores/search';
+  import { searchGrouped } from '@features/search/stores/searchGrouped';
+
+  onMount(() => {
+    loadSuggestionCategories();
+  });
+
+  function handleCategoryClick(query: string) {
+    searchQuery.set(query);
+    searchGrouped(query);
+    navigate('/search');
+  }
 </script>
 
 <div class="page-home">
@@ -22,16 +40,36 @@
       {$t('common.search')}
     </button>
   </div>
+
+  {#if $suggestionCategories.length > 0}
+    <div class="discover-section">
+      <div class="discover-header">
+        <Sparkles size={18} />
+        <span>{$t('home.discover') ?? 'Discover'}</span>
+      </div>
+      <div class="category-grid">
+        {#each $suggestionCategories as cat}
+          <button
+            class="category-card"
+            style="--cat-color: {cat.color}"
+            on:click={() => handleCategoryClick(cat.query)}
+          >
+            <span class="cat-label">{cat.label}</span>
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
   .page-home {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     height: 100%;
     padding: 2rem;
-    /* Midnight tonal wash aligned with imagen/helix-theme.css */
     background: radial-gradient(
       ellipse at 50% 30%,
       rgba(109, 92, 255, 0.08) 0%,
@@ -50,7 +88,6 @@
     z-index: 1;
   }
 
-  /* Subtle ambient glow behind the logo — purely decorative */
   .brand-glow {
     position: absolute;
     top: -2rem;
@@ -73,7 +110,6 @@
     font-size: 2rem;
     font-weight: 700;
     letter-spacing: -0.02em;
-    /* Brand gradient mapped from imagen/helix_design_tokens.json */
     background: linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -117,5 +153,64 @@
 
   .search-btn:active {
     transform: translateY(1px);
+  }
+
+  .discover-section {
+    width: 100%;
+    max-width: 720px;
+    margin-top: 2.5rem;
+  }
+
+  .discover-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .category-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .category-card {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.75rem 1rem;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--cat-color) 15%, var(--bg-elevated, #1a1a2e)),
+      color-mix(in srgb, var(--cat-color) 5%, var(--bg-elevated, #1a1a2e))
+    );
+    color: var(--cat-color);
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.2s, background 0.2s;
+  }
+
+  .category-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--cat-color) 30%, transparent);
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--cat-color) 25%, var(--bg-elevated, #1a1a2e)),
+      color-mix(in srgb, var(--cat-color) 10%, var(--bg-elevated, #1a1a2e))
+    );
+  }
+
+  .category-card:active {
+    transform: translateY(0);
+  }
+
+  .cat-label {
+    text-align: center;
   }
 </style>

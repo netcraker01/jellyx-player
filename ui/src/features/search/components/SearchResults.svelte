@@ -9,10 +9,13 @@
   export let loading: boolean = false;
   export let error: string | null = null;
   export let onFilter: (filter: 'all' | 'videos' | 'artists') => void = () => {};
+  export let onLoadMore: () => void = () => {};
+  export let hasMoreSongs: boolean = false;
+  export let loadingMore: boolean = false;
 
   const filters: { key: 'all' | 'videos' | 'artists'; label: string; icon: any }[] = [
     { key: 'all', label: 'All', icon: Music },
-    { key: 'videos', label: 'Videos', icon: Disc },
+    { key: 'videos', label: 'Tracks', icon: Disc },
     { key: 'artists', label: 'Artists', icon: Users },
   ];
 
@@ -22,6 +25,23 @@
   $: showVideos = filter === 'all' || filter === 'videos';
   $: showArtists = filter === 'all' || filter === 'artists';
   $: showGlobalEmpty = !loading && !hasAnyResults && filter === 'all';
+
+  // Infinite scroll sentinel: trigger loadMore when the sentinel enters viewport.
+  let sentinelEl: HTMLElement | null = null;
+  let observer: IntersectionObserver | null = null;
+
+  $: if (sentinelEl && hasMoreSongs && showVideos) {
+    if (observer) observer.disconnect();
+    observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMoreSongs && !loadingMore) {
+          onLoadMore();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(sentinelEl);
+  }
 
   function handleArtistClick(artist: ArtistSummary) {
     navigate(`/artist/${encodeURIComponent(artist.id)}`);
@@ -51,17 +71,24 @@
   {:else}
     {#if showVideos}
       <section class="section section-videos">
-        <h3 class="section-title">Videos</h3>
+        <h3 class="section-title">Tracks</h3>
         {#if songs.length > 0}
           <div class="track-list">
             {#each songs as track (track.id)}
               <TrackRow {track} />
             {/each}
           </div>
+          {#if hasMoreSongs}
+            <div class="load-more-sentinel" bind:this={sentinelEl}>
+              {#if loadingMore}
+                <span class="loading-more">Loading more...</span>
+              {/if}
+            </div>
+          {/if}
         {:else if loading}
           <p class="empty-section">Searching...</p>
         {:else if filter === 'videos' || filter === 'all'}
-          <p class="empty-section">No videos found.</p>
+          <p class="empty-section">No tracks found.</p>
         {/if}
       </section>
     {/if}
@@ -238,5 +265,17 @@
   .artist-meta {
     color: var(--text-secondary, #9ca3af);
     font-size: 0.75rem;
+  }
+
+  .load-more-sentinel {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0;
+    min-height: 2rem;
+  }
+
+  .loading-more {
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.85rem;
   }
 </style>

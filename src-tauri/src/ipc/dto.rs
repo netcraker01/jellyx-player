@@ -25,6 +25,9 @@ pub struct GroupedSearchResult {
     pub songs: Vec<Track>,
     pub artists: Vec<ArtistSummary>,
     pub albums: Vec<AlbumSummary>,
+    /// Whether more song results are available via pagination.
+    #[serde(default)]
+    pub has_more_songs: bool,
 }
 
 /// Lightweight artist summary for search results.
@@ -318,6 +321,7 @@ mod tests {
                 track_count: 10,
             }],
             albums: vec![],
+            has_more_songs: false,
         };
         let json = serde_json::to_string(&result).unwrap();
         assert!(json.contains("\"songs\""));
