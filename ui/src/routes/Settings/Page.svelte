@@ -4,13 +4,21 @@
   import { getVersion, getSourceSettings, setSourceEnabled, getAudioSettings } from '@services/commands';
   import type { SourceSetting } from '@services/commands';
   import { normalizeAudio, toggleNormalizeAudio } from '@features/player/stores/player';
-  import { Library, Info, Languages, Plug, Volume2 } from 'lucide-svelte';
+  import { Library, Info, Languages, Plug, Volume2, Monitor } from 'lucide-svelte';
 
   let version = '';
   let versionError: string | null = null;
   let sourceSettings: SourceSetting[] = [];
 
+  // Linux-only: title bar toggle. Uses navigator.userAgent for platform
+  // detection — sufficient for a UI-only visibility gate.
+  const isLinux = typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent);
+  let hideTitleBar = false;
+
   onMount(() => {
+    if (isLinux) {
+      hideTitleBar = localStorage.getItem('helix-hide-title-bar') === 'true';
+    }
     getVersion()
       .then((v) => {
         version = v;
@@ -61,6 +69,17 @@
     });
   }
 
+  async function handleTitleBarToggle() {
+    hideTitleBar = !hideTitleBar;
+    localStorage.setItem('helix-hide-title-bar', String(hideTitleBar));
+    try {
+      const { getCurrentWindow } = await import('@tauri-apps/api/window');
+      await getCurrentWindow().setDecorations(!hideTitleBar);
+    } catch {
+      // ignore — may not be supported on all platforms
+    }
+  }
+
   const SUPPORTED_LOCALES = [
     { code: 'en', label: 'English' },
     { code: 'es', label: 'Español' },
@@ -90,6 +109,27 @@
       </label>
     </div>
   </section>
+
+  {#if isLinux}
+    <section class="settings-section">
+      <div class="section-header">
+        <Monitor size={20} />
+        <h2>{$t('settings.appearance')}</h2>
+      </div>
+      <p class="section-desc">{$t('settings.hide_title_bar_desc')}</p>
+      <div class="setting-row">
+        <span class="setting-label">{$t('settings.hide_title_bar')}</span>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            checked={hideTitleBar}
+            on:change={handleTitleBarToggle}
+          />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </section>
+  {/if}
 
   <section class="settings-section">
     <div class="section-header">

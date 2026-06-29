@@ -73,7 +73,11 @@
     "sources": "Sources",
     "sources_desc": "Enable or disable search sources. Disabled sources won't appear in search results.",
     "normalize_audio": "Audio Normalization",
-    "normalize_audio_desc": "Even out volume differences between tracks. Quiet tracks are boosted, loud peaks are compressed."
+    "normalize_audio_desc": "Even out volume differences between tracks. Quiet tracks are boosted, loud peaks are compressed.",
+    "appearance": "Appearance",
+    "appearance_desc": "Customize the application window.",
+    "hide_title_bar": "Hide title bar",
+    "hide_title_bar_desc": "Remove the native window title bar for a cleaner look. Restart the app to restore the title bar."
   },
   "errors": {
     "NETWORK_TIMEOUT": "Connection timed out. Check your network.",

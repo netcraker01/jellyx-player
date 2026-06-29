@@ -73,7 +73,11 @@
     "sources": "Fuentes",
     "sources_desc": "Habilitá o deshabilitá las fuentes de búsqueda. Las fuentes deshabilitadas no aparecerán en los resultados.",
     "normalize_audio": "Normalizar audio",
-    "normalize_audio_desc": "Equilibrá las diferencias de volumen entre pistas. Las pistas quietas se amplifican, los picos fuertes se comprimen."
+    "normalize_audio_desc": "Equilibrá las diferencias de volumen entre pistas. Las pistas quietas se amplifican, los picos fuertes se comprimen.",
+    "appearance": "Apariencia",
+    "appearance_desc": "Personalizá la ventana de la aplicación.",
+    "hide_title_bar": "Ocultar barra de título",
+    "hide_title_bar_desc": "Eliminá la barra de título nativa para un aspecto más limpio. Reiniciá la app para restaurarla."
   },
   "errors": {
     "NETWORK_TIMEOUT": "Tiempo de espera agotado. Verifica tu conexión.",
