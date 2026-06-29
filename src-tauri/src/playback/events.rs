@@ -33,6 +33,8 @@ pub struct BufferingProgress {
 /// Stream resolved payload emitted when a remote track's stream URL is ready.
 ///
 /// The frontend uses `stream_url` with HTMLAudio for browser-native playback.
+/// `remote_url` carries the raw remote URL so the frontend can request a local
+/// cache download for YouTube tracks without re-resolving via yt-dlp.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StreamResolved {
@@ -40,6 +42,11 @@ pub struct StreamResolved {
     pub track_id: String,
     /// The (proxied) stream URL the frontend should load.
     pub stream_url: String,
+    /// The raw remote stream URL (before proxying). Present for remote tracks
+    /// so the frontend can call `cache_remote_stream` to download a local copy
+    /// for instant seeking. `None` for local-file proxy URLs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remote_url: Option<String>,
 }
 
 /// Emits typed playback events via Tauri's event system.
@@ -96,10 +103,13 @@ impl<R: Runtime> PlaybackEventEmitter<R> {
     ///
     /// Sent when a remote track's stream URL has been resolved and proxied.
     /// The frontend uses this URL with HTMLAudio for browser-native playback.
-    pub fn emit_stream_resolved(&self, track_id: &str, stream_url: &str) -> Result<(), IPCError> {
+    /// If `remote_url` is provided, the frontend can call `cache_remote_stream`
+    /// to download a local copy for instant seeking (YouTube).
+    pub fn emit_stream_resolved(&self, track_id: &str, stream_url: &str, remote_url: Option<&str>) -> Result<(), IPCError> {
         let payload = StreamResolved {
             track_id: track_id.to_string(),
             stream_url: stream_url.to_string(),
+            remote_url: remote_url.map(|s| s.to_string()),
         };
         self.app
             .emit(EVENT_STREAM_RESOLVED, payload)
@@ -148,9 +158,24 @@ mod tests {
         let payload = StreamResolved {
             track_id: "t-1".to_string(),
             stream_url: "http://127.0.0.1:8765/proxy?url=abc".to_string(),
+            remote_url: Some("https://remote.example.com/stream".to_string()),
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"trackId\""), "track_id should serialize as trackId");
         assert!(json.contains("\"streamUrl\""), "stream_url should serialize as streamUrl");
+        assert!(json.contains("\"remoteUrl\""), "remote_url should serialize as remoteUrl");
+    }
+
+    #[test]
+    fn stream_resolved_skips_none_remote_url() {
+        let payload = StreamResolved {
+            track_id: "t-1".to_string(),
+            stream_url: "http://127.0.0.1:8765/proxy?url=abc".to_string(),
+            remote_url: None,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("\"trackId\""), "track_id should serialize as trackId");
+        assert!(json.contains("\"streamUrl\""), "stream_url should serialize as streamUrl");
+        assert!(!json.contains("\"remoteUrl\""), "None remote_url should be skipped");
     }
 }

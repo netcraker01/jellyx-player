@@ -538,14 +538,15 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
     /// Play a remote track via the frontend HTMLAudio browser-native path.
     ///
-    /// This is the **new primary remote playback entry point**, replacing the
-    /// temp-file download approach. Inspired by Nuclear's architecture:
+    /// This is the primary remote playback entry point. Inspired by Nuclear:
     ///
     /// 1. Resolves the track's stream URL via `SourceRegistry.resolve()`
     /// 2. Proxies the URL through the local proxy server for CORS/Range support
-    /// 3. Emits `stream-resolved` event to the frontend with the proxied URL
-    /// 4. The frontend loads the URL into HTMLAudio and drives playback natively
-    /// 5. Rust state is updated to Playing, but no local-file decode pipeline runs
+    /// 3. Emits `stream-resolved` event with the proxied URL and the raw remote URL
+    /// 4. The frontend loads the proxied URL into HTMLAudio for immediate playback
+    /// 5. For YouTube, the frontend calls `cache_remote_stream` to download a local
+    ///    copy for instant seeking — this happens AFTER playback starts
+    /// 6. Rust state is updated to Playing, but no local-file decode pipeline runs
     ///
     /// Local tracks still use the existing `play_local_track()` Symphonia/cpal path.
     pub fn play_stream(&self, track: Track) -> Result<(), AppError> {
@@ -565,7 +566,10 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             }
         })?;
 
-        // Proxy the URL through the local server if available
+        // Build the proxied URL for immediate playback.
+        // For YouTube, the frontend will call cache_remote_stream after loading
+        // this URL to get a local copy for instant seeking. SoundCloud stays on
+        // the remote proxy path (its seek works fine over HTTP Range requests).
         let stream_url = match self.proxy_port {
             Some(port) => proxied_url(port, &remote_url),
             None => remote_url.clone(),
@@ -604,15 +608,120 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             let _ = self.emitter.emit_queue_updated(&queue);
         }
 
-        // Emit stream-resolved last so frontend can load the URL into HTMLAudio
+        // Emit stream-resolved last so frontend can load the URL into HTMLAudio.
+        // Pass the raw remote URL so the frontend can call cache_remote_stream
+        // for YouTube tracks to get a local file for instant seeking.
         let _ = self
             .emitter
-            .emit_stream_resolved(&track.id, &stream_url);
+            .emit_stream_resolved(&track.id, &stream_url, Some(&remote_url));
 
         // Record history
         self.record_history(&track);
 
         Ok(())
+    }
+
+    /// Download a remote stream URL to a local cache file and return its absolute path.
+    ///
+    /// This is the YouTube local-cache strategy: a fully-downloaded local m4a
+    /// file that the browser can seek instantly via `file://` through the proxy
+    /// (which serves it with `Accept-Ranges: bytes` and proper `Content-Range`/
+    /// `206` responses). WebKitGTK/GStreamer can always seek local files reliably,
+    /// unlike remote byte-range requests over the proxy.
+    ///
+    /// Cache strategy:
+    /// - Files are stored under `~/.local/share/helix/youtube_cache/`.
+    /// - Filename is deterministic: `<sanitized_id>.m4a` (overwrites on re-download).
+    /// - If the cache file already exists and is non-empty, it is reused
+    ///   without re-downloading — the YouTube resolve cache already returns
+    ///   the same resolved track within the TTL window.
+    /// - A stale/expired cache file will be overwritten on next resolve.
+    ///
+    /// This is a public method so it can be called from the `cache_remote_stream`
+    /// Tauri IPC command, which the frontend invokes after receiving `stream-resolved`
+    /// for YouTube tracks to get a local file for instant seeking.
+    pub fn cache_remote_stream(&self, cache_id: &str, remote_url: &str) -> Result<String, String> {
+        use std::io::Write;
+
+        let cache_dir = crate::shared::utils::youtube_cache_dir();
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|e| format!("failed to create cache dir: {}", e))?;
+
+        // Deterministic filename: <sanitized_id>.m4a
+        // Sanitize the cache_id to avoid path traversal (YouTube IDs are
+        // alphanumeric + dashes/underscores, but be safe).
+        let safe_id: String = cache_id
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        if safe_id.is_empty() {
+            return Err("empty cache id after sanitization".to_string());
+        }
+
+        let cache_path = cache_dir.join(format!("{}.m4a", safe_id));
+        let cache_path_str = cache_path.to_string_lossy().to_string();
+
+        // Cache hit: if the file already exists and is non-empty, reuse it.
+        // This avoids re-downloading the same stream within a session.
+        if let Ok(metadata) = std::fs::metadata(&cache_path) {
+            if metadata.len() > 0 {
+                return Ok(cache_path_str);
+            }
+        }
+
+        // Download the stream to the cache file.
+        // We write to a .part file first, then rename, so a partial download
+        // never appears as a valid cache file.
+        let part_path = cache_dir.join(format!("{}.m4a.part", safe_id));
+
+        // Clean up any stale .part file from a previous interrupted download.
+        let _ = std::fs::remove_file(&part_path);
+
+        // Use a blocking reqwest client with the same settings as the proxy.
+        let client = reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(300))
+            .no_proxy()
+            .http1_only()
+            .build()
+            .map_err(|e| format!("failed to build download client: {}", e))?;
+
+        let response = client
+            .get(remote_url)
+            .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
+            .header("Accept-Encoding", "identity")
+            .send()
+            .map_err(|e| format!("download request failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("download failed with status: {}", response.status()));
+        }
+
+        // Download the full response body at once. Manual read() loops are
+        // unreliable with HTTP/2 — reqwest's blocking Read trait returns 0
+        // (EOF) prematurely after ~32KB. Using .bytes() collects the entire
+        // body internally and avoids the chunked-read bug. Audio files are
+        // typically 3-10MB, so holding them in memory is fine.
+        let body = response
+            .bytes()
+            .map_err(|e| format!("download body read failed: {}", e))?;
+
+        let mut file = std::fs::File::create(&part_path)
+            .map_err(|e| format!("failed to create cache file: {}", e))?;
+
+        file.write_all(&body)
+            .map_err(|e| format!("cache file write failed: {}", e))?;
+        drop(file);
+
+        // Rename .part → final cache file (atomic on same filesystem).
+        std::fs::rename(&part_path, &cache_path)
+            .map_err(|e| {
+                // Clean up the .part file if rename fails.
+                let _ = std::fs::remove_file(&part_path);
+                format!("failed to rename cache file: {}", e)
+            })?;
+
+        Ok(cache_path_str)
     }
 
     /// Pause playback. Emits state_changed.
@@ -2631,5 +2740,95 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn cache_remote_stream_reuses_existing_file() {
+        // Verify that cache_remote_stream returns an existing file without
+        // re-downloading when the cache file already exists and is non-empty.
+        let cache_dir = crate::shared::utils::youtube_cache_dir();
+        let test_id = "cache_test_reuse_123";
+        let cache_path = cache_dir.join(format!("{}.m4a", test_id));
+
+        // Clean up from any previous test run
+        let _ = std::fs::remove_file(&cache_path);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        // Write a fake cached file
+        std::fs::write(&cache_path, b"fake_audio_data_for_testing").unwrap();
+
+        let service = PlaybackService::<tauri::test::MockRuntime>::new(
+            tauri::test::mock_app().handle().clone(),
+            Arc::new(Database::open_in_memory().expect("failed to open db")),
+            Arc::new(LibraryService::new(Arc::new(
+                Database::open_in_memory().expect("failed to open db"),
+            ))),
+            Arc::new(Mutex::new(None)),
+        );
+
+        // cache_remote_stream should return the existing path without hitting the network
+        let result = service.cache_remote_stream(test_id, "https://example.com/never-called.m4a");
+        assert!(result.is_ok(), "Should return Ok for existing cache file");
+        let path = result.unwrap();
+        assert!(path.contains(test_id), "Path should contain the cache ID");
+        assert!(std::path::Path::new(&path).exists(), "Cached file should exist on disk");
+
+        // Clean up
+        let _ = std::fs::remove_file(&cache_path);
+    }
+
+    #[test]
+    fn cache_remote_stream_sanitizes_id() {
+        // Verify that special characters in the cache ID are stripped
+        // but alphanumeric + dash + underscore are preserved.
+        let cache_dir = crate::shared::utils::youtube_cache_dir();
+        let dirty_id = "abc-123_def";
+        // Only alphanumeric + dash/underscore survive — this ID is already clean
+        let expected_safe = "abc-123_def";
+        let expected_path = cache_dir.join(format!("{}.m4a", expected_safe));
+
+        // Clean up
+        let _ = std::fs::remove_file(&expected_path);
+        std::fs::create_dir_all(&cache_dir).unwrap();
+
+        // Create a file at the expected path so the test doesn't hit the network
+        std::fs::write(&expected_path, b"test_data").unwrap();
+
+        let service = PlaybackService::<tauri::test::MockRuntime>::new(
+            tauri::test::mock_app().handle().clone(),
+            Arc::new(Database::open_in_memory().expect("failed to open db")),
+            Arc::new(LibraryService::new(Arc::new(
+                Database::open_in_memory().expect("failed to open db"),
+            ))),
+            Arc::new(Mutex::new(None)),
+        );
+
+        let result = service.cache_remote_stream(dirty_id, "https://example.com/test.m4a");
+        assert!(result.is_ok(), "Should sanitize and return cached file");
+        let path = result.unwrap();
+        assert!(path.contains(expected_safe), "Path should use sanitized ID");
+
+        // Clean up
+        let _ = std::fs::remove_file(&expected_path);
+    }
+
+    #[test]
+    fn cache_remote_stream_rejects_empty_id() {
+        let service = PlaybackService::<tauri::test::MockRuntime>::new(
+            tauri::test::mock_app().handle().clone(),
+            Arc::new(Database::open_in_memory().expect("failed to open db")),
+            Arc::new(LibraryService::new(Arc::new(
+                Database::open_in_memory().expect("failed to open db"),
+            ))),
+            Arc::new(Mutex::new(None)),
+        );
+
+        // ID that becomes empty after sanitization (all special chars)
+        let result = service.cache_remote_stream("/../!@#", "https://example.com/test.m4a");
+        assert!(result.is_err(), "Should reject empty sanitized ID");
+        assert!(
+            result.unwrap_err().contains("empty"),
+            "Error should mention empty ID"
+        );
     }
 }

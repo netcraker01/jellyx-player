@@ -130,7 +130,7 @@ export async function initPlayerEvents(): Promise<void> {
   await events.onStreamResolved((payload: events.StreamResolvedEvent) => {
     const track = get(currentTrack);
     if (track && track.id === payload.trackId) {
-      loadRemoteStream(track, payload.streamUrl).catch((e) => {
+      loadRemoteStream(track, payload.streamUrl, payload.remoteUrl).catch((e) => {
         const msg = e instanceof Error ? e.message : String(e);
         notifications.push({ type: 'error', title: 'Remote Playback Error', message: msg, dismissible: true });
       });

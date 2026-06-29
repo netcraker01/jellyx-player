@@ -612,6 +612,38 @@ pub async fn play_stream(
         })?
 }
 
+/// Download a remote stream URL to a local cache file for instant seeking.
+///
+/// The frontend calls this for YouTube tracks after receiving `stream-resolved`
+/// to get a local file path that the browser can seek instantly. SoundCloud
+/// tracks don't need this — their seek works fine over the remote proxy.
+///
+/// Offloaded to `spawn_blocking` because it performs a blocking HTTP download.
+///
+/// Returns the absolute path to the cached file (e.g. `/home/user/.local/share/helix/youtube_cache/dQw4w9WgXcQ.m4a`).
+/// If the file is already cached, returns the existing path immediately without re-downloading.
+#[tauri::command]
+pub async fn cache_remote_stream(
+    state: tauri::State<'_, AppState>,
+    cache_id: String,
+    remote_url: String,
+) -> Result<String, AppError> {
+    let playback = state.playback.clone();
+    tokio::task::spawn_blocking(move || {
+        playback
+            .cache_remote_stream(&cache_id, &remote_url)
+            .map_err(|e| AppError {
+                code: "CACHE_ERROR".into(),
+                details: Some(e),
+            })
+    })
+    .await
+    .map_err(|e| AppError {
+        code: "INTERNAL_ERROR".into(),
+        details: Some(format!("cache_remote_stream task join error: {}", e)),
+    })?
+}
+
 /// Search for playlists across enabled sources only.
 ///
 /// Mirrors `search_grouped`: fetches enabled sources from settings and passes

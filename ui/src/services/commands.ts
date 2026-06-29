@@ -187,6 +187,12 @@ export function playStream(track: Track): Promise<void> {
   return invokeCommand<void>('play_stream', { track });
 }
 
+/** Download a remote stream URL to a local cache file for instant seeking.
+ * Returns the absolute path to the cached file. */
+export function cacheRemoteStream(cacheId: string, remoteUrl: string): Promise<string> {
+  return invokeCommand<string>('cache_remote_stream', { cacheId, remoteUrl });
+}
+
 /** Search for playlists across all registered sources. */
 export function searchPlaylists(query: string): Promise<Playlist[]> {
   return invokeCommand<Playlist[]>('search_playlists', { query });

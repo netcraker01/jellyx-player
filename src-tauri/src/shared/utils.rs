@@ -27,3 +27,30 @@ pub fn ensure_art_cache_dir() -> io::Result<()> {
     }
     Ok(())
 }
+
+/// Returns the path to the YouTube stream cache directory.
+///
+/// On Linux: `~/.local/share/helix/youtube_cache/`
+/// Falls back to current directory + `helix/youtube_cache` if XDG dirs are
+/// unavailable. Used by the YouTube local-cache fallback for reliable seeking.
+pub fn youtube_cache_dir() -> PathBuf {
+    let data_dir = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
+    data_dir.join("helix").join("youtube_cache")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn youtube_cache_dir_ends_with_helix_youtube_cache() {
+        let dir = youtube_cache_dir();
+        assert!(dir.ends_with("helix/youtube_cache") || dir.ends_with("helix\\youtube_cache"));
+    }
+
+    #[test]
+    fn art_cache_dir_ends_with_helix_art() {
+        let dir = art_cache_dir();
+        assert!(dir.ends_with("helix/art") || dir.ends_with("helix\\art"));
+    }
+}

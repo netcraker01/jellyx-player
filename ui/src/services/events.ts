@@ -48,6 +48,10 @@ export function onBufferingProgress(cb: (payload: BufferingProgressEvent) => voi
 export interface StreamResolvedEvent {
   trackId: string;
   streamUrl: string;
+  /** The raw remote stream URL (before proxying). Present for remote tracks
+   * so the frontend can call `cache_remote_stream` to download a local copy
+   * for instant seeking. Undefined for local-file proxy URLs. */
+  remoteUrl?: string;
 }
 
 export function onStreamResolved(cb: (payload: StreamResolvedEvent) => void): Promise<UnlistenFn> {

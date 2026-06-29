@@ -6,13 +6,14 @@
  * When Rust emits `stream-resolved`, the frontend loads the proxied URL
  * into an HTMLAudio element and drives play/pause/seek natively.
  *
- * Local tracks still use the Rust Symphonia/cpal pipeline.
+ * For YouTube tracks, the frontend calls `cache_remote_stream` to download
+ * the stream to a local file for instant seeking. The local file is loaded
+ * via Tauri's `convertFileSrc` (asset:// protocol) which provides direct local
+ * file access — no proxy round-trip, instant byte-range seeks. SoundCloud
+ * stays on the remote proxy path (its seek already works fine over HTTP
+ * Range requests).
  *
- * Architecture:
- * - Rust resolves stream URLs and proxies them for CORS/Range support.
- * - Frontend receives `stream-resolved` event with the proxied URL.
- * - HTMLAudio handles actual playback, buffering, and progress reporting.
- * - The Svelte store mirrors playback state back to the UI.
+ * Local tracks still use the Rust Symphonia/cpal pipeline.
  */
 
 import { writable, get } from 'svelte/store';
@@ -20,13 +21,19 @@ import { progress, isPlaying, currentTrack, volume, nextTrack } from './player';
 import { skipToNext } from './player';
 import { notifications } from '@shared/stores/notifications';
 import { t } from '@i18n';
+import { cacheRemoteStream } from '@services/commands';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import type { Track } from '@shared/types/models';
+import { Source } from '@shared/types/models';
 
 /** The underlying HTMLAudio element for remote playback. */
 let audioEl: HTMLAudioElement | null = null;
 
-/** The current stream URL - stored for seek reload. Survives HMR. */
+/** The current stream URL - stored for diagnostics. Survives HMR. */
 let currentStreamUrl = '';
+
+/** The original proxied stream URL. Kept as fallback if local-cache download fails. */
+let baseStreamUrl = '';
 
 /** The source of the current track (YouTube, SoundCloud, Local). */
 let currentSource = '';
@@ -35,14 +42,45 @@ let currentSource = '';
  *  when HTMLAudioElement.duration returns Infinity (common with YouTube m4a). */
 let trackDuration = 0;
 
+/** Absolute offset represented by the start of the currently loaded stream.
+ *  Always 0 now — YouTube seek uses native `currentTime` again, so the element's
+ *  currentTime is always absolute. Kept for the timeupdate handler so a future
+ *  partial-stream approach can be reintroduced without touching that handler. */
+let streamOffset = 0;
+
 /** Whether a seek is in progress — suppresses error handling for aborts. */
 let seeking = false;
 
 /** Whether audio was playing before the seek started — used to resume after seek. */
 let wasPlayingBeforeSeek = false;
 
+/** Whether a source swap (cache → local file) is in progress — suppresses errors. */
+let swappingSource = false;
+
+/** Monotonic id for seek attempts — prevents stale callbacks from older seeks
+ *  from mutating state during a newer seek. */
+let seekToken = 0;
+
 /** Whether a remote track is currently loaded. */
 export const remoteActive = writable(false);
+
+/** Whether a YouTube local-cache download is in progress. */
+export const cachingStream = writable(false);
+
+/** Add a local-proxy query parameter without mutating the encoded upstream URL. */
+function appendProxyParam(url: string, key: string, value: string): string {
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+/** Build a loadable URL for a local file path via Tauri's asset protocol.
+ *
+ * Using `convertFileSrc` produces a `http://asset.localhost/` URL that the
+ * Tauri WebView can access directly — no proxy round-trip, no HTTP/2 chunked
+ * read issues, and instant byte-range seeks because the file is local. */
+function localFileUrl(localPath: string): string {
+  return convertFileSrc(localPath);
+}
 
 /** Create or reuse an HTMLAudio element. */
 function getAudio(): HTMLAudioElement {
@@ -60,7 +98,7 @@ function getAudio(): HTMLAudioElement {
       // YouTube m4a streams report Infinity for duration. Use the track's
       // known duration from yt-dlp metadata as a reliable fallback.
       const safeDuration = Number.isFinite(dur) && dur > 0 ? dur : trackDuration;
-      const safePosition = Number.isFinite(el.currentTime) ? el.currentTime : 0;
+      const safePosition = streamOffset + (Number.isFinite(el.currentTime) ? el.currentTime : 0);
       progress.set({ position: safePosition, duration: safeDuration });
     });
 
@@ -77,22 +115,6 @@ function getAudio(): HTMLAudioElement {
       }
     });
 
-    // Sync seeking complete — reanudar reproducción si estaba sonando antes
-    audioEl.addEventListener('seeked', () => {
-      const el = audioEl;
-      if (!el) return;
-      seeking = false;
-      // After a seek, the browser may pause and not auto-resume.
-      // If we were playing before the seek, resume playback now.
-      if (wasPlayingBeforeSeek && el.paused) {
-        el.play().catch((e) => {
-          const msg = e instanceof Error ? e.message : String(e);
-          notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
-        });
-      }
-      wasPlayingBeforeSeek = false;
-    });
-
     // Sync ended → advance to next track in queue
     audioEl.addEventListener('ended', () => {
       isPlaying.set(false);
@@ -107,10 +129,10 @@ function getAudio(): HTMLAudioElement {
       const target = e.target as HTMLAudioElement;
       const errorCode = target.error?.code;
 
-      // Suppress ALL errors during seek — the browser fires error events
-      // when we reload audio.src for seek, and calling skipToNext() would
+      // Suppress ALL errors during seek or source swap — the browser fires
+      // error events when we change audio.src, and calling skipToNext() would
       // cause an infinite loop of errors.
-      if (seeking) {
+      if (seeking || swappingSource) {
         return;
       }
 
@@ -146,17 +168,23 @@ function getAudio(): HTMLAudioElement {
  * Called when the `stream-resolved` event arrives from Rust.
  * Stops any existing remote playback first.
  *
- * YouTube m4a streams go through MSE (Media Source Extensions) because the
- * browser reports Infinity for duration and native `currentTime` seek breaks.
- * SoundCloud MP3 streams work fine with direct `audio.src` + `currentTime`.
+ * For YouTube tracks, this calls `cache_remote_stream` to download the
+ * stream to a local file for instant seeking. While the download is in
+ * progress, playback starts from the remote proxy URL (so the user hears
+ * audio immediately). Once the download completes, the audio source is
+ * swapped to the local file URL for instant seek. If the download fails,
+ * playback continues on the remote proxy URL.
+ *
+ * SoundCloud tracks use the remote proxy URL directly (their seek works).
  */
-export async function loadRemoteStream(track: Track, streamUrl: string): Promise<void> {
+export async function loadRemoteStream(track: Track, streamUrl: string, remoteUrl?: string): Promise<void> {
   const audio = getAudio();
 
   // Store the track's known duration from yt-dlp metadata as fallback.
   // YouTube m4a streams report Infinity for audioEl.duration.
   trackDuration = track.duration ?? 0;
   currentSource = track.source;
+  streamOffset = 0;
 
   // Stop any current playback, including any prior MSE session.
   audio.pause();
@@ -164,13 +192,25 @@ export async function loadRemoteStream(track: Track, streamUrl: string): Promise
 
   // Set volume (0-1)
   audio.volume = get(volume) / 100;
-  currentStreamUrl = streamUrl;
+  // Give the proxy the known metadata duration so it can expose
+  // X-Content-Duration / Content-Duration on the initial media response. This
+  // is especially important for YouTube m4a streams, where the WebView often
+  // reports `duration = Infinity`; without a finite duration, native seek can
+  // stall or scan slowly.
+  const playableUrl = trackDuration > 0
+    ? appendProxyParam(streamUrl, 'duration', String(trackDuration))
+    : streamUrl;
 
-  // All remote tracks use direct audio.src via the proxy.
-  // SoundCloud seek works natively. YouTube seek is handled by
-  // reloading the source with a seekto param in seekRemote().
-  audio.src = streamUrl;
+  baseStreamUrl = playableUrl;
+  currentStreamUrl = playableUrl;
 
+  // All remote tracks use direct audio.src via the proxy. Seeking is native
+  // (currentTime) for both YouTube and SoundCloud; the proxy exposes byte-range
+  // metadata so the browser's media engine can seek accurately.
+  audio.src = playableUrl;
+
+  // Start playback from the remote proxy URL immediately.
+  // For YouTube, we'll swap to a local file once the cache download completes.
   try {
     await audio.play();
     remoteActive.set(true);
@@ -178,6 +218,52 @@ export async function loadRemoteStream(track: Track, streamUrl: string): Promise
     const msg = e instanceof Error ? e.message : String(e);
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
     remoteActive.set(false);
+    return; // Don't attempt cache download if playback failed
+  }
+
+  // YouTube local-cache: download the stream to a local file for instant seeking.
+  // SoundCloud stays on the remote proxy (its seek works fine over HTTP Range).
+  // Only cache tracks shorter than 15 minutes — longer tracks produce files
+  // >15MB that take too long to download and can fail with body read errors.
+  const MAX_CACHE_DURATION_SEC = 15 * 60;
+  if (track.source === Source.YouTube && remoteUrl && trackDuration > 0 && trackDuration <= MAX_CACHE_DURATION_SEC) {
+    cachingStream.set(true);
+    try {
+      const localPath = await cacheRemoteStream(track.sourceId, remoteUrl);
+      // Swap the audio source to the local file for instant seeking.
+      // Only swap if the track hasn't changed while we were downloading.
+      if (currentStreamUrl === playableUrl && currentSource === Source.YouTube) {
+        const localUrl = localFileUrl(localPath);
+        // Preserve current playback position across the source swap.
+        // The browser must load the new source's metadata before currentTime
+        // can be set — setting it immediately after src change is a no-op.
+        const currentPosition = audio.currentTime;
+        const wasPlaying = !audio.paused;
+        swappingSource = true;
+        const onLoadedMetadata = () => {
+          audio.currentTime = currentPosition;
+          swappingSource = false;
+          if (wasPlaying) {
+            audio.play().catch(() => {});
+          }
+        };
+        audio.addEventListener('loadedmetadata', onLoadedMetadata, { once: true });
+        // Fallback: if loadedmetadata doesn't fire within 3s, clear the flag
+        setTimeout(() => {
+          swappingSource = false;
+        }, 3000);
+        audio.src = localUrl;
+        currentStreamUrl = localUrl;
+      }
+    } catch (e) {
+      // Cache download failed — continue playing from the remote proxy URL.
+      // This is not a playback error; seek just won't be as fast.
+      swappingSource = false;
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn('[remotePlayer] YouTube cache download failed, continuing on remote proxy:', msg);
+    } finally {
+      cachingStream.set(false);
+    }
   }
 }
 
@@ -198,38 +284,77 @@ export function resumeRemote(): void {
   }
 }
 
-/** Seek to a position in seconds. */
+/** Seek to a position in seconds.
+ *
+ * Both YouTube and SoundCloud use native `audio.currentTime = position`. The
+ * local proxy advertises `Accept-Ranges: bytes` and forwards upstream
+ * `Content-Range`/`Content-Length`/206 so the browser's media engine can issue
+ * accurate byte-range requests on its own. SoundCloud MP3 seeking already
+ * worked; YouTube m4a seeks instantly once the local cache file is loaded
+ * (see `cache_remote_stream`). */
 export function seekRemote(position: number): void {
   const el = audioEl;
   if (!el) return;
 
-  wasPlayingBeforeSeek = !el.paused;
+  const token = ++seekToken;
+  const shouldResume = !el.paused || get(isPlaying);
+
+  wasPlayingBeforeSeek = shouldResume;
   seeking = true;
 
-  // YouTube: try native currentTime seek. The browser will make Range
-  // requests to the proxy. If duration is Infinity, the browser can't
-  // seek but we still need to resume playback.
-  wasPlayingBeforeSeek = !el.paused;
+  streamOffset = 0;
   el.currentTime = position;
 
-  // After setting currentTime, the browser fires 'seeking' then 'seeked'.
-  // If it was playing before, resume playback after the seek completes.
-  const resumeAfterSeek = () => {
-    el.removeEventListener('seeked', resumeAfterSeek);
-    if (wasPlayingBeforeSeek && el.paused) {
-      el.play().catch(() => {});
-    }
-    seeking = false;
-  };
-  el.addEventListener('seeked', resumeAfterSeek);
+  const resumeAfterSeek = async () => {
+    if (token !== seekToken) return;
 
-  // Fallback: if 'seeked' never fires (Infinity duration), resume after 1s
+    if (shouldResume) {
+      try {
+        await el.play();
+      } catch {
+        // Ignore transient play failures while the browser is still fetching
+        // the target Range. The fallback below will retry once buffering catches up.
+      }
+    }
+
+    seeking = false;
+    wasPlayingBeforeSeek = false;
+  };
+
+  // After setting currentTime, the browser may fire `seeked`, `canplay`, or
+  // `playing` depending on how quickly the Range request is satisfied. Listen
+  // to all three and guard with seekToken so old seeks cannot stop new ones.
+  const onReady = () => {
+    el.removeEventListener('seeked', onReady);
+    el.removeEventListener('canplay', onReady);
+    el.removeEventListener('playing', onReady);
+    void resumeAfterSeek();
+  };
+
+  el.addEventListener('seeked', onReady);
+  el.addEventListener('canplay', onReady);
+  el.addEventListener('playing', onReady);
+
+  // Kick playback immediately. For YouTube m4a Range seeks the element can
+  // remain paused until play() is requested again, even if the target is valid.
+  if (shouldResume) {
+    el.play().catch(() => {});
+  }
+
+  // Fallback: if no readiness event fires (Infinity duration edge cases), retry
+  // once after the browser has had a moment to issue the Range request.
   setTimeout(() => {
-    el.removeEventListener('seeked', resumeAfterSeek);
-    if (wasPlayingBeforeSeek && el.paused) {
+    if (token !== seekToken) return;
+
+    el.removeEventListener('seeked', onReady);
+    el.removeEventListener('canplay', onReady);
+    el.removeEventListener('playing', onReady);
+
+    if (shouldResume) {
       el.play().catch(() => {});
     }
     seeking = false;
+    wasPlayingBeforeSeek = false;
   }, 1000);
 }
 

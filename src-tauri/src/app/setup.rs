@@ -108,6 +108,7 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::start_fft_stream,
             // Streaming & playlist commands
             crate::ipc::commands::play_stream,
+            crate::ipc::commands::cache_remote_stream,
             crate::ipc::commands::search_playlists,
             crate::ipc::commands::resolve_playlist,
             crate::ipc::commands::play_playlist,
