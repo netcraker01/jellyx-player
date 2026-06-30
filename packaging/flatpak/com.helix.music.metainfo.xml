@@ -12,18 +12,24 @@
 
   <description>
     <p>
-      Helix is a privacy-first, open-source desktop music player that streams from
-      YouTube, SoundCloud, and Bandcamp. It features real-time audio visualizations
-      (spectrum, oscilloscope, Winamp-style), a plugin system, and zero tracking.
+      Helix is a privacy-first desktop music player built with Rust, Tauri, and Svelte.
+      It lets you search, stream, organize, and visualize music from multiple sources
+      without requiring an account.
     </p>
-    <p>Key features:</p>
+    <p>
+      Unlike browser-based players, Helix runs the audio pipeline natively: stream
+      resolution via yt-dlp, decoding with Symphonia, playback with cpal, and FFT-driven
+      real-time visualizations. This gives lower latency, broader format support, and
+      real audio data for spectrum and oscilloscope views.
+    </p>
+    <p>Highlights:</p>
     <ul>
-      <li>Stream music from YouTube, SoundCloud, and Bandcamp via yt-dlp</li>
-      <li>Real-time audio visualizations (spectrum analyzer, oscilloscope, shaders)</li>
-      <li>Privacy-first: no tracking, no cookies, no data collection</li>
-      <li>Plugin system (WASM-based) for extending functionality</li>
+      <li>Search and stream from YouTube, SoundCloud, and Bandcamp</li>
+      <li>Real-time audio visualizations including spectrum and oscilloscope modes</li>
+      <li>Queue management, playlists, artist favorites, and listening history</li>
       <li>Local file playback support</li>
-      <li>Queue management, playlists, favorites</li>
+      <li>No tracking, no cookies, and no account requirement</li>
+      <li>Automatic yt-dlp management on first use</li>
     </ul>
   </description>
 
@@ -62,16 +68,31 @@
     <content_attribute id="money-gambling">none</content_attribute>
   </content_rating>
 
-  <!-- Replace with actual release when publishing -->
   <releases>
     <release version="0.1.0" date="2026-06-30" type="development">
       <description>
-        <p>Initial alpha release of Helix music player.</p>
+        <ul>
+          <li>Initial Linux release packaging for Helix</li>
+          <li>YouTube and SoundCloud search and playback</li>
+          <li>Playlists, artist favorites, and recent items on the home screen</li>
+          <li>Automatic yt-dlp download on first remote use</li>
+          <li>Native audio playback and visualization pipeline</li>
+        </ul>
       </description>
     </release>
   </releases>
 
   <screenshots>
-    <!-- TODO: Add actual screenshots before Flathub submission -->
+    <!--
+      Flathub requires real screenshots hosted on stable HTTPS URLs.
+      Before approval, replace this comment with 2-5 screenshot entries like:
+
+      <screenshot type="default">
+        <caption>Main search and playback view</caption>
+        <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png</image>
+      </screenshot>
+
+      See docs/screenshots.md for the exact capture checklist.
+    -->
   </screenshots>
 </component>
