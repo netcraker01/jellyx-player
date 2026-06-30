@@ -89,12 +89,26 @@ jobs:
         id: msi
         shell: pwsh
         run: |
-          # Tauri outputs MSI files under src-tauri/target/release/bundle/msi/
-          $msiDir = "src-tauri/target/release/bundle/msi"
-          $msiFile = Get-ChildItem -Path $msiDir -Filter "*.msi" | Select-Object -First 1
+          # Tauri v2 bundle output is typically under target/release/bundle/msi/
+          # but some setups may use src-tauri/target/... Search both to be safe.
+          $searchDirs = @(
+            "target/release/bundle/msi",
+            "src-tauri/target/release/bundle/msi"
+          )
+
+          $msiFile = $null
+          foreach ($dir in $searchDirs) {
+            if (Test-Path $dir) {
+              $candidate = Get-ChildItem -Path $dir -Filter "*.msi" | Select-Object -First 1
+              if ($candidate) {
+                $msiFile = $candidate
+                break
+              }
+            }
+          }
 
           if (-not $msiFile) {
-            Write-Error "No MSI file found in $msiDir"
+            Write-Error "No MSI file found in expected directories: $($searchDirs -join ', ')"
             exit 1
           }
 
