@@ -83,16 +83,21 @@
   </releases>
 
   <screenshots>
-    <!--
-      Flathub requires real screenshots hosted on stable HTTPS URLs.
-      Before approval, replace this comment with 2-5 screenshot entries like:
-
-      <screenshot type="default">
-        <caption>Main search and playback view</caption>
-        <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png</image>
-      </screenshot>
-
-      See docs/screenshots.md for the exact capture checklist.
-    -->
+    <screenshot type="default">
+      <caption>Search and stream music from multiple sources</caption>
+      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/screenshot-2026-06-30_13-25-39.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Playback controls and queue in the desktop player</caption>
+      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/screenshot-2026-06-30_13-26-18.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Create and manage playlists locally</caption>
+      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/screenshot-2026-06-30_22-18-18.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Discover recent tracks and recent lists from the home screen</caption>
+      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/screenshot-2026-06-30_22-18-58.png</image>
+    </screenshot>
   </screenshots>
 </component>
