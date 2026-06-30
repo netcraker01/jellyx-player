@@ -138,6 +138,14 @@ jobs:
           Write-Host "SHA256: $hash"
           Write-Host "Version: $version"
 
+      - name: Inspect MSI metadata
+        id: inspect
+        shell: pwsh
+        run: |
+          $outFile = Join-Path (Split-Path "${{ steps.msi.outputs.msi_path }}") "msi-metadata.txt"
+          .\scripts\inspect-msi.ps1 -MsiPath "${{ steps.msi.outputs.msi_path }}" | Tee-Object -FilePath $outFile
+          echo "metadata_file=$outFile" >> $env:GITHUB_OUTPUT
+
       - name: Get WiX Upgrade Code
         id: wix
         shell: pwsh
@@ -158,6 +166,7 @@ jobs:
           path: |
             ${{ steps.msi.outputs.msi_path }}
             ${{ steps.msi.outputs.sha256_file }}
+            ${{ steps.inspect.outputs.metadata_file }}
           if-no-files-found: error
           retention-days: 30
 
@@ -173,9 +182,9 @@ jobs:
           Write-Host "Upgrade Code:   ${{ steps.wix.outputs.upgrade_code }}"
           Write-Host ""
           Write-Host "To complete winget manifests, you need:"
-          Write-Host "  1. SHA256:     see .sha256 file in artifact"
-          Write-Host "  2. ProductCode:  run scripts/inspect-msi.ps1 -MsiPath <path>"
-          Write-Host "  3. UpgradeCode:  ${{ steps.wix.outputs.upgrade_code }}"
+          Write-Host "  1. SHA256:      see .sha256 file in artifact"
+          Write-Host "  2. ProductCode: see msi-metadata.txt in artifact"
+          Write-Host "  3. UpgradeCode: see msi-metadata.txt in artifact"
           Write-Host ""
 
       # Attach MSI to GitHub Release when building from a version tag
