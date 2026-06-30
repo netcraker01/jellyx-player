@@ -162,6 +162,7 @@ impl SourceRegistry {
     ///
     /// This is a fallback used when the source type is unknown; it returns the
     /// first successful resolution.
+    #[allow(dead_code)]
     pub fn resolve_all(&self, id: &str) -> Result<Track, SourceError> {
         for resolver in &self.resolvers {
             if let Ok(track) = resolver.resolve(id) {
@@ -175,6 +176,7 @@ impl SourceRegistry {
     }
 
     /// Search for playlists across all registered sources and merge results.
+    #[allow(dead_code)]
     pub fn search_playlists_all(&self, query: &str) -> Vec<Playlist> {
         self.search_playlists_all_enabled(query, None)
     }
@@ -190,6 +192,7 @@ impl SourceRegistry {
     }
 
     /// Search a specific source for playlists matching the given query.
+    #[allow(dead_code)]
     pub fn search_playlists_source(&self, source: &Source, query: &str) -> Result<Vec<Playlist>, SourceError> {
         for resolver in &self.resolvers {
             if resolver.source_type() == *source {

@@ -76,6 +76,7 @@ pub enum IPCError {
 pub enum ScannerError {
     WalkError(String),
     MetadataError(String),
+    #[allow(dead_code)]
     DatabaseError(String),
 }
 
@@ -83,10 +84,13 @@ pub enum ScannerError {
 #[derive(Debug)]
 pub enum StreamError {
     /// The stream URL has expired (e.g., HTTP 403 from YouTube CDN).
+    #[allow(dead_code)]
     UrlExpired,
     /// The stream connection or download failed.
+    #[allow(dead_code)]
     StreamFailed(String),
     /// Buffer underrun — not enough data to continue playback.
+    #[allow(dead_code)]
     BufferUnderrun,
 }
 

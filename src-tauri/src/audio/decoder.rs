@@ -116,6 +116,7 @@ impl SymphoniaDecoder {
     ///
     /// An optional `extension_hint` (e.g., "mp3", "m4a") helps Symphonia's
     /// format probe identify the correct decoder.
+    #[allow(dead_code)]
     pub fn open_stream(
         media_source_stream: MediaSourceStream<'static>,
         extension_hint: Option<&str>,

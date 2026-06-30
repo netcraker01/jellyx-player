@@ -17,9 +17,6 @@ use crate::models::playlist::Playlist;
 use crate::models::source::Source;
 use crate::models::track::Track;
 
-/// Page size for paginated search results.
-const SEARCH_PAGE_SIZE: usize = 50;
-
 /// Number of playlist search results to request from yt-dlp.
 const PLAYLIST_SEARCH_RESULT_COUNT: usize = 10;
 
@@ -523,6 +520,9 @@ impl SourceResolver for YouTubeResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Page size for paginated search — used only in tests to verify the constant value.
+    const SEARCH_PAGE_SIZE: usize = 50;
 
     #[test]
     fn youtube_resolver_source_type() {

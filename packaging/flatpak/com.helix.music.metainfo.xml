@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.helix.music</id>
+  <name>Helix</name>
+  <summary>Privacy-first music player — stream, visualize, discover</summary>
+  <developer id="netcraker01">
+    <name>netcraker01</name>
+  </developer>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <project_group>Helix</project_group>
+
+  <description>
+    <p>
+      Helix is a privacy-first, open-source desktop music player that streams from
+      YouTube, SoundCloud, and Bandcamp. It features real-time audio visualizations
+      (spectrum, oscilloscope, Winamp-style), a plugin system, and zero tracking.
+    </p>
+    <p>Key features:</p>
+    <ul>
+      <li>Stream music from YouTube, SoundCloud, and Bandcamp via yt-dlp</li>
+      <li>Real-time audio visualizations (spectrum analyzer, oscilloscope, shaders)</li>
+      <li>Privacy-first: no tracking, no cookies, no data collection</li>
+      <li>Plugin system (WASM-based) for extending functionality</li>
+      <li>Local file playback support</li>
+      <li>Queue management, playlists, favorites</li>
+    </ul>
+  </description>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+    <category>Music</category>
+  </categories>
+
+  <url type="homepage">https://github.com/netcraker01/helix</url>
+  <url type="bugtracker">https://github.com/netcraker01/helix/issues</url>
+  <url type="vcs-browser">https://github.com/netcraker01/helix</url>
+
+  <launchable type="desktop-id">com.helix.music.desktop</launchable>
+
+  <provides>
+    <binary>helix</binary>
+  </provides>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+
+  <recommends>
+    <control>pointing</control>
+    <control>keyboard</control>
+    <control>touch</control>
+  </recommends>
+
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">none</content_attribute>
+    <content_attribute id="social-info">none</content_attribute>
+    <content_attribute id="social-contacts">none</content_attribute>
+    <content_attribute id="money-purchasing">none</content_attribute>
+    <content_attribute id="money-gambling">none</content_attribute>
+  </content_rating>
+
+  <!-- Replace with actual release when publishing -->
+  <releases>
+    <release version="0.1.0" date="2026-06-30" type="development">
+      <description>
+        <p>Initial alpha release of Helix music player.</p>
+      </description>
+    </release>
+  </releases>
+
+  <screenshots>
+    <!-- TODO: Add actual screenshots before Flathub submission -->
+  </screenshots>
+</component>

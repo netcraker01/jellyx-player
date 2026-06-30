@@ -77,7 +77,7 @@
 
 <div class="bottom-bar">
   <div class="track-info">
-    {#if albumArtUrl($currentTrack?.thumbnail)}
+    {#if $currentTrack && albumArtUrl($currentTrack.thumbnail)}
       <img class="track-thumbnail" src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" />
     {:else}
       <div class="track-placeholder">

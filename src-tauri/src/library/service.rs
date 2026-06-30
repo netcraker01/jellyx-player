@@ -272,10 +272,8 @@ impl LibraryService {
     const RECENTLY_PLAYED_LIMIT: usize = 20;
     const ARTIST_AFFINITY_LIMIT: usize = 8;
     const ALBUM_AFFINITY_LIMIT: usize = 4;
-    const FAVORITE_DISCOVERY_LIMIT: usize = 4;
     const LIBRARY_DISCOVERY_LIMIT: usize = 4;
     const RECOMMENDATIONS_LIMIT: usize = 20;
-    const SECONDS_PER_DAY: u64 = 86400;
 
     /// Get the Home snapshot: recently played only (non-blocking).
     ///

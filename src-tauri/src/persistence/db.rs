@@ -66,6 +66,7 @@ impl Database {
     }
 
     /// Open an in-memory database for testing.
+    #[allow(dead_code)]
     pub fn open_in_memory() -> Result<Self, PersistenceError> {
         let conn = Connection::open_in_memory().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to open in-memory database: {}", e))
@@ -155,13 +156,19 @@ impl Database {
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
-
-                INSERT OR IGNORE INTO _meta (key, value)
-                    VALUES ('schema_version', '5');
                 ",
         )
         .map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to initialize schema: {}", e))
+        })?;
+
+        // Insert schema version using the constant so it stays in sync.
+        conn.execute(
+            "INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', ?1)",
+            params![SCHEMA_VERSION],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to set schema version: {}", e))
         })?;
 
         Ok(())
@@ -929,6 +936,7 @@ impl Database {
     }
 
     /// Get a single user playlist by ID.
+    #[allow(dead_code)]
     pub fn get_playlist(&self, id: &str) -> Result<UserPlaylist, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))

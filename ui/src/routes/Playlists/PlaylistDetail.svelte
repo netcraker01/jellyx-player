@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { navigate } from '@app/router/navigation';
   import { t } from '@i18n';
@@ -19,6 +19,7 @@
   let editingTitle = false;
   let editTitleValue = '';
   let showDeleteDialog = false;
+  let titleInputEl: HTMLInputElement | undefined;
 
   onMount(() => {
     loadTracks();
@@ -75,6 +76,10 @@
     editingTitle = false;
   }
 
+  $: if (editingTitle) {
+    tick().then(() => titleInputEl?.focus());
+  }
+
   async function handleDeleteList() {
     await playlists.delete(id);
     navigate('/playlists');
@@ -128,7 +133,7 @@
           bind:value={editTitleValue}
           on:blur={finishRename}
           on:keydown={(e) => e.key === 'Enter' && finishRename()}
-          autofocus
+          bind:this={titleInputEl}
         />
       {:else}
         <h1 class="playlist-title">{getPlaylistTitle()}</h1>
@@ -183,8 +188,10 @@
   {/if}
 
   {#if showDeleteDialog}
-    <div class="dialog-overlay" on:click={() => (showDeleteDialog = false)} role="dialog" aria-modal="true">
-      <div class="dialog" on:click|stopPropagation>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="dialog-overlay" on:click={() => (showDeleteDialog = false)} on:keydown={(e) => e.key === 'Escape' && (showDeleteDialog = false)} role="dialog" aria-modal="true" tabindex="-1">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="dialog" on:click|stopPropagation on:keydown={(e) => e.key === 'Escape' && (showDeleteDialog = false)}>
         <h3>Delete playlist?</h3>
         <p class="dialog-text">This will permanently delete <strong>{getPlaylistTitle()}</strong> and all its tracks.</p>
         <div class="dialog-actions">

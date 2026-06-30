@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import { navigate } from '@app/router/navigation';
   import { t } from '@i18n';
@@ -26,6 +26,9 @@
   let importUrl = '';
   let importing = false;
 
+  let createInputEl: HTMLInputElement | undefined;
+  let importInputEl: HTMLInputElement | undefined;
+
   onMount(async () => {
     await playlists.load();
     await artistFavorites.load();
@@ -38,6 +41,14 @@
   onDestroy(() => {
     cancelled = true;
   });
+
+  $: if (showCreateDialog) {
+    tick().then(() => createInputEl?.focus());
+  }
+
+  $: if (showImportDialog) {
+    tick().then(() => importInputEl?.focus());
+  }
 
   async function loadTrackCounts() {
     const all = get(playlists);
@@ -256,15 +267,17 @@
 
 <!-- Create Dialog -->
 {#if showCreateDialog}
-  <div class="dialog-overlay" on:click={() => (showCreateDialog = false)} role="dialog" aria-modal="true">
-    <div class="dialog" on:click|stopPropagation>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="dialog-overlay" on:click={() => (showCreateDialog = false)} on:keydown={(e) => e.key === 'Escape' && (showCreateDialog = false)} role="dialog" aria-modal="true" tabindex="-1">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="dialog" on:click|stopPropagation on:keydown={(e) => e.key === 'Escape' && (showCreateDialog = false)}>
       <h3>{$t('playlists.create_new')}</h3>
       <input
         type="text"
         bind:value={newListTitle}
         placeholder={$t('playlists.title')}
         on:keydown={(e) => e.key === 'Enter' && handleCreateList()}
-        autofocus
+        bind:this={createInputEl}
       />
       <div class="dialog-actions">
         <button class="btn-secondary" on:click={() => (showCreateDialog = false)}>
@@ -280,8 +293,10 @@
 
 <!-- Import from URL Dialog -->
 {#if showImportDialog}
-  <div class="dialog-overlay" on:click={() => !importing && (showImportDialog = false)} role="dialog" aria-modal="true">
-    <div class="dialog" on:click|stopPropagation>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="dialog-overlay" on:click={() => !importing && (showImportDialog = false)} on:keydown={(e) => e.key === 'Escape' && !importing && (showImportDialog = false)} role="dialog" aria-modal="true" tabindex="-1">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="dialog" on:click|stopPropagation on:keydown={(e) => e.key === 'Escape' && !importing && (showImportDialog = false)}>
       <h3>{$t('playlists.import_url')}</h3>
       <p class="dialog-text">{$t('playlists.import_url_desc')}</p>
       <input
@@ -290,7 +305,7 @@
         placeholder="https://www.youtube.com/playlist?list=..."
         on:keydown={(e) => e.key === 'Enter' && !importing && handleImportPlaylist()}
         disabled={importing}
-        autofocus
+        bind:this={importInputEl}
       />
       {#if importing}
         <p class="dialog-text importing-hint">{$t('playlists.importing')}...</p>
@@ -309,8 +324,10 @@
 
 <!-- Delete Confirmation Dialog -->
 {#if deleteTargetId}
-  <div class="dialog-overlay" on:click={() => (deleteTargetId = null)} role="dialog" aria-modal="true">
-    <div class="dialog" on:click|stopPropagation>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="dialog-overlay" on:click={() => (deleteTargetId = null)} on:keydown={(e) => e.key === 'Escape' && (deleteTargetId = null)} role="dialog" aria-modal="true" tabindex="-1">
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="dialog" on:click|stopPropagation on:keydown={(e) => e.key === 'Escape' && (deleteTargetId = null)}>
       <h3>Delete playlist?</h3>
       <p class="dialog-text">This will permanently delete <strong>{deleteTargetTitle}</strong> and all its tracks.</p>
       <div class="dialog-actions">

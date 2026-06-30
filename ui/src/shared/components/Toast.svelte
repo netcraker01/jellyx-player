@@ -17,10 +17,25 @@
     }
   }
 
+  function handleKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleClick();
+    }
+  }
+
   $: borderClass = `toast-border-${notification.type}`;
 </script>
 
-<button class="toast {borderClass}" on:click={handleClick}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<div
+  class="toast {borderClass}"
+  role="status"
+  tabindex="-1"
+  on:click={handleClick}
+  on:keydown={handleKeydown}
+>
   <div class="toast-content">
     <span class="toast-title">{notification.title}</span>
     <span class="toast-message">{notification.message}</span>
@@ -30,7 +45,7 @@
       <X size={14} />
     </button>
   {/if}
-</button>
+</div>
 
 <style>
   .toast {

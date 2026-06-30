@@ -506,6 +506,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
     /// Read the playback position from the audio backend when available,
     /// falling back to InternalState for times when no backend is active.
+    #[allow(dead_code)]
     fn current_position(&self) -> Result<(f64, f64), AppError> {
         let s = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),
@@ -1168,6 +1169,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     }
 
     /// Get the current track, if any.
+    #[allow(dead_code)]
     pub fn get_current_track(&self) -> Result<Option<Track>, AppError> {
         let s = self.state.lock().map_err(|_| AppError {
             code: "UNKNOWN_ERROR".into(),
@@ -1333,6 +1335,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     }
 
     /// Look up a track by Helix ID in the current queue or source registry.
+    #[allow(dead_code)]
     pub fn get_track_by_id(&self, track_id: &str) -> Result<Track, AppError> {
         {
             let s = self.state.lock().map_err(|_| AppError {

@@ -1,0 +1,8 @@
+# winget Main Manifest Pointer
+# =============================================================================
+# This is the top-level manifest that winget uses to locate version manifests.
+# =============================================================================
+PackageIdentifier: netcraker01.helix-player
+PackageVersion: 0.1.0
+ManifestType: version
+ManifestVersion: 1.6.0

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, onMount } from 'svelte';
+  import { createEventDispatcher, onMount, tick } from 'svelte';
   import { Search, Plus, Check } from 'lucide-svelte';
   import { playlists, recentPlaylists } from '@features/playlists/stores/playlists';
   import { searchUserPlaylists, getPlaylistTracks } from '@services/commands';
@@ -17,6 +17,8 @@
   let trackInListIds: Set<string> = new Set();
   let creating = false;
   let newListTitle = '';
+  let searchInputEl: HTMLInputElement | undefined;
+  let newListInputEl: HTMLInputElement | undefined;
 
   onMount(() => {
     playlists.load();
@@ -82,18 +84,29 @@
   }
 
   $: displayLists = searchQuery.trim() ? searchResults : $recentPlaylists;
+
+  $: if (visible) {
+    tick().then(() => searchInputEl?.focus());
+  }
+
+  $: if (creating) {
+    tick().then(() => newListInputEl?.focus());
+  }
 </script>
 
 <svelte:window on:keydown={handleKeydown} />
 
 {#if visible}
-  <div class="picker-backdrop" on:click={handleBackdropClick} role="presentation">
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="picker-backdrop" on:click={handleBackdropClick} on:keydown={handleKeydown} role="presentation">
     <div
       class="picker-popup"
       on:click|stopPropagation
+      on:keydown={handleKeydown}
       style="left: {Math.min(anchorX, window.innerWidth - 260)}px; top: {Math.min(anchorY, window.innerHeight - 300)}px;"
       role="dialog"
       aria-label="Add to list"
+      tabindex="-1"
     >
       <div class="picker-header">
         <div class="search-row">
@@ -103,7 +116,7 @@
             bind:value={searchQuery}
             on:input={handleSearch}
             placeholder="Search lists..."
-            autofocus
+            bind:this={searchInputEl}
           />
         </div>
       </div>
@@ -135,7 +148,7 @@
               bind:value={newListTitle}
               on:keydown={(e) => e.key === 'Enter' && createAndAdd()}
               placeholder="New list name"
-              autofocus
+              bind:this={newListInputEl}
             />
             <button class="create-btn" on:click={createAndAdd} type="button">Add</button>
           </div>

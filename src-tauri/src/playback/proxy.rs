@@ -116,7 +116,9 @@ pub fn proxied_url(port: u16, remote_url: &str) -> String {
 /// Proxy errors.
 #[derive(Debug)]
 pub enum ProxyError {
+    #[allow(dead_code)]
     BindFailed(String),
+    #[allow(dead_code)]
     RequestFailed(String),
 }
 

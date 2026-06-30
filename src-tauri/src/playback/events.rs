@@ -15,6 +15,7 @@ pub const EVENT_TRACK_CHANGED: &str = "track-changed";
 pub const EVENT_STATE_CHANGED: &str = "state-changed";
 pub const EVENT_QUEUE_UPDATED: &str = "queue-updated";
 pub const EVENT_PROGRESS_TICK: &str = "progress-tick";
+#[allow(dead_code)]
 pub const EVENT_BUFFERING_PROGRESS: &str = "buffering-progress";
 pub const EVENT_STREAM_RESOLVED: &str = "stream-resolved";
 pub const EVENT_CACHE_CORRUPTED: &str = "cache-corrupted";
@@ -22,6 +23,7 @@ pub const EVENT_CACHE_CORRUPTED: &str = "cache-corrupted";
 /// Buffering progress payload emitted when a remote track is buffering.
 ///
 /// Serialized as camelCase to match TypeScript frontend types.
+#[allow(dead_code)]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BufferingProgress {
@@ -90,6 +92,7 @@ impl<R: Runtime> PlaybackEventEmitter<R> {
     }
 
     /// Emit a buffering-progress event with progress percentage and track ID.
+    #[allow(dead_code)]
     pub fn emit_buffering_progress(&self, progress: f32, track_id: &str) -> Result<(), IPCError> {
         let payload = BufferingProgress {
             progress,

@@ -909,10 +909,8 @@ mod tests {
         let temp_dir = std::env::temp_dir().join("helix_test_cache_art");
         std::fs::create_dir_all(&temp_dir).unwrap();
 
-        // We can't easily override art_cache_dir() in tests, so we test
-        // by calling cache_art which uses the real art_cache_dir().
         // Ensure the directory exists.
-        crate::shared::utils::ensure_art_cache_dir();
+        let _ = crate::shared::utils::ensure_art_cache_dir();
 
         let data: &[u8] = b"test art data for cache";
         let media_type = Some("image/jpeg".to_string());
@@ -933,7 +931,7 @@ mod tests {
 
     #[test]
     fn cache_art_dedup_same_hash_skips_overwrite() {
-        crate::shared::utils::ensure_art_cache_dir();
+        let _ = crate::shared::utils::ensure_art_cache_dir();
 
         let data: &[u8] = b"dedup test data";
         let media_type = Some("image/png".to_string());

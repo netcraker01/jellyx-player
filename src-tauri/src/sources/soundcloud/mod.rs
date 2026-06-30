@@ -15,10 +15,6 @@ use crate::errors::types::SourceError;
 use crate::models::source::Source;
 use crate::models::track::Track;
 
-/// Number of search results to request from yt-dlp.
-/// Page size for paginated search results.
-const SEARCH_PAGE_SIZE: usize = 50;
-
 /// Preferred yt-dlp format selector for SoundCloud audio.
 ///
 /// SoundCloud serves both HLS (m3u8) and direct HTTP formats.
@@ -317,6 +313,9 @@ impl SourceResolver for SoundCloudResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Page size for paginated search — used only in tests to verify the constant value.
+    const SEARCH_PAGE_SIZE: usize = 50;
 
     #[test]
     fn soundcloud_resolver_source_type() {

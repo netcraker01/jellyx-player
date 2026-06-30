@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Helix
+GenericName=Music Player
+Comment=Privacy-first music player — stream, visualize, discover
+Exec=helix
+Icon=com.helix.music
+Terminal=false
+Categories=AudioVideo;Audio;Player;Music;
+Keywords=music;player;stream;youtube;soundcloud;visualization;
+StartupNotify=true
+StartupWMClass=helix
