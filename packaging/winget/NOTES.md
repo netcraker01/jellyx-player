@@ -1,53 +1,108 @@
 # winget Publishing Notes
-# =============================================================================
-# Steps to publish helix-player to the winget package manager:
-#
-# 1. VALIDATE MANIFESTS
-#    Install the winget CLI and validate locally:
-#      winget validate manifests\
-#
-#    Or use the winget-pkgs repo validation:
-#      https://github.com/microsoft/winget-pkgs
-#
-# 2. GET PRODUCT AND UPGRADE CODES
-#    After building the MSI, extract the product code:
-#      # PowerShell
-#      $msi = "Helix_0.1.0_x64_en-US.msi"
-#      (Get-Item $msi).Name  # just to confirm the file
-#      # Use lessmsi or dark.exe to extract MSI metadata:
-#      lessmsi l $msi
-#      # Or install the MSI and check:
-#      Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" |
-#        Where-Object { $_.DisplayName -like "*Helix*" } |
-#        Select-Object PSChildName, DisplayName, DisplayVersion
-#
-#    Replace {REPLACE_WITH_WIX_PRODUCT_CODE} and {REPLACE_WITH_WIX_UPGRADE_CODE}
-#    with the actual GUIDs from the MSI.
-#
-# 3. GENERATE SHA256 CHECKSUMS
-#    Get-FileHash .\Helix_0.1.0_x64_en-US.msi -Algorithm SHA256
-#    Replace REPLACE_WITH_ACTUAL_SHA256_X64 with the output.
-#
-# 4. SUBMIT TO WINGET-PAKS
-#    Fork https://github.com/microsoft/winget-pkgs
-#    Create directory: manifests/n/netcraker01/helix-player/0.1.0/
-#    Copy the three YAML files there:
-#      - netcraker01.helix-player.yaml          (main manifest pointing to version)
-#      - netcraker01.helix-player.installer.yaml
-#      - netcraker01.helix-player.locale.en-US.yaml
-#    Also create the top-level pointer manifest:
-#      manifests/n/netcraker01/helix-player.yaml
-#    Open a PR against microsoft/winget-pkgs
-#
-# 5. AUTOMATED UPDATES
-#    Consider using https://github.com/vedantmgoyal2009/winget-releaser
-#    with GitHub Actions to auto-create winget PRs on release.
-#
-# 6. WINGET ACCOUNT REQUIREMENTS
-#    - A GitHub account (to fork winget-pkgs)
-#    - No special Microsoft account needed for submission
-#    - First submission may take a few days for review
-#
-# NOTE: The WebView2 dependency is declared as a PackageDependency.
-# Windows 10 1809+ and Windows 11 ship WebView2 by default.
-# For older Windows 10, the installer will prompt to install it.
+
+This directory contains winget manifest templates for Helix Player.
+The manifests have **placeholder values** that must be replaced after a real MSI is built.
+
+## Quick Start
+
+1. **Build the MSI** — either locally on Windows or via GitHub Actions:
+   ```bash
+   # Local (requires Windows host)
+   ./scripts/build.sh windows
+
+   # Or push a v* tag to trigger the CI workflow
+   git tag v0.1.0 && git push origin v0.1.0
+   ```
+
+2. **Download the MSI artifact** from GitHub Actions:
+   - Go to **Actions → Windows MSI** workflow
+   - Download the `helix-player-msi-*` artifact
+   - Or find it attached to the GitHub Release if built from a tag
+
+3. **Extract metadata** from the MSI:
+   ```powershell
+   # On a Windows machine with the MSI file:
+   .\scripts\inspect-msi.ps1 -MsiPath .\Helix_0.1.0_x64_en-US.msi
+   ```
+   This outputs: SHA256, ProductCode, UpgradeCode, and a ready-to-paste manifest snippet.
+
+   **Alternative** (if `inspect-msi.ps1` can't read the MSI database directly):
+   ```powershell
+   # Install the MSI, then read from registry:
+   Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" |
+     Where-Object { $_.DisplayName -like "*Helix*" } |
+     Select-Object PSChildName, DisplayName, DisplayVersion
+
+   # UpgradeCode (derivable from productName, does not change between versions):
+   cargo tauri inspect wix-upgrade-code
+
+   # SHA256:
+   Get-FileHash .\Helix_0.1.0_x64_en-US.msi -Algorithm SHA256
+   ```
+
+4. **Fill in the manifests** — replace all `REPLACE_WITH_*` placeholders:
+   - `netcraker01.helix-player.installer.yaml` — `InstallerSha256`, `ProductCode`, `UpgradeCode`, `InstallerUrl`
+   - `netcraker01.helix-player.locale.en-US.yaml` — update `PackageVersion`, `ReleaseNotes`, `ReleaseNotesUrl`
+   - `netcraker01.helix-player.version.yaml` — update `PackageVersion`
+   - `netcraker01.helix-player.yaml` — update `PackageVersion`
+
+5. **Validate locally**:
+   ```powershell
+   winget validate packaging\winget\manifests\
+   ```
+
+6. **Submit to winget-pkgs**:
+   ```bash
+   # Fork https://github.com/microsoft/winget-pkgs
+   # Create directory: manifests/n/netcraker01/helix-player/<version>/
+   # Copy all YAML files there
+   # Open a PR against microsoft/winget-pkgs
+   ```
+
+## Placeholder Values Reference
+
+| Placeholder | Source | How to obtain |
+|---|---|---|
+| `REPLACE_WITH_ACTUAL_SHA256_X64` | Built MSI | `Get-FileHash .\Helix_<ver>_x64_en-US.msi -Algorithm SHA256` |
+| `REPLACE_WITH_WIX_PRODUCT_CODE` | MSI Property table | `inspect-msi.ps1` or registry after install |
+| `REPLACE_WITH_WIX_UPGRADE_CODE` | MSI Property table | `inspect-msi.ps1` or `cargo tauri inspect wix-upgrade-code` |
+
+## MSI Naming Convention
+
+Tauri's WiX bundler produces MSI files named:
+```
+Helix_<version>_x64_en-US.msi
+```
+where `<version>` comes from `src-tauri/Cargo.toml` → `package.version`.
+
+The `productName` in `tauri.conf.json` is `Helix` (not "Helix Player") — this is intentional.
+The visible display name ("Helix Player") is set via the WiX configuration in `tauri.conf.json`.
+
+## UpgradeCode Stability
+
+The UpgradeCode is derived from `productName` in `tauri.conf.json`. It is **pinned** in the
+WiX configuration (`bundle.windows.wix.upgradeCode`) to prevent accidental changes from
+renaming the product. **Do not change this value** — changing it would break upgrade paths
+for existing installations.
+
+## GitHub Actions Workflow
+
+The `.github/workflows/windows-msi.yml` workflow handles MSI builds:
+
+| Trigger | Behavior |
+|---|---|
+| Push to `main` | Builds MSI, uploads as artifact (30-day retention) |
+| Push of `v*` tag | Builds MSI, attaches to GitHub Release |
+| PR to `main` | Builds MSI (validation only, no release) |
+
+The workflow also generates a `.sha256` checksum file alongside the MSI.
+
+## Automation (Future)
+
+Consider using [winget-releaser](https://github.com/vedantmgoyal2009/winget-releaser)
+to automatically submit winget manifests on each GitHub release. This requires:
+- A GitHub Personal Access Token with `public_repo` scope
+- The token stored as a repository secret (e.g., `WINGET_TOKEN`)
+- Adding the releaser action to the release workflow
+
+Do NOT set this up until at least one manual winget submission has been accepted.

@@ -1,16 +1,17 @@
 # winget Installer Manifest
 # =============================================================================
-# REPLACE all placeholder values before submission:
-#   - REPLACE_WITH_ACTUAL_SHA256_X64  → actual SHA256 of the x64 MSI installer
-#   - REPLACE_WITH_WIX_PRODUCT_CODE    → product code from the MSI
-#   - REPLACE_WITH_WIX_UPGRADE_CODE    → upgrade code from the MSI
+# REPLACE all placeholder values before submission.
+# Build the MSI first, then extract values with:
+#   .\scripts\inspect-msi.ps1 -MsiPath .\Helix_0.1.0_x64_en-US.msi
+#
+# Placeholders to replace:
+#   - REPLACE_WITH_ACTUAL_SHA256_X64  → SHA256 from Get-FileHash or .sha256 file
+#   - REPLACE_WITH_WIX_PRODUCT_CODE    → ProductCode from MSI database (changes per version)
+#   - REPLACE_WITH_WIX_UPGRADE_CODE    → UpgradeCode from MSI database (stable, do NOT change)
 #   - URLs                             → actual GitHub release download URLs
 #
-# Generate SHA256:
-#   Get-FileHash .\Helix_0.1.0_x64_en-US.msi -Algorithm SHA256
-#
-# Extract product/upgrade codes from the MSI:
-#   lessmsi l Helix_0.1.0_x64_en-US.msi
+# The UpgradeCode is pinned in src-tauri/tauri.conf.json (bundle.windows.wix.upgradeCode).
+# It must stay the same across ALL versions — changing it breaks upgrade detection.
 # =============================================================================
 PackageIdentifier: netcraker01.helix-player
 PackageVersion: 0.1.0
@@ -32,7 +33,7 @@ Dependencies:
   PackageDependencies:
     - PackageIdentifier: Microsoft.EdgeWebView2Runtime
 AppsAndFeaturesEntries:
-  - DisplayName: Helix
+  - DisplayName: Helix Player
     Publisher: netcraker01
     DisplayVersion: "0.1.0"
     ProductCode: "{REPLACE_WITH_WIX_PRODUCT_CODE}"

@@ -1,0 +1,176 @@
+# =============================================================================
+# Helix Player — Windows MSI Build
+# =============================================================================
+# Builds the Windows MSI installer on every push to main and on release tags.
+#
+# Outputs:
+#   - Uploads MSI as a GitHub Actions artifact (all builds)
+#   - Attaches MSI to the GitHub Release when a v* tag is pushed
+#   - Generates SHA256 checksum file alongside the MSI
+#
+# After a successful build, extract winget metadata with:
+#   scripts/inspect-msi.ps1 -MsiPath <path-to-msi>
+#
+# Or manually:
+#   Get-FileHash .\Helix_0.1.0_x64_en-US.msi -Algorithm SHA256
+#   cargo tauri inspect wix-upgrade-code
+# =============================================================================
+
+name: Windows MSI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: windows-msi-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-msi:
+    name: Build Windows MSI
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install root npm dependencies
+        run: npm ci
+
+      - name: Install UI npm dependencies
+        run: npm ci
+        working-directory: ui
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+
+      - name: Build MSI
+        run: cargo tauri build --bundles msi
+
+      - name: Locate MSI output
+        id: msi
+        shell: pwsh
+        run: |
+          # Tauri outputs MSI files under src-tauri/target/release/bundle/msi/
+          $msiDir = "src-tauri/target/release/bundle/msi"
+          $msiFile = Get-ChildItem -Path $msiDir -Filter "*.msi" | Select-Object -First 1
+
+          if (-not $msiFile) {
+            Write-Error "No MSI file found in $msiDir"
+            exit 1
+          }
+
+          Write-Host "MSI found: $($msiFile.FullName)"
+          Write-Host "MSI name: $($msiFile.Name)"
+
+          # Generate SHA256 checksum
+          $hash = (Get-FileHash -Path $msiFile.FullName -Algorithm SHA256).Hash
+          $hashFile = "$($msiFile.FullName).sha256"
+          "$hash  $($msiFile.Name)" | Out-File -FilePath $hashFile -Encoding utf8 -NoNewline
+
+          # Extract version from tag or Cargo.toml
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ($version -match '^\d+\.\d+\.\d+') {
+            $version = $Matches[0]
+          } else {
+            # Fallback: read from Cargo.toml
+            $version = (Select-String -Path "src-tauri/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          }
+
+          echo "msi_path=$($msiFile.FullName)" >> $env:GITHUB_OUTPUT
+          echo "msi_name=$($msiFile.Name)" >> $env:GITHUB_OUTPUT
+          echo "msi_dir=$($msiFile.DirectoryName)" >> $env:GITHUB_OUTPUT
+          echo "sha256_file=$hashFile" >> $env:GITHUB_OUTPUT
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+          Write-Host "SHA256: $hash"
+          Write-Host "Version: $version"
+
+      - name: Get WiX Upgrade Code
+        id: wix
+        shell: pwsh
+        run: |
+          # Print the upgrade code derived from productName
+          $upgradeCode = cargo tauri inspect wix-upgrade-code 2>&1 | Select-String -Pattern '\{[0-9a-fA-F-]+\}'
+          if ($upgradeCode) {
+            echo "upgrade_code=$($upgradeCode.Matches.Value)" >> $env:GITHUB_OUTPUT
+            Write-Host "Upgrade Code: $($upgradeCode.Matches.Value)"
+          } else {
+            Write-Host "Could not extract upgrade code from tauri inspect"
+          }
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-player-msi-${{ steps.msi.outputs.version }}
+          path: |
+            ${{ steps.msi.outputs.msi_path }}
+            ${{ steps.msi.outputs.sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Output build summary
+        shell: pwsh
+        run: |
+          Write-Host "=========================================="
+          Write-Host "  Helix Player — Windows MSI Build Output"
+          Write-Host "=========================================="
+          Write-Host ""
+          Write-Host "MSI file:       ${{ steps.msi.outputs.msi_name }}"
+          Write-Host "Version:        ${{ steps.msi.outputs.version }}"
+          Write-Host "Upgrade Code:   ${{ steps.wix.outputs.upgrade_code }}"
+          Write-Host ""
+          Write-Host "To complete winget manifests, you need:"
+          Write-Host "  1. SHA256:     see .sha256 file in artifact"
+          Write-Host "  2. ProductCode:  run scripts/inspect-msi.ps1 -MsiPath <path>"
+          Write-Host "  3. UpgradeCode:  ${{ steps.wix.outputs.upgrade_code }}"
+          Write-Host ""
+
+      # Attach MSI to GitHub Release when building from a version tag
+      - name: Upload MSI to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.msi.outputs.msi_path }}
+            ${{ steps.msi.outputs.sha256_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

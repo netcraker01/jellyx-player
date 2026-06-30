@@ -164,44 +164,55 @@ If Helix gains traction, consider submitting to the official homebrew/cask repo 
 ### Accounts needed
 - **GitHub account** (to fork winget-pkgs and open a PR)
 
+### Build the MSI
+
+The MSI is built by the **Windows MSI** GitHub Actions workflow (`.github/workflows/windows-msi.yml`):
+
+| Trigger | Behavior |
+|---|---|
+| Push to `main` | Builds MSI, uploads as artifact (30-day retention) |
+| Push of `v*` tag | Builds MSI, attaches to GitHub Release |
+| PR to `main` | Builds MSI (validation only, no release) |
+
+Local builds require a Windows host with the WiX Toolset (Tauri bundles it automatically). See `scripts/build.sh windows` for details.
+
 ### Steps
-1. Build the MSI and extract metadata:
+
+1. **Get the MSI** from CI:
+   - Push a version tag (`git tag v0.1.0 && git push origin v0.1.0`)
+   - Download the MSI from the GitHub Release, **or** from the Actions artifact
+   - The workflow also generates a `.sha256` checksum file
+
+2. **Extract metadata** from the MSI:
    ```powershell
-   # Build
-   .\scripts\build.sh windows
-   # Or: cargo tauri build --bundles msi
+   # Automated extraction (outputs SHA256, ProductCode, UpgradeCode):
+   .\scripts\inspect-msi.ps1 -MsiPath .\Helix_0.1.0_x64_en-US.msi
 
-   # Get SHA256
+   # Manual alternatives:
    Get-FileHash .\Helix_0.1.0_x64_en-US.msi -Algorithm SHA256
-
-   # Get product code (after installing the MSI)
-   Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" |
-     Where-Object { $_.DisplayName -like "*Helix*" } |
-     Select-Object PSChildName, DisplayName, DisplayVersion
+   cargo tauri inspect wix-upgrade-code
    ```
 
-2. Update manifest files in `packaging/winget/manifests/`:
+3. **Update manifest files** in `packaging/winget/manifests/`:
    - `netcraker01.helix-player.installer.yaml` — set InstallerUrl, InstallerSha256, ProductCode, UpgradeCode
    - `netcraker01.helix-player.locale.en-US.yaml` — set version and release notes
    - `netcraker01.helix-player.version.yaml` — set version
+   - `netcraker01.helix-player.yaml` — set version
 
-3. Validate locally:
+4. **Validate locally**:
    ```powershell
    winget validate packaging\winget\manifests\
    ```
 
-4. Submit:
+5. **Submit**:
    - Fork https://github.com/microsoft/winget-pkgs
-   - Create `manifests/n/netcraker01/helix-player/0.1.0/` with all YAML files
+   - Create `manifests/n/netcraker01/helix-player/<version>/` with all YAML files
    - Open a PR against microsoft/winget-pkgs
 
-5. Automate with GitHub Actions:
-   - Use https://github.com/vedantmgoyal2009/winget-releaser to auto-create winget PRs on GitHub release
-
-### Notes
-- Package ID: `netcraker01.helix-player` (follows `publisher.package-name` convention)
-- WebView2 is declared as a dependency (ships with Windows 11, optional for Windows 10)
-- MSI is built via Tauri's WiX integration
+### Important notes
+- The **UpgradeCode** is pinned in `src-tauri/tauri.conf.json` (`bundle.windows.wix.upgradeCode`). It must stay the same across ALL versions — changing it breaks upgrade detection.
+- The MSI filename follows the pattern `Helix_<version>_x64_en-US.msi` (derived from `productName` in `tauri.conf.json`).
+- See `packaging/winget/NOTES.md` for the full reference.
 
 ---
 
@@ -227,13 +238,18 @@ NO_STRIP=1 cargo tauri build --bundles appimage
 
 ### CI integration (GitHub Actions)
 
-Example workflow for automated releases:
+The **Windows MSI** workflow (`.github/workflows/windows-msi.yml`) builds the MSI automatically:
 
 ```yaml
-# .github/workflows/release.yml (suggested, not yet created)
-- name: Build AppImage
-  run: NO_STRIP=1 cargo tauri build --bundles appimage
+# Triggers:
+#   - Push to main (artifact only, 30-day retention)
+#   - Push of v* tag (attaches MSI to GitHub Release)
+#   - PR to main (validation build)
 ```
+
+For Linux and macOS builds, create a separate release workflow or extend the existing one.
+The current workflow focuses on Windows because it requires a Windows runner and cannot
+be built on Linux.
 
 ---
 
@@ -246,6 +262,8 @@ When cutting a new release, update these placeholders:
 - [ ] `packaging/flatpak/com.helix.music.metainfo.xml` — `<release>` entry
 - [ ] `packaging/homebrew/Casks/helix-player.rb` — `version`, `sha256`, `url`
 - [ ] `packaging/winget/manifests/*.yaml` — `PackageVersion`, `InstallerSha256`, `InstallerUrl`, `ProductCode`
+- [ ] Run `scripts/inspect-msi.ps1` on the built MSI to extract ProductCode and UpgradeCode
+- [ ] Submit winget-pkgs PR with updated manifests
 - [ ] Regenerate `cargo-sources.json` for Flatpak (if dependencies changed)
 - [ ] Push updated AUR PKGBUILD + .SRCINFO
 - [ ] Push updated Homebrew tap

@@ -61,9 +61,27 @@ case "$TARGET" in
 
   windows)
     echo "==> Building Windows .msi installer..."
-    cd "$PROJECT_ROOT"
-    cargo tauri build --bundles msi
-    echo "==> .msi build complete."
+    UNAME="$(uname -s)"
+    case "$UNAME" in
+      MINGW*|MSYS*|CYGWIN*)
+        cd "$PROJECT_ROOT"
+        cargo tauri build --bundles msi
+        echo "==> .msi build complete."
+        ;;
+      *)
+        echo "ERROR: Windows MSI requires a Windows host with WiX Toolset." >&2
+        echo "  Current OS: $UNAME" >&2
+        echo "" >&2
+        echo "  Options:" >&2
+        echo "    1. Run on a Windows machine or VM" >&2
+        echo "    2. Use the GitHub Actions workflow (.github/workflows/windows-msi.yml)" >&2
+        echo "       Push a v* tag to trigger a release build, or push to main for an artifact." >&2
+        echo "" >&2
+        echo "  After the CI build, download the MSI artifact from the Actions tab." >&2
+        echo "  Use scripts/inspect-msi.ps1 to extract winget metadata." >&2
+        exit 1
+        ;;
+    esac
     ;;
 
   all)

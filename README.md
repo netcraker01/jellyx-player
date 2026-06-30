@@ -64,8 +64,10 @@ brew install --cask helix-player
 
 | Channel | Status | Install |
 |---------|--------|---------|
-| **.msi** | ✅ Ready | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
+| **.msi** | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) (built by CI on `v*` tags) |
 | **winget** | 📦 Template ready | Manifest at `packaging/winget/` — not yet submitted |
+
+> **Local Windows builds** require a Windows host with WiX. On Linux/macOS, use the GitHub Actions workflow: push a `v*` tag to trigger an MSI build, or see `.github/workflows/windows-msi.yml`.
 
 **winget (once published):**
 ```powershell
@@ -112,7 +114,7 @@ cd helix
 ./scripts/build.sh linux-appimage   # AppImage (includes RELR workaround)
 ./scripts/build.sh linux-deb         # .deb package
 ./scripts/build.sh macos             # macOS .dmg
-./scripts/build.sh windows           # Windows .msi
+./scripts/build.sh windows           # Windows .msi (requires Windows host; use CI on Linux)
 
 # Development mode
 cargo tauri dev
@@ -239,7 +241,8 @@ helix/
 │   └── winget/          # winget manifests for Windows
 ├── scripts/             # Build helpers
 │   ├── build.sh         # Platform-aware build wrapper
-│   └── build-appimage.sh  # AppImage builder with RELR fix
+│   ├── build-appimage.sh  # AppImage builder with RELR fix
+│   └── inspect-msi.ps1  # Extract winget metadata from MSI
 ├── docs/                # Architecture & packaging docs
 ├── Cargo.toml           # Workspace root
 ├── LICENSE              # AGPL-3.0
