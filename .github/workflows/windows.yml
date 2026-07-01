@@ -91,6 +91,38 @@ jobs:
       - name: Build MSI and NSIS
         run: cargo tauri build --bundles msi,nsis
 
+      # ---- Locate portable .exe (no installer) ----
+      - name: Locate portable exe
+        id: portable
+        shell: pwsh
+        run: |
+          $searchDirs = @(
+            "target/release",
+            "src-tauri/target/release"
+          )
+          $exeFile = $null
+          foreach ($dir in $searchDirs) {
+            if (Test-Path $dir) {
+              $candidate = Get-ChildItem -Path $dir -Filter "helix.exe" | Select-Object -First 1
+              if ($candidate) {
+                $exeFile = $candidate
+                break
+              }
+            }
+          }
+          if (-not $exeFile) {
+            Write-Error "No portable helix.exe found in expected directories: $($searchDirs -join ', ')"
+            exit 1
+          }
+          Write-Host "Portable exe found: $($exeFile.FullName)"
+          $hash = (Get-FileHash -Path $exeFile.FullName -Algorithm SHA256).Hash
+          $hashFile = "$($exeFile.FullName).sha256"
+          "$hash  $($exeFile.Name)" | Out-File -FilePath $hashFile -Encoding utf8 -NoNewline
+          echo "exe_path=$($exeFile.FullName)" >> $env:GITHUB_OUTPUT
+          echo "exe_name=$($exeFile.Name)" >> $env:GITHUB_OUTPUT
+          echo "sha256_file=$hashFile" >> $env:GITHUB_OUTPUT
+          Write-Host "SHA256: $hash"
+
       # ---- Locate and process MSI ----
       - name: Locate MSI output
         id: msi
@@ -229,6 +261,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload portable exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-player-portable-${{ steps.msi.outputs.version }}
+          path: |
+            ${{ steps.portable.outputs.exe_path }}
+            ${{ steps.portable.outputs.sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
       # ---- Build summary ----
       - name: Output build summary
         shell: pwsh
@@ -275,5 +317,15 @@ jobs:
           files: |
             ${{ steps.nsis.outputs.nsis_path }}
             ${{ steps.nsis.outputs.nsis_sha256_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload portable exe to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.portable.outputs.exe_path }}
+            ${{ steps.portable.outputs.sha256_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
