@@ -751,7 +751,8 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         if normalize_enabled {
             let norm_part = cache_dir.join(format!("{}{}.norm.part", safe_id, suffix));
             let _ = std::fs::remove_file(&norm_part);
-            let ffmpeg_result = std::process::Command::new("ffmpeg")
+            let mut ffmpeg_cmd = std::process::Command::new("ffmpeg");
+            ffmpeg_cmd
                 .arg("-y")
                 .arg("-i")
                 .arg(&part_path)
@@ -761,8 +762,9 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                 .arg("aac")
                 .arg("-b:a")
                 .arg("128k")
-                .arg(&norm_part)
-                .output();
+                .arg(&norm_part);
+            let ffmpeg_result =
+                crate::shared::utils::no_window(&mut ffmpeg_cmd).output();
 
             match ffmpeg_result {
                 Ok(out) if out.status.success() && is_valid_m4a(&norm_part) => {

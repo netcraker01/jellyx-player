@@ -38,7 +38,15 @@ static YT_DLP_PATH: OnceLock<Result<String, SourceError>> = OnceLock::new();
 pub fn yt_dlp_command() -> Result<Command, SourceError> {
     let result = YT_DLP_PATH.get_or_init(ensure_yt_dlp);
     match result {
-        Ok(path) => Ok(Command::new(path)),
+        Ok(path) => {
+            // CREATE_NO_WINDOW is applied here so every caller (YouTube,
+            // SoundCloud resolvers, etc.) spawns yt-dlp without a visible
+            // console window on Windows. This is the single chokepoint for
+            // all yt-dlp subprocess spawns.
+            let mut cmd = Command::new(path);
+            crate::shared::utils::no_window(&mut cmd);
+            Ok(cmd)
+        }
         Err(e) => Err(e.clone()),
     }
 }
@@ -135,7 +143,9 @@ fn ensure_yt_dlp() -> Result<String, SourceError> {
     if let Ok(path) = managed_bin_path() {
         if path.exists() {
             // Probe it to make sure it's functional
-            if let Ok(output) = Command::new(&path).arg("--version").output() {
+            let mut cmd = Command::new(&path);
+            cmd.arg("--version");
+            if let Ok(output) = crate::shared::utils::no_window(&mut cmd).output() {
                 if output.status.success() {
                     return Ok(path.to_string_lossy().to_string());
                 }
@@ -152,7 +162,9 @@ fn ensure_yt_dlp() -> Result<String, SourceError> {
     // 2. Check bundled sidecar candidates
     let candidates = bundled_yt_dlp_candidates();
     for candidate in &candidates {
-        if let Ok(output) = Command::new(candidate).arg("--version").output() {
+        let mut cmd = Command::new(candidate);
+        cmd.arg("--version");
+        if let Ok(output) = crate::shared::utils::no_window(&mut cmd).output() {
             if output.status.success() {
                 return Ok(candidate.clone());
             }
@@ -160,7 +172,9 @@ fn ensure_yt_dlp() -> Result<String, SourceError> {
     }
 
     // 3. Check system PATH
-    if let Ok(output) = Command::new("yt-dlp").arg("--version").output() {
+    let mut cmd = Command::new("yt-dlp");
+    cmd.arg("--version");
+    if let Ok(output) = crate::shared::utils::no_window(&mut cmd).output() {
         if output.status.success() {
             return Ok("yt-dlp".to_string());
         }
@@ -254,7 +268,11 @@ fn download_yt_dlp() -> Result<String, SourceError> {
     }
 
     // Verify the download by running --version
-    let output = Command::new(&dest).arg("--version").output().map_err(|e| {
+    let mut verify_cmd = Command::new(&dest);
+    verify_cmd.arg("--version");
+    let output = crate::shared::utils::no_window(&mut verify_cmd)
+        .output()
+        .map_err(|e| {
         SourceError::DependencyMissing(format!(
             "Downloaded yt-dlp at '{}' but failed to execute it: {}. \
              The download may be corrupted. Try deleting '{}' and restarting.",
