@@ -32,8 +32,8 @@ Unlike browser-based players (which hit MSE limits and latency bugs), Helix runs
 |---------|--------|---------|
 | **AppImage** | ✅ Ready | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
 | **.deb / .rpm** | ✅ Ready | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
-| **Flatpak (Flathub)** | 📦 Template ready | Manifest at `packaging/flatpak/` — not yet submitted to Flathub |
-| **AUR** | 📦 Template ready | PKGBUILD at `packaging/aur/` — not yet published to AUR |
+| **Flatpak (Flathub)** | 🔄 Submission in revision | Manifest is prepared and a submission was attempted; currently being revised after reviewer feedback |
+| **AUR** | ⏸ Waiting on AUR registration | PKGBUILD is ready, but AUR account registration is currently disabled |
 
 **AppImage note:** Helix AppImages are built with `NO_STRIP=1` to preserve RELR relocation metadata. If you build from source, use `./scripts/build.sh linux-appimage` or `./scripts/build-appimage.sh` — do NOT use plain `cargo tauri build` for AppImage targets.
 
@@ -65,7 +65,7 @@ brew install --cask helix-player
 | Channel | Status | Install |
 |---------|--------|---------|
 | **.msi** | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) (built by CI on `v*` tags) |
-| **winget** | 📦 Template ready | Manifest at `packaging/winget/` — not yet submitted |
+| **winget** | 🔄 Submission in review | Submitted to winget-pkgs and currently under review |
 
 > **Local Windows builds** require a Windows host with WiX. On Linux/macOS, use the GitHub Actions workflow: push a `v*` tag to trigger an MSI build, or see `.github/workflows/windows-msi.yml`.
 
