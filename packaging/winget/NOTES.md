@@ -87,15 +87,21 @@ for existing installations.
 
 ## GitHub Actions Workflow
 
-The `.github/workflows/windows-msi.yml` workflow handles MSI builds:
+The `.github/workflows/windows.yml` workflow handles Windows builds:
 
 | Trigger | Behavior |
 |---|---|
-| Push to `main` | Builds MSI, uploads as artifact (30-day retention) |
-| Push of `v*` tag | Builds MSI, attaches to GitHub Release |
-| PR to `main` | Builds MSI (validation only, no release) |
+| Push to `main` | Builds MSI + NSIS, uploads as artifacts (30-day retention) |
+| Push of `v*` tag | Builds MSI + NSIS, attaches both to GitHub Release |
+| PR to `main` | Builds MSI + NSIS (validation only, no release) |
 
-The workflow also generates a `.sha256` checksum file alongside the MSI.
+Both artifacts include `.sha256` checksum files.
+
+The workflow builds two installer formats:
+- **MSI** (`Helix_<version>_x64_en-US.msi`) — for winget and managed installs
+- **NSIS setup.exe** (`Helix_<version>_x64-setup.exe`) — recommended for direct user installs
+
+winget manifests should reference the **MSI** installer type only.
 
 ## Automation (Future)
 

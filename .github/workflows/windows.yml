@@ -1,22 +1,25 @@
 # =============================================================================
-# Helix Player — Windows MSI Build
+# Helix Player — Windows Build (MSI + NSIS)
 # =============================================================================
-# Builds the Windows MSI installer on every push to main and on release tags.
+# Builds both Windows installer formats on every push to main and on release tags.
 #
 # Outputs:
-#   - Uploads MSI as a GitHub Actions artifact (all builds)
-#   - Attaches MSI to the GitHub Release when a v* tag is pushed
-#   - Generates SHA256 checksum file alongside the MSI
+#   - MSI installer (for winget and managed deployments)
+#   - NSIS setup.exe  (recommended for direct user installs)
+#   - SHA256 checksum files alongside each artifact
+#
+# Both artifacts are uploaded as GitHub Actions artifacts (30-day retention)
+# and attached to the GitHub Release when a v* tag is pushed.
 #
 # After a successful build, extract winget metadata with:
 #   scripts/inspect-msi.ps1 -MsiPath <path-to-msi>
 #
-# Or manually:
-#   Get-FileHash .\Helix_0.1.0_x64_en-US.msi -Algorithm SHA256
-#   cargo tauri inspect wix-upgrade-code
+# Code signing: See docs/code-signing.md for signtool / Azure Trusted Signing setup.
+# This workflow does NOT sign artifacts. Unsigned installers may trigger
+# Windows SmartScreen / Defender / org policy warnings on Windows 11.
 # =============================================================================
 
-name: Windows MSI
+name: Windows
 
 on:
   push:
@@ -26,15 +29,15 @@ on:
     branches: [main]
 
 concurrency:
-  group: windows-msi-${{ github.ref }}
+  group: windows-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-msi:
-    name: Build Windows MSI
+  build-windows:
+    name: Build Windows Installers
     runs-on: windows-latest
 
     steps:
@@ -82,15 +85,17 @@ jobs:
       - name: Install tauri-cli
         run: cargo install tauri-cli --locked
 
-      - name: Build MSI
-        run: cargo tauri build --bundles msi
+      # ---- Build both MSI and NSIS in one pass ----
+      # Tauri's bundler can produce both formats in a single invocation.
+      # Using --bundles msi,nsis builds the app once and packages it twice.
+      - name: Build MSI and NSIS
+        run: cargo tauri build --bundles msi,nsis
 
+      # ---- Locate and process MSI ----
       - name: Locate MSI output
         id: msi
         shell: pwsh
         run: |
-          # Tauri v2 bundle output is typically under target/release/bundle/msi/
-          # but some setups may use src-tauri/target/... Search both to be safe.
           $searchDirs = @(
             "target/release/bundle/msi",
             "src-tauri/target/release/bundle/msi"
@@ -113,7 +118,6 @@ jobs:
           }
 
           Write-Host "MSI found: $($msiFile.FullName)"
-          Write-Host "MSI name: $($msiFile.Name)"
 
           # Generate SHA256 checksum
           $hash = (Get-FileHash -Path $msiFile.FullName -Algorithm SHA256).Hash
@@ -125,7 +129,6 @@ jobs:
           if ($version -match '^\d+\.\d+\.\d+') {
             $version = $Matches[0]
           } else {
-            # Fallback: read from Cargo.toml
             $version = (Select-String -Path "src-tauri/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
           }
 
@@ -138,6 +141,52 @@ jobs:
           Write-Host "SHA256: $hash"
           Write-Host "Version: $version"
 
+      # ---- Locate and process NSIS setup.exe ----
+      - name: Locate NSIS output
+        id: nsis
+        shell: pwsh
+        run: |
+          $searchDirs = @(
+            "target/release/bundle/nsis",
+            "src-tauri/target/release/bundle/nsis"
+          )
+
+          $nsisFile = $null
+          foreach ($dir in $searchDirs) {
+            if (Test-Path $dir) {
+              # NSIS produces a setup .exe file
+              $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" | Select-Object -First 1
+              if (-not $candidate) {
+                # Fallback: any .exe in the nsis bundle dir (excluding the app executable)
+                $candidate = Get-ChildItem -Path $dir -Filter "*.exe" | Select-Object -First 1
+              }
+              if ($candidate) {
+                $nsisFile = $candidate
+                break
+              }
+            }
+          }
+
+          if (-not $nsisFile) {
+            Write-Error "No NSIS setup.exe found in expected directories: $($searchDirs -join ', ')"
+            exit 1
+          }
+
+          Write-Host "NSIS found: $($nsisFile.FullName)"
+
+          # Generate SHA256 checksum
+          $hash = (Get-FileHash -Path $nsisFile.FullName -Algorithm SHA256).Hash
+          $hashFile = "$($nsisFile.FullName).sha256"
+          "$hash  $($nsisFile.Name)" | Out-File -FilePath $hashFile -Encoding utf8 -NoNewline
+
+          echo "nsis_path=$($nsisFile.FullName)" >> $env:GITHUB_OUTPUT
+          echo "nsis_name=$($nsisFile.Name)" >> $env:GITHUB_OUTPUT
+          echo "nsis_dir=$($nsisFile.DirectoryName)" >> $env:GITHUB_OUTPUT
+          echo "nsis_sha256_file=$hashFile" >> $env:GITHUB_OUTPUT
+
+          Write-Host "SHA256: $hash"
+
+      # ---- Inspect MSI metadata (for winget) ----
       - name: Inspect MSI metadata
         id: inspect
         shell: pwsh
@@ -150,7 +199,6 @@ jobs:
         id: wix
         shell: pwsh
         run: |
-          # Print the upgrade code derived from productName
           $upgradeCode = cargo tauri inspect wix-upgrade-code 2>&1 | Select-String -Pattern '\{[0-9a-fA-F-]+\}'
           if ($upgradeCode) {
             echo "upgrade_code=$($upgradeCode.Matches.Value)" >> $env:GITHUB_OUTPUT
@@ -159,6 +207,7 @@ jobs:
             Write-Host "Could not extract upgrade code from tauri inspect"
           }
 
+      # ---- Upload artifacts ----
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
@@ -170,24 +219,45 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload NSIS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-player-setup-${{ steps.msi.outputs.version }}
+          path: |
+            ${{ steps.nsis.outputs.nsis_path }}
+            ${{ steps.nsis.outputs.nsis_sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      # ---- Build summary ----
       - name: Output build summary
         shell: pwsh
         run: |
           Write-Host "=========================================="
-          Write-Host "  Helix Player — Windows MSI Build Output"
+          Write-Host "  Helix Player — Windows Build Output"
           Write-Host "=========================================="
           Write-Host ""
           Write-Host "MSI file:       ${{ steps.msi.outputs.msi_name }}"
+          Write-Host "NSIS file:      ${{ steps.nsis.outputs.nsis_name }}"
           Write-Host "Version:        ${{ steps.msi.outputs.version }}"
           Write-Host "Upgrade Code:   ${{ steps.wix.outputs.upgrade_code }}"
           Write-Host ""
-          Write-Host "To complete winget manifests, you need:"
-          Write-Host "  1. SHA256:      see .sha256 file in artifact"
-          Write-Host "  2. ProductCode: see msi-metadata.txt in artifact"
-          Write-Host "  3. UpgradeCode: see msi-metadata.txt in artifact"
+          Write-Host "Installers:"
+          Write-Host "  • MSI  → for winget and managed installs"
+          Write-Host "  • NSIS → recommended for direct user installs"
+          Write-Host ""
+          Write-Host "For winget manifests, you need:"
+          Write-Host "  1. SHA256:      see .sha256 file in MSI artifact"
+          Write-Host "  2. ProductCode: see msi-metadata.txt in MSI artifact"
+          Write-Host "  3. UpgradeCode: see msi-metadata.txt in MSI artifact"
+          Write-Host ""
+          Write-Host "NOTE: These installers are UNSIGNED."
+          Write-Host "  Unsigned installers may trigger Windows SmartScreen,"
+          Write-Host "  Defender, or org policy warnings on Windows 11."
+          Write-Host "  See docs/code-signing.md for code signing setup."
           Write-Host ""
 
-      # Attach MSI to GitHub Release when building from a version tag
+      # ---- Attach both to GitHub Release on tag ----
       - name: Upload MSI to Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
@@ -195,5 +265,15 @@ jobs:
           files: |
             ${{ steps.msi.outputs.msi_path }}
             ${{ steps.msi.outputs.sha256_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload NSIS setup.exe to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.nsis.outputs.nsis_path }}
+            ${{ steps.nsis.outputs.nsis_sha256_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

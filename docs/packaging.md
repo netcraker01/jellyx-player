@@ -14,7 +14,8 @@ This document explains what accounts, credentials, and steps are needed to publi
 | AUR | `packaging/aur/` | AUR SSH key | `git push` to aur.archlinux.org |
 | Homebrew Cask | `packaging/homebrew/` | GitHub account | Create `homebrew-helix` tap repo |
 | winget | `packaging/winget/` | GitHub account | PR to microsoft/winget-pkgs |
-| AppImage / .deb / .rpm / .dmg / .msi | (Tauri build) | GitHub account | GitHub Releases (CI) |
+| Windows NSIS | (Tauri build) | — | GitHub Releases (CI) |
+| Windows MSI | (Tauri build) | — | GitHub Releases (CI) + winget |
 
 ---
 
@@ -199,17 +200,31 @@ If Helix gains enough traction, consider submitting to the official homebrew/cas
 ### Accounts needed
 - **GitHub account** (to fork winget-pkgs and open a PR)
 
-### Build the MSI
+### Build the MSI and NSIS setup.exe
 
-The MSI is built by the **Windows MSI** GitHub Actions workflow (`.github/workflows/windows-msi.yml`):
+The **Windows** GitHub Actions workflow (`.github/workflows/windows.yml`) builds both Windows installer formats:
 
 | Trigger | Behavior |
 |---|---|
-| Push to `main` | Builds MSI, uploads as artifact (30-day retention) |
-| Push of `v*` tag | Builds MSI, attaches to GitHub Release |
-| PR to `main` | Builds MSI (validation only, no release) |
+| Push to `main` | Builds MSI + NSIS, uploads as artifacts (30-day retention) |
+| Push of `v*` tag | Builds MSI + NSIS, attaches both to GitHub Release |
+| PR to `main` | Builds MSI + NSIS (validation only, no release) |
 
-Local builds require a Windows host with the WiX Toolset (Tauri bundles it automatically). See `scripts/build.sh windows` for details.
+| Artifact | Format | Purpose |
+|----------|--------|---------|
+| `Helix_<version>_x64_en-US.msi` | MSI | winget and managed installs |
+| `Helix_<version>_x64-setup.exe` | NSIS | Direct user installs (recommended) |
+
+Both artifacts include a `.sha256` checksum file.
+
+Local builds require a Windows host with the WiX Toolset and NSIS (Tauri bundles them automatically). See `scripts/build.sh windows` for details.
+
+### Why two installers?
+
+- **MSI** — required by winget, suitable for enterprise/managed deployments, supports transforms and Group Policy.
+- **NSIS setup.exe** — friendlier UX for direct user installs: language selector, per-machine install option, better error messages. **Recommended for non-technical users.**
+
+Both are unsigned by default. See [Code Signing](#6-code-signing-windows) for how to sign them.
 
 ### Steps
 
@@ -247,11 +262,105 @@ Local builds require a Windows host with the WiX Toolset (Tauri bundles it autom
 ### Important notes
 - The **UpgradeCode** is pinned in `src-tauri/tauri.conf.json` (`bundle.windows.wix.upgradeCode`). It must stay the same across ALL versions — changing it breaks upgrade detection.
 - The MSI filename follows the pattern `Helix_<version>_x64_en-US.msi` (derived from `productName` in `tauri.conf.json`).
+- The NSIS filename follows the pattern `Helix_<version>_x64-setup.exe`.
+- winget manifests should reference the **MSI** installer type, not NSIS. The NSIS setup.exe is for direct user installs only.
 - See `packaging/winget/NOTES.md` for the full reference.
 
 ---
 
-## 5. AppImage / .deb / .rpm / .dmg / .msi (GitHub Releases)
+## 5. Windows Code Signing
+
+> **Unsigned Windows installers will trigger warnings.** Windows 11 SmartScreen, Windows Defender, and organization policies may block or warn about unsigned installers. Code signing is **strongly recommended** for any public distribution and **effectively required** for a smooth user experience on Windows 11.
+
+### Why signing matters
+
+On Windows 11, unsigned installers face:
+- **SmartScreen** — "Windows protected your PC" blue popup that requires "More info" → "Run anyway"
+- **Smart App Control** — blocks unsigned apps entirely when enabled (common on new Windows 11 installs)
+- **Enterprise policies** — many organizations block unsigned installers via Group Policy
+- **Reputation** — even after signing, new certificates need reputation before SmartScreen stops warning users
+
+### Signing approaches
+
+| Approach | Cost | SmartScreen | Notes |
+|----------|------|-------------|-------|
+| **EV certificate (hardware token)** | $200–400/year | Immediate trust | Best option; requires hardware token; SmartScreen trusts immediately |
+| **Standard code signing cert** | $70–200/year | Needs reputation | Works but SmartScreen warns until reputation is built |
+| **Azure Trusted Signing** | Pay-per-use | Immediate trust (Microsoft-managed) | New service; see below |
+
+### Azure Trusted Signing (recommended)
+
+Azure Trusted Signing is Microsoft's cloud signing service. It signs with a Microsoft-managed EV certificate, so SmartScreen trusts your installer immediately.
+
+1. **Create an Azure Trusted Signing account** at https://trustedsigning.azure.com
+2. **Create a signing profile** with your app identity
+3. **Add signing to CI** — add a step to the Windows workflow:
+
+```yaml
+# After building, before uploading artifacts:
+- name: Sign Windows installers
+  shell: pwsh
+  run: |
+    # Install Azure Trusted Signing CLI
+    dotnet tool install --global Azure.CodeSigning.Cli
+
+    # Sign MSI and NSIS
+    $env:ACS_CORRELATION_ID = "${{ github.run_id }}"
+    azcodesign sign -c $env:AZURE_TRUSTED_SIGNING_CONFIG `
+                    -p $env:AZURE_TRUSTED_SIGNING_PROFILE `
+                    -e $env:AZURE_TRUSTED_SIGNING_ENDPOINT `
+                    "${{ steps.msi.outputs.msi_path }}"
+    azcodesign sign -c $env:AZURE_TRUSTED_SIGNING_CONFIG `
+                    -p $env:AZURE_TRUSTED_SIGNING_PROFILE `
+                    -e $env:AZURE_TRUSTED_SIGNING_ENDPOINT `
+                    "${{ steps.nsis.outputs.nsis_path }}"
+  env:
+    AZURE_TRUSTED_SIGNING_CONFIG: ${{ secrets.AZURE_TRUSTED_SIGNING_CONFIG }}
+    AZURE_TRUSTED_SIGNING_PROFILE: ${{ secrets.AZURE_TRUSTED_SIGNING_PROFILE }}
+    AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+```
+
+4. **Store secrets** in GitHub repository settings → Secrets and variables → Actions:
+   - `AZURE_TRUSTED_SIGNING_CONFIG`
+   - `AZURE_TRUSTED_SIGNING_PROFILE`
+   - `AZURE_TRUSTED_SIGNING_ENDPOINT`
+
+### signtool (self-managed certificate)
+
+If using a traditional code signing certificate (EV or standard):
+
+```powershell
+# Sign with signtool (Windows SDK)
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+  /a "path\to\Helix_0.1.0_x64_en-US.msi"
+
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+  /a "path\to\Helix_0.1.0_x64-setup.exe"
+```
+
+For EV certificates on hardware tokens, signing must be done on a machine with the token attached — use a self-hosted GitHub Actions runner or sign locally before release.
+
+### Tauri signCommand (alternative)
+
+Tauri supports automatic signing via `bundle.windows.signCommand` in `tauri.conf.json`:
+
+```json
+{
+  "bundle": {
+    "windows": {
+      "signCommand": "signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a \"$1\""
+    }
+  }
+}
+```
+
+When `signCommand` is set, Tauri runs it on each bundle artifact after creation. This is convenient for self-hosted runners with certificates installed.
+
+**Do not commit real signing commands with secrets.** Use environment variables or CI secrets for certificate paths and passwords.
+
+---
+
+## 6. AppImage / .deb / .rpm / .dmg / Windows (GitHub Releases)
 
 These are built automatically by Tauri's bundler and attached to GitHub Releases by CI workflows. No separate account is needed beyond a GitHub account for releases.
 
@@ -275,7 +384,8 @@ NO_STRIP=1 cargo tauri build --bundles appimage
 
 | Artifact | Workflow | Runner | Trigger |
 |----------|----------|--------|---------|
-| **Windows MSI** | `.github/workflows/windows-msi.yml` | `windows-latest` | Push to main, `v*` tags, PRs |
+| **Windows MSI** | `.github/workflows/windows.yml` | `windows-latest` | Push to main, `v*` tags, PRs |
+| **Windows NSIS setup.exe** | `.github/workflows/windows.yml` | `windows-latest` | Push to main, `v*` tags, PRs |
 | **macOS DMG (Apple Silicon)** | `.github/workflows/macos-dmg.yml` | `macos-14` (M1) | Push to main, `v*` tags, PRs |
 | **macOS DMG (Intel)** | `.github/workflows/macos-dmg.yml` | `macos-13` | Push to main, `v*` tags, PRs |
 
@@ -297,6 +407,8 @@ When cutting a new release, update these placeholders:
 - [ ] `packaging/winget/manifests/*.yaml` — `PackageVersion`, `InstallerSha256`, `InstallerUrl`, `ProductCode`
 - [ ] Download `.sha256` files from the macOS DMG CI artifacts for both architectures
 - [ ] Run `scripts/inspect-msi.ps1` on the built MSI to extract ProductCode and UpgradeCode
+- [ ] Sign Windows installers (MSI + NSIS) — see [Code Signing](#6-code-signing-windows) section
+- [ ] Upload signed MSI + NSIS to GitHub Release (replace unsigned artifacts if signing locally)
 - [ ] Submit winget-pkgs PR with updated manifests
 - [ ] Regenerate `cargo-sources.json` for Flatpak (if dependencies changed)
 - [ ] Push updated AUR PKGBUILD + .SRCINFO

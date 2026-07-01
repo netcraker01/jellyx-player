@@ -65,17 +65,19 @@ brew install --cask helix-player
 
 ### Windows
 
-| Channel | Status | Install |
-|---------|--------|---------|
-| **.msi** | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) (built by CI on `v*` tags) |
-| **winget** | 🔄 Submission in review | Submitted to winget-pkgs and currently under review |
+| Channel | Format | Status | Install |
+|---------|--------|--------|---------|
+| **Direct install (recommended)** | `.exe` (NSIS) | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
+| **winget** | `.msi` | 🔄 Submission in review | `winget install netcraker01.helix-player` |
+| **Managed / enterprise** | `.msi` | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
 
-> **Local Windows builds** require a Windows host with WiX. On Linux/macOS, use the GitHub Actions workflow: push a `v*` tag to trigger an MSI build, or see `.github/workflows/windows-msi.yml`.
+> **Which Windows installer should I use?**
+> - **NSIS setup.exe** — Recommended for most users. Friendlier installer with language selection and better error messages.
+> - **MSI** — For winget installs and enterprise/managed deployments. Required format for winget.
 
-**winget (once published):**
-```powershell
-winget install netcraker01.helix-player
-```
+> ⚠️ **Windows signing warning:** These installers are **unsigned**. Windows 11 may show a "Windows protected your PC" SmartScreen warning, and organizations with restrictive policies may block them. Click **More info → Run anyway** to proceed. For a smoother experience, code signing is needed — see [docs/packaging.md](docs/packaging.md) for details.
+
+> **Local Windows builds** require a Windows host with WiX. On Linux/macOS, use the GitHub Actions workflow: push a `v*` tag to trigger a build, or see `.github/workflows/windows.yml`.
 
 > 📦 **"Template ready"** means the packaging files exist in this repo and are maintained, but haven't been submitted to the respective package registry yet. See [Packaging](#packaging) for details.
 
@@ -166,6 +168,8 @@ This repo contains packaging scaffolds for distributing Helix through native pac
 | AUR | `packaging/aur/` | 📦 PKGBUILD ready, needs AUR account |
 | Homebrew Cask | `packaging/homebrew/` | 📦 Cask ready, needs first DMG release + Homebrew tap |
 | winget | `packaging/winget/` | 📦 Manifests ready, needs winget-pkgs PR |
+| Windows NSIS | (Tauri build) | 🔧 CI-built, direct user install |
+| Windows MSI | (Tauri build) | 🔧 CI-built, winget + enterprise |
 
 See [`docs/packaging.md`](docs/packaging.md) for maintainer instructions on publishing each channel.
 
@@ -233,7 +237,7 @@ helix/
 │   │   ├── visualizer/  # FFT → WGPU rendering
 │   │   └── ...
 │   ├── Cargo.toml
-│   └── tauri.conf.json
+│   └── tauri.conf.json  # Tauri config (bundle targets: MSI + NSIS)
 ├── ui/                  # Svelte frontend
 │   ├── src/
 │   └── package.json

@@ -13,7 +13,9 @@
 #   linux-deb         Build Linux .deb package
 #   linux-rpm         Build Linux .rpm package
 #   macos             Build macOS .dmg bundle
-#   windows           Build Windows .msi installer
+#   windows           Build Windows .msi + NSIS setup.exe
+#   windows-msi       Build Windows .msi only
+#   windows-nsis      Build Windows NSIS setup.exe only
 #   all               Build all targets for the current platform
 #   (empty)           Same as "all"
 #
@@ -60,7 +62,32 @@ case "$TARGET" in
     ;;
 
   windows)
-    echo "==> Building Windows .msi installer..."
+    echo "==> Building Windows .msi + NSIS setup.exe..."
+    UNAME="$(uname -s)"
+    case "$UNAME" in
+      MINGW*|MSYS*|CYGWIN*)
+        cd "$PROJECT_ROOT"
+        cargo tauri build --bundles msi,nsis
+        echo "==> Windows build complete (MSI + NSIS)."
+        ;;
+      *)
+        echo "ERROR: Windows builds require a Windows host with WiX Toolset." >&2
+        echo "  Current OS: $UNAME" >&2
+        echo "" >&2
+        echo "  Options:" >&2
+        echo "    1. Run on a Windows machine or VM" >&2
+        echo "    2. Use the GitHub Actions workflow (.github/workflows/windows.yml)" >&2
+        echo "       Push a v* tag to trigger a release build, or push to main for an artifact." >&2
+        echo "" >&2
+        echo "  After the CI build, download the MSI and NSIS artifacts from the Actions tab." >&2
+        echo "  Use scripts/inspect-msi.ps1 to extract winget metadata." >&2
+        exit 1
+        ;;
+    esac
+    ;;
+
+  windows-msi)
+    echo "==> Building Windows .msi installer only..."
     UNAME="$(uname -s)"
     case "$UNAME" in
       MINGW*|MSYS*|CYGWIN*)
@@ -70,15 +97,22 @@ case "$TARGET" in
         ;;
       *)
         echo "ERROR: Windows MSI requires a Windows host with WiX Toolset." >&2
-        echo "  Current OS: $UNAME" >&2
-        echo "" >&2
-        echo "  Options:" >&2
-        echo "    1. Run on a Windows machine or VM" >&2
-        echo "    2. Use the GitHub Actions workflow (.github/workflows/windows-msi.yml)" >&2
-        echo "       Push a v* tag to trigger a release build, or push to main for an artifact." >&2
-        echo "" >&2
-        echo "  After the CI build, download the MSI artifact from the Actions tab." >&2
-        echo "  Use scripts/inspect-msi.ps1 to extract winget metadata." >&2
+        exit 1
+        ;;
+    esac
+    ;;
+
+  windows-nsis)
+    echo "==> Building Windows NSIS setup.exe only..."
+    UNAME="$(uname -s)"
+    case "$UNAME" in
+      MINGW*|MSYS*|CYGWIN*)
+        cd "$PROJECT_ROOT"
+        cargo tauri build --bundles nsis
+        echo "==> NSIS setup.exe build complete."
+        ;;
+      *)
+        echo "ERROR: Windows NSIS requires a Windows host." >&2
         exit 1
         ;;
     esac
@@ -110,7 +144,7 @@ case "$TARGET" in
 
   *)
     echo "ERROR: Unknown target: $TARGET" >&2
-    echo "Valid targets: linux-appimage, linux-deb, linux-rpm, macos, windows, all" >&2
+    echo "Valid targets: linux-appimage, linux-deb, linux-rpm, macos, windows, windows-msi, windows-nsis, all" >&2
     exit 1
     ;;
 esac
