@@ -36,14 +36,14 @@ AppsAndFeaturesEntries:
   - DisplayName: Helix Player
     Publisher: netcraker01
     DisplayVersion: "0.1.0"
-    ProductCode: "{REPLACE_WITH_WIX_PRODUCT_CODE}"
-    UpgradeCode: "{REPLACE_WITH_WIX_UPGRADE_CODE}"
+    ProductCode: "{5D94C021-6FA6-4482-B427-2C427D30F3AF}"
+    UpgradeCode: "{E7B2A9F0-3C4D-5E6F-8A1B-2C3D4E5F6A7B}"
 Installers:
   - Architecture: x64
     InstallerType: wix
     InstallerUrl: https://github.com/netcraker01/helix/releases/download/v0.1.0/Helix_0.1.0_x64_en-US.msi
-    InstallerSha256: REPLACE_WITH_ACTUAL_SHA256_X64
-    ProductCode: "{REPLACE_WITH_WIX_PRODUCT_CODE}"
+    InstallerSha256: 2704DCD4695E701ECD87596C7A4FD4AA876488781066FB8106328D1D125FEA28
+    ProductCode: "{5D94C021-6FA6-4482-B427-2C427D30F3AF}"
   # Uncomment when shipping ARM64 builds:
   # - Architecture: arm64
   #   InstallerType: wix
