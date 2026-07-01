@@ -1,22 +1,26 @@
 # =============================================================================
-# Helix Player — Windows Build (MSI + NSIS)
+# Helix Player — Windows Build (CI validation)
 # =============================================================================
-# Builds both Windows installer formats on every push to main and on release tags.
+# Builds both Windows installer formats on every push to main and on PRs.
+# This is CI validation only — it produces artifacts for review, NOT release.
+#
+# The release pipeline lives in .github/workflows/release.yml, which is the
+# single source of truth for publishing (triggers on v* tags and attaches
+# artifacts to the GitHub Release). This workflow does NOT run on tags, so
+# there is no duplicate-build race on release.
 #
 # Outputs:
 #   - MSI installer (for winget and managed deployments)
 #   - NSIS setup.exe  (recommended for direct user installs)
 #   - SHA256 checksum files alongside each artifact
 #
-# Both artifacts are uploaded as GitHub Actions artifacts (30-day retention)
-# and attached to the GitHub Release when a v* tag is pushed.
-#
 # After a successful build, extract winget metadata with:
 #   scripts/inspect-msi.ps1 -MsiPath <path-to-msi>
 #
-# Code signing: See docs/code-signing.md for signtool / Azure Trusted Signing setup.
-# This workflow does NOT sign artifacts. Unsigned installers may trigger
-# Windows SmartScreen / Defender / org policy warnings on Windows 11.
+# Code signing: See docs/packaging.md > "Windows Code Signing" for signtool /
+# Azure Trusted Signing setup. This workflow does NOT sign artifacts.
+# Unsigned installers may trigger Windows SmartScreen / Defender / org policy
+# warnings on Windows 11.
 # =============================================================================
 
 name: Windows
@@ -24,7 +28,6 @@ name: Windows
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -272,6 +275,8 @@ jobs:
           retention-days: 30
 
       # ---- Build summary ----
+      # NOTE: release publishing is handled by .github/workflows/release.yml.
+      # This CI workflow uploads artifacts only — no GitHub Release upload.
       - name: Output build summary
         shell: pwsh
         run: |
@@ -296,36 +301,5 @@ jobs:
           Write-Host "NOTE: These installers are UNSIGNED."
           Write-Host "  Unsigned installers may trigger Windows SmartScreen,"
           Write-Host "  Defender, or org policy warnings on Windows 11."
-          Write-Host "  See docs/code-signing.md for code signing setup."
+          Write-Host "  See docs/packaging.md for code signing setup."
           Write-Host ""
-
-      # ---- Attach both to GitHub Release on tag ----
-      - name: Upload MSI to Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ${{ steps.msi.outputs.msi_path }}
-            ${{ steps.msi.outputs.sha256_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload NSIS setup.exe to Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ${{ steps.nsis.outputs.nsis_path }}
-            ${{ steps.nsis.outputs.nsis_sha256_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload portable exe to Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ${{ steps.portable.outputs.exe_path }}
-            ${{ steps.portable.outputs.sha256_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

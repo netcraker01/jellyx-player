@@ -55,7 +55,7 @@ yay -S helix-player
 | **.dmg (Intel)** | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) (built by CI on `v*` tags) |
 | **Homebrew Cask** | 📦 Template ready | Cask at `packaging/homebrew/` — not yet in a tap |
 
-> The DMG is built automatically by the **macOS DMG** GitHub Actions workflow (`.github/workflows/macos-dmg.yml`), which produces separate builds for Apple Silicon (`macos-14`) and Intel (`macos-13`). Push a `v*` tag to trigger a release build, or see the workflow file for details.
+> The DMG is built automatically by the unified **Release** GitHub Actions workflow (`.github/workflows/release.yml`), which produces separate builds for Apple Silicon (`macos-14`) and Intel (`macos-13`). Push a `v*` tag to trigger a full release build across all platforms (see the [Release pipeline](#release-pipeline) section).
 
 **Homebrew (once published):**
 ```bash
@@ -77,9 +77,49 @@ brew install --cask helix-player
 
 > ⚠️ **Windows signing warning:** These installers are **unsigned**. Windows 11 may show a "Windows protected your PC" SmartScreen warning, and organizations with restrictive policies may block them. Click **More info → Run anyway** to proceed. For a smoother experience, code signing is needed — see [docs/packaging.md](docs/packaging.md) for details.
 
-> **Local Windows builds** require a Windows host with WiX. On Linux/macOS, use the GitHub Actions workflow: push a `v*` tag to trigger a build, or see `.github/workflows/windows.yml`.
+> **Local Windows builds** require a Windows host with WiX. On Linux/macOS, use the Release pipeline: push a `v*` tag to trigger a full release build (see `.github/workflows/release.yml`). The `windows.yml` workflow handles CI validation only.
 
 > 📦 **"Template ready"** means the packaging files exist in this repo and are maintained, but haven't been submitted to the respective package registry yet. See [Packaging](#packaging) for details.
+
+---
+
+## Release pipeline
+
+Helix uses a single unified release workflow: `.github/workflows/release.yml`. It is the single source of truth for publishing a new version.
+
+### How to publish a release
+
+```bash
+# 1. Bump the version in src-tauri/Cargo.toml and src-tauri/tauri.conf.json
+# 2. Commit and tag
+git tag v0.2.0
+git push origin v0.2.0
+# That's it. CI builds everything and attaches it to the GitHub Release.
+```
+
+### What happens on tag push
+
+Pushing a `v*` tag triggers three parallel jobs:
+
+| Job | Runner | Artifacts |
+|-----|--------|-----------|
+| **linux**   | `ubuntu-22.04`   | AppImage (`NO_STRIP=1`), `.deb`, `.rpm` |
+| **windows** | `windows-latest` | MSI, NSIS `setup.exe`, portable `helix.exe` |
+| **macos**   | `macos-14` + `macos-13` | DMG for Apple Silicon + Intel |
+
+Each job builds its artifacts, generates a `.sha256` checksum file alongside each, uploads them as workflow artifacts (30-day retention), and attaches them to the GitHub Release for the tag.
+
+### CI vs. release
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `release.yml`   | `v*` tag push | Full release: build + attach to GitHub Release |
+| `windows.yml`   | push to `main`, PRs | Windows CI validation (artifacts only, no release) |
+| `macos-dmg.yml` | push to `main`, PRs | macOS CI validation (artifacts only, no release) |
+
+The CI workflows do **not** run on tags — only `release.yml` does, so there's no duplicate-build race on release.
+
+After a release, follow the per-channel checklist in [`docs/packaging.md`](docs/packaging.md) to update Flatpak/AUR/Homebrew/winget manifests with the new version and checksums.
 
 ---
 

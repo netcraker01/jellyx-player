@@ -121,7 +121,7 @@ This document explains what accounts, credentials, and steps are needed to publi
 - **GitHub account** (to create the tap repository)
 
 ### Prerequisites
-- At least one macOS DMG must exist on a GitHub Release. The CI workflow (`.github/workflows/macos-dmg.yml`) builds both Apple Silicon (`aarch64`) and Intel (`x64`) DMGs on every `v*` tag push.
+- At least one macOS DMG must exist on a GitHub Release. The Release workflow (`.github/workflows/release.yml`) builds both Apple Silicon (`aarch64`) and Intel (`x64`) DMGs on every `v*` tag push.
 - The cask file at `packaging/homebrew/Casks/helix-player.rb` contains placeholder checksums that must be replaced with real values from the release artifacts.
 
 ### Steps
@@ -202,13 +202,13 @@ If Helix gains enough traction, consider submitting to the official homebrew/cas
 
 ### Build the MSI and NSIS setup.exe
 
-The **Windows** GitHub Actions workflow (`.github/workflows/windows.yml`) builds both Windows installer formats:
+The **Release** GitHub Actions workflow (`.github/workflows/release.yml`) builds both Windows installer formats on a `v*` tag push. The **Windows** workflow (`.github/workflows/windows.yml`) builds the same formats on push to `main` and PRs for CI validation (artifacts only, no release upload).
 
-| Trigger | Behavior |
-|---|---|
-| Push to `main` | Builds MSI + NSIS, uploads as artifacts (30-day retention) |
-| Push of `v*` tag | Builds MSI + NSIS, attaches both to GitHub Release |
-| PR to `main` | Builds MSI + NSIS (validation only, no release) |
+| Trigger | Workflow | Behavior |
+|---|---|---|
+| Push to `main` | `windows.yml` | Builds MSI + NSIS, uploads as artifacts (30-day retention) |
+| PR to `main` | `windows.yml` | Builds MSI + NSIS (validation only, no release) |
+| `v*` tag push | `release.yml` | Builds MSI + NSIS + portable, attaches all to GitHub Release |
 
 | Artifact | Format | Purpose |
 |----------|--------|---------|
@@ -384,15 +384,21 @@ NO_STRIP=1 cargo tauri build --bundles appimage
 
 | Artifact | Workflow | Runner | Trigger |
 |----------|----------|--------|---------|
-| **Windows MSI** | `.github/workflows/windows.yml` | `windows-latest` | Push to main, `v*` tags, PRs |
-| **Windows NSIS setup.exe** | `.github/workflows/windows.yml` | `windows-latest` | Push to main, `v*` tags, PRs |
-| **macOS DMG (Apple Silicon)** | `.github/workflows/macos-dmg.yml` | `macos-14` (M1) | Push to main, `v*` tags, PRs |
-| **macOS DMG (Intel)** | `.github/workflows/macos-dmg.yml` | `macos-13` | Push to main, `v*` tags, PRs |
+| **Windows MSI** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
+| **Windows NSIS setup.exe** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
+| **Windows portable helix.exe** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
+| **macOS DMG (Apple Silicon)** | `.github/workflows/release.yml` | `macos-14` (M1) | `v*` tag push (release) |
+| **macOS DMG (Intel)** | `.github/workflows/release.yml` | `macos-13` | `v*` tag push (release) |
+| **Linux AppImage** | `.github/workflows/release.yml` | `ubuntu-22.04` | `v*` tag push (release) |
+| **Linux .deb** | `.github/workflows/release.yml` | `ubuntu-22.04` | `v*` tag push (release) |
+| **Linux .rpm** | `.github/workflows/release.yml` | `ubuntu-22.04` | `v*` tag push (release) |
 
-All workflows:
-- Upload artifacts with 30-day retention on every push
-- Attach built artifacts to the GitHub Release when a `v*` tag is pushed
-- Generate `.sha256` checksum files alongside each artifact
+The release workflow (`.github/workflows/release.yml`) is the single source of truth for publishing. The CI validation workflows (`windows.yml`, `macos-dmg.yml`) run on push to `main` and PRs only — they upload artifacts for review but do not publish to the GitHub Release.
+
+All release workflows:
+- Build all platform artifacts in parallel
+- Upload artifacts with 30-day retention as workflow artifacts
+- Attach built artifacts + `.sha256` checksum files to the GitHub Release for the tag
 
 ---
 

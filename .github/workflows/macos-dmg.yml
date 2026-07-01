@@ -1,7 +1,13 @@
 # =============================================================================
-# Helix Player — macOS DMG Build
+# Helix Player — macOS DMG Build (CI validation)
 # =============================================================================
-# Builds the macOS DMG installer on every push to main and on release tags.
+# Builds the macOS DMG installer on every push to main and on PRs.
+# This is CI validation only — it produces artifacts for review, NOT release.
+#
+# The release pipeline lives in .github/workflows/release.yml, which is the
+# single source of truth for publishing (triggers on v* tags and attaches
+# artifacts to the GitHub Release). This workflow does NOT run on tags, so
+# there is no duplicate-build race on release.
 #
 # Architecture support:
 #   - macos-14 runner (Apple Silicon M1) → builds aarch64-apple-darwin
@@ -9,10 +15,9 @@
 #
 # Outputs:
 #   - Uploads DMG + SHA256 as GitHub Actions artifacts (all builds)
-#   - Attaches DMG + SHA256 to the GitHub Release when a v* tag is pushed
 #
 # After a successful release build, update the Homebrew cask with the
-# checksums from the uploaded .sha256 files.
+# checksums from the uploaded .sha256 files (see docs/packaging.md).
 # =============================================================================
 
 name: macOS DMG
@@ -20,7 +25,6 @@ name: macOS DMG
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -178,14 +182,5 @@ jobs:
           echo "  2. Update packaging/homebrew/Casks/helix-player.rb"
           echo "     with the version, URL, and SHA256 per architecture"
           echo ""
-
-      # Attach DMG to GitHub Release when building from a version tag
-      - name: Upload DMG to Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            ${{ steps.dmg.outputs.dmg_path }}
-            ${{ steps.dmg.outputs.sha256_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # NOTE: release publishing is handled by .github/workflows/release.yml.
+          # This CI workflow uploads artifacts only — no GitHub Release upload.

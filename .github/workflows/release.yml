@@ -1,0 +1,605 @@
+# =============================================================================
+# Helix Player — Unified Release Pipeline
+# =============================================================================
+# Single source of truth for publishing a new Helix release.
+#
+# Trigger: push of a version tag matching v* (e.g. v0.2.0)
+#
+# Three platform jobs run in parallel:
+#   - linux   → AppImage (NO_STRIP=1), .deb, .rpm
+#   - windows → MSI, NSIS setup.exe, portable helix.exe
+#   - macos   → DMG for aarch64 (Apple Silicon) + x86_64 (Intel)
+#
+# Each job:
+#   1. Builds its platform artifacts
+#   2. Generates SHA256 checksum files (.sha256 alongside each artifact)
+#   3. Uploads build artifacts to the workflow run (30-day retention)
+#   4. Attaches artifacts + checksums to the GitHub Release for the tag
+#
+# CI validation (push to main, PRs) is handled separately by:
+#   - .github/workflows/windows.yml
+#   - .github/workflows/macos-dmg.yml
+# Those workflows intentionally do NOT trigger on tags anymore — this file
+# owns the release path end to end.
+#
+# To publish a new release:
+#   git tag v0.2.0
+#   git push origin v0.2.0
+# That's it. This workflow builds everything and attaches it to the release.
+#
+# Note on code signing: Windows artifacts are UNSIGNED by default.
+# See docs/packaging.md > "Windows Code Signing" for Azure Trusted Signing
+# or signtool integration. Signing steps can be added to build-windows below.
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+# Required to create the GitHub Release and upload assets to it.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # Linux: AppImage + .deb + .rpm
+  # ---------------------------------------------------------------------------
+  # AppImage is built with NO_STRIP=1 to preserve RELR relocation metadata
+  # (see scripts/build-appimage.sh for the full rationale). Building on
+  # ubuntu-22.04 (not latest) maximizes glibc compatibility for the AppImage
+  # and .deb/.rpm targets across older distros.
+  build-linux:
+    name: Build Linux (AppImage, deb, rpm)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Tauri Linux system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            file
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install root npm dependencies
+        run: npm ci
+
+      - name: Install UI npm dependencies
+        run: npm ci
+        working-directory: ui
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+
+      # Build all three Linux bundle formats in one pass.
+      # NO_STRIP=1 prevents linuxdeploy from stripping RELR-enabled binaries,
+      # which would otherwise corrupt the AppImage at runtime.
+      - name: Build AppImage, .deb, .rpm
+        env:
+          NO_STRIP: "1"
+        run: cargo tauri build --bundles appimage,deb,rpm
+
+      # Locate each artifact, generate a SHA256 checksum next to it, and
+      # expose paths to later steps via $GITHUB_OUTPUT.
+      - name: Locate artifacts and generate checksums
+        id: artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_root="src-tauri/target/release/bundle"
+
+          # --- AppImage ---
+          appimage_file="$(find "$bundle_root/appimage" -name '*.AppImage' -type f 2>/dev/null | head -1)"
+          if [ -z "$appimage_file" ]; then
+            echo "ERROR: No AppImage found under $bundle_root/appimage" >&2
+            find "$bundle_root" -maxdepth 3 -type f >&2 || true
+            exit 1
+          fi
+          appimage_hash=$(sha256sum "$appimage_file" | cut -d' ' -f1)
+          appimage_hash_file="${appimage_file}.sha256"
+          echo "${appimage_hash}  $(basename "$appimage_file")" > "$appimage_hash_file"
+
+          # --- .deb ---
+          deb_file="$(find "$bundle_root/deb" -name '*.deb' -type f 2>/dev/null | head -1)"
+          if [ -z "$deb_file" ]; then
+            echo "ERROR: No .deb found under $bundle_root/deb" >&2
+            exit 1
+          fi
+          deb_hash=$(sha256sum "$deb_file" | cut -d' ' -f1)
+          deb_hash_file="${deb_file}.sha256"
+          echo "${deb_hash}  $(basename "$deb_file")" > "$deb_hash_file"
+
+          # --- .rpm ---
+          rpm_file="$(find "$bundle_root/rpm" -name '*.rpm' -type f 2>/dev/null | head -1)"
+          if [ -z "$rpm_file" ]; then
+            echo "ERROR: No .rpm found under $bundle_root/rpm" >&2
+            exit 1
+          fi
+          rpm_hash=$(sha256sum "$rpm_file" | cut -d' ' -f1)
+          rpm_hash_file="${rpm_file}.sha256"
+          echo "${rpm_hash}  $(basename "$rpm_file")" > "$rpm_hash_file"
+
+          # Version from the tag (strip leading 'v'); fall back to Cargo.toml.
+          version="${GITHUB_REF_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            version=$(grep '^version' src-tauri/Cargo.toml | head -1 | cut -d'"' -f2)
+          fi
+
+          {
+            echo "appimage_path=$appimage_file"
+            echo "appimage_name=$(basename "$appimage_file")"
+            echo "appimage_sha256_file=$appimage_hash_file"
+            echo "deb_path=$deb_file"
+            echo "deb_name=$(basename "$deb_file")"
+            echo "deb_sha256_file=$deb_hash_file"
+            echo "rpm_path=$rpm_file"
+            echo "rpm_name=$(basename "$rpm_file")"
+            echo "rpm_sha256_file=$rpm_hash_file"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "AppImage: $appimage_file  (sha256: $appimage_hash)"
+          echo "deb:      $deb_file  (sha256: $deb_hash)"
+          echo "rpm:      $rpm_file  (sha256: $rpm_hash)"
+          echo "Version:  $version"
+
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-linux-appimage-${{ steps.artifacts.outputs.version }}
+          path: |
+            ${{ steps.artifacts.outputs.appimage_path }}
+            ${{ steps.artifacts.outputs.appimage_sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-linux-deb-${{ steps.artifacts.outputs.version }}
+          path: |
+            ${{ steps.artifacts.outputs.deb_path }}
+            ${{ steps.artifacts.outputs.deb_sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload .rpm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-linux-rpm-${{ steps.artifacts.outputs.version }}
+          path: |
+            ${{ steps.artifacts.outputs.rpm_path }}
+            ${{ steps.artifacts.outputs.rpm_sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach Linux artifacts to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.artifacts.outputs.appimage_path }}
+            ${{ steps.artifacts.outputs.appimage_sha256_file }}
+            ${{ steps.artifacts.outputs.deb_path }}
+            ${{ steps.artifacts.outputs.deb_sha256_file }}
+            ${{ steps.artifacts.outputs.rpm_path }}
+            ${{ steps.artifacts.outputs.rpm_sha256_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # Windows: MSI + NSIS setup.exe + portable helix.exe
+  # ---------------------------------------------------------------------------
+  # Tauri builds both MSI and NSIS in one invocation (single build, packaged
+  # twice). The portable .exe is the raw release binary copied out of the
+  # target directory. MSI metadata is extracted for winget submission.
+  build-windows:
+    name: Build Windows (MSI, NSIS, portable)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install root npm dependencies
+        run: npm ci
+
+      - name: Install UI npm dependencies
+        run: npm ci
+        working-directory: ui
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+
+      # Single build pass produces both MSI and NSIS installers.
+      - name: Build MSI and NSIS
+        run: cargo tauri build --bundles msi,nsis
+
+      # Locate the raw release executable (no installer wrapper) and hash it.
+      - name: Locate portable exe
+        id: portable
+        shell: pwsh
+        run: |
+          $searchDirs = @(
+            "target/release",
+            "src-tauri/target/release"
+          )
+          $exeFile = $null
+          foreach ($dir in $searchDirs) {
+            if (Test-Path $dir) {
+              $candidate = Get-ChildItem -Path $dir -Filter "helix.exe" | Select-Object -First 1
+              if ($candidate) {
+                $exeFile = $candidate
+                break
+              }
+            }
+          }
+          if (-not $exeFile) {
+            Write-Error "No portable helix.exe found in expected directories: $($searchDirs -join ', ')"
+            exit 1
+          }
+          Write-Host "Portable exe found: $($exeFile.FullName)"
+          $hash = (Get-FileHash -Path $exeFile.FullName -Algorithm SHA256).Hash
+          $hashFile = "$($exeFile.FullName).sha256"
+          "$hash  $($exeFile.Name)" | Out-File -FilePath $hashFile -Encoding utf8 -NoNewline
+          echo "exe_path=$($exeFile.FullName)" >> $env:GITHUB_OUTPUT
+          echo "exe_name=$($exeFile.Name)" >> $env:GITHUB_OUTPUT
+          echo "sha256_file=$hashFile" >> $env:GITHUB_OUTPUT
+          Write-Host "SHA256: $hash"
+
+      - name: Locate MSI output
+        id: msi
+        shell: pwsh
+        run: |
+          $searchDirs = @(
+            "target/release/bundle/msi",
+            "src-tauri/target/release/bundle/msi"
+          )
+
+          $msiFile = $null
+          foreach ($dir in $searchDirs) {
+            if (Test-Path $dir) {
+              $candidate = Get-ChildItem -Path $dir -Filter "*.msi" | Select-Object -First 1
+              if ($candidate) {
+                $msiFile = $candidate
+                break
+              }
+            }
+          }
+
+          if (-not $msiFile) {
+            Write-Error "No MSI file found in expected directories: $($searchDirs -join ', ')"
+            exit 1
+          }
+
+          Write-Host "MSI found: $($msiFile.FullName)"
+
+          $hash = (Get-FileHash -Path $msiFile.FullName -Algorithm SHA256).Hash
+          $hashFile = "$($msiFile.FullName).sha256"
+          "$hash  $($msiFile.Name)" | Out-File -FilePath $hashFile -Encoding utf8 -NoNewline
+
+          # Extract version from tag or Cargo.toml.
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ($version -match '^\d+\.\d+\.\d+') {
+            $version = $Matches[0]
+          } else {
+            $version = (Select-String -Path "src-tauri/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          }
+
+          echo "msi_path=$($msiFile.FullName)" >> $env:GITHUB_OUTPUT
+          echo "msi_name=$($msiFile.Name)" >> $env:GITHUB_OUTPUT
+          echo "msi_dir=$($msiFile.DirectoryName)" >> $env:GITHUB_OUTPUT
+          echo "sha256_file=$hashFile" >> $env:GITHUB_OUTPUT
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+          Write-Host "SHA256: $hash"
+          Write-Host "Version: $version"
+
+      - name: Locate NSIS output
+        id: nsis
+        shell: pwsh
+        run: |
+          $searchDirs = @(
+            "target/release/bundle/nsis",
+            "src-tauri/target/release/bundle/nsis"
+          )
+
+          $nsisFile = $null
+          foreach ($dir in $searchDirs) {
+            if (Test-Path $dir) {
+              $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" | Select-Object -First 1
+              if (-not $candidate) {
+                $candidate = Get-ChildItem -Path $dir -Filter "*.exe" | Select-Object -First 1
+              }
+              if ($candidate) {
+                $nsisFile = $candidate
+                break
+              }
+            }
+          }
+
+          if (-not $nsisFile) {
+            Write-Error "No NSIS setup.exe found in expected directories: $($searchDirs -join ', ')"
+            exit 1
+          }
+
+          Write-Host "NSIS found: $($nsisFile.FullName)"
+
+          $hash = (Get-FileHash -Path $nsisFile.FullName -Algorithm SHA256).Hash
+          $hashFile = "$($nsisFile.FullName).sha256"
+          "$hash  $($nsisFile.Name)" | Out-File -FilePath $hashFile -Encoding utf8 -NoNewline
+
+          echo "nsis_path=$($nsisFile.FullName)" >> $env:GITHUB_OUTPUT
+          echo "nsis_name=$($nsisFile.Name)" >> $env:GITHUB_OUTPUT
+          echo "nsis_dir=$($nsisFile.DirectoryName)" >> $env:GITHUB_OUTPUT
+          echo "nsis_sha256_file=$hashFile" >> $env:GITHUB_OUTPUT
+
+          Write-Host "SHA256: $hash"
+
+      # Inspect MSI metadata (ProductCode, UpgradeCode) — used to update the
+      # winget manifest after release. Uploaded as an artifact, not to the
+      # Release (it's a maintainer reference, not a user download).
+      - name: Inspect MSI metadata
+        id: inspect
+        shell: pwsh
+        run: |
+          $outFile = Join-Path (Split-Path "${{ steps.msi.outputs.msi_path }}") "msi-metadata.txt"
+          .\scripts\inspect-msi.ps1 -MsiPath "${{ steps.msi.outputs.msi_path }}" | Tee-Object -FilePath $outFile
+          echo "metadata_file=$outFile" >> $env:GITHUB_OUTPUT
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-windows-msi-${{ steps.msi.outputs.version }}
+          path: |
+            ${{ steps.msi.outputs.msi_path }}
+            ${{ steps.msi.outputs.sha256_file }}
+            ${{ steps.inspect.outputs.metadata_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload NSIS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-windows-setup-${{ steps.msi.outputs.version }}
+          path: |
+            ${{ steps.nsis.outputs.nsis_path }}
+            ${{ steps.nsis.outputs.nsis_sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload portable exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-windows-portable-${{ steps.msi.outputs.version }}
+          path: |
+            ${{ steps.portable.outputs.exe_path }}
+            ${{ steps.portable.outputs.sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach Windows artifacts to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.msi.outputs.msi_path }}
+            ${{ steps.msi.outputs.sha256_file }}
+            ${{ steps.nsis.outputs.nsis_path }}
+            ${{ steps.nsis.outputs.nsis_sha256_file }}
+            ${{ steps.portable.outputs.exe_path }}
+            ${{ steps.portable.outputs.sha256_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ---------------------------------------------------------------------------
+  # macOS: DMG for Apple Silicon (aarch64) + Intel (x86_64)
+  # ---------------------------------------------------------------------------
+  # Each architecture runs on its matching runner so the build uses the native
+  # toolchain. After both complete, update the Homebrew cask with the two
+  # checksums from the uploaded .sha256 files (see docs/packaging.md).
+  build-macos:
+    name: Build macOS DMG (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            arch_suffix: aarch64
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            arch_suffix: x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: src-tauri/target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install root npm dependencies
+        run: npm ci
+
+      - name: Install UI npm dependencies
+        run: npm ci
+        working-directory: ui
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+
+      - name: Build DMG
+        run: cargo tauri build --bundles dmg --target ${{ matrix.target }}
+
+      - name: Locate DMG output
+        id: dmg
+        shell: bash
+        run: |
+          search_dirs=(
+            "src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+            "src-tauri/target/release/bundle/dmg"
+            "target/${{ matrix.target }}/release/bundle/dmg"
+            "target/release/bundle/dmg"
+          )
+
+          dmg_file=""
+          for dir in "${search_dirs[@]}"; do
+            if [ -d "$dir" ]; then
+              candidate=$(find "$dir" -name '*.dmg' -type f | head -1)
+              if [ -n "$candidate" ]; then
+                dmg_file="$candidate"
+                break
+              fi
+            fi
+          done
+
+          if [ -z "$dmg_file" ]; then
+            echo "ERROR: No DMG file found in expected directories"
+            for dir in "${search_dirs[@]}"; do
+              echo "  Checked: $dir"
+            done
+            exit 1
+          fi
+
+          dmg_name=$(basename "$dmg_file")
+          dmg_dir=$(dirname "$dmg_file")
+
+          hash=$(shasum -a 256 "$dmg_file" | cut -d' ' -f1)
+          hash_file="${dmg_file}.sha256"
+          echo "${hash}  ${dmg_name}" > "$hash_file"
+
+          version="${GITHUB_REF_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            version=$(grep '^version' src-tauri/Cargo.toml | head -1 | cut -d'"' -f2)
+          fi
+
+          {
+            echo "dmg_path=$dmg_file"
+            echo "dmg_name=$dmg_name"
+            echo "dmg_dir=$dmg_dir"
+            echo "sha256_file=$hash_file"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "DMG found: $dmg_file"
+          echo "SHA256: $hash"
+          echo "Version: $version"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-macos-dmg-${{ matrix.arch_suffix }}-${{ steps.dmg.outputs.version }}
+          path: |
+            ${{ steps.dmg.outputs.dmg_path }}
+            ${{ steps.dmg.outputs.sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach DMG to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.dmg.outputs.dmg_path }}
+            ${{ steps.dmg.outputs.sha256_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
