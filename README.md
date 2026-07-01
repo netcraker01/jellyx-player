@@ -72,7 +72,7 @@ brew install --cask helix-player
 | **Managed / enterprise** | `.msi` | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
 
 > **Which Windows installer should I use?**
-> - **NSIS setup.exe** — Recommended for most users. Friendlier installer with language selection and better error messages.
+> - **NSIS setup.exe** — Recommended for most users. Per-user install, no admin required, friendlier installer with language selection and better error messages.
 > - **MSI** — For winget installs and enterprise/managed deployments. Required format for winget.
 
 > ⚠️ **Windows signing warning:** These installers are **unsigned**. Windows 11 may show a "Windows protected your PC" SmartScreen warning, and organizations with restrictive policies may block them. Click **More info → Run anyway** to proceed. For a smoother experience, code signing is needed — see [docs/packaging.md](docs/packaging.md) for details.

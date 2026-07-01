@@ -44,7 +44,7 @@
         "upgradeCode": "E7B2A9F0-3C4D-5E6F-8A1B-2C3D4E5F6A7B"
       },
       "nsis": {
-        "installMode": "perMachine",
+        "installMode": "currentUser",
         "displayLanguageSelector": true,
         "languages": ["English", "Spanish", "French", "German", "PortugueseBR", "Russian", "SimpChinese", "Japanese"]
       }
