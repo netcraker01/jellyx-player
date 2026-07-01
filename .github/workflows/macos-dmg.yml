@@ -1,0 +1,191 @@
+# =============================================================================
+# Helix Player — macOS DMG Build
+# =============================================================================
+# Builds the macOS DMG installer on every push to main and on release tags.
+#
+# Architecture support:
+#   - macos-14 runner (Apple Silicon M1) → builds aarch64-apple-darwin
+#   - macos-13 runner (Intel) → builds x86_64-apple-darwin
+#
+# Outputs:
+#   - Uploads DMG + SHA256 as GitHub Actions artifacts (all builds)
+#   - Attaches DMG + SHA256 to the GitHub Release when a v* tag is pushed
+#
+# After a successful release build, update the Homebrew cask with the
+# checksums from the uploaded .sha256 files.
+# =============================================================================
+
+name: macOS DMG
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: macos-dmg-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-dmg:
+    name: Build macOS DMG (${{ matrix.target }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            arch_suffix: aarch64
+          - target: x86_64-apple-darwin
+            runner: macos-13
+            arch_suffix: x64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install root npm dependencies
+        run: npm ci
+
+      - name: Install UI npm dependencies
+        run: npm ci
+        working-directory: ui
+
+      - name: Install tauri-cli
+        run: cargo install tauri-cli --locked
+
+      - name: Build DMG
+        run: cargo tauri build --bundles dmg --target ${{ matrix.target }}
+
+      - name: Locate DMG output
+        id: dmg
+        shell: bash
+        run: |
+          # Tauri v2 places bundles under src-tauri/target/<target>/release/bundle/dmg/
+          # Also check the non-target-specific path as a fallback.
+          search_dirs=(
+            "src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+            "src-tauri/target/release/bundle/dmg"
+            "target/${{ matrix.target }}/release/bundle/dmg"
+            "target/release/bundle/dmg"
+          )
+
+          dmg_file=""
+          for dir in "${search_dirs[@]}"; do
+            if [ -d "$dir" ]; then
+              candidate=$(find "$dir" -name '*.dmg' -type f | head -1)
+              if [ -n "$candidate" ]; then
+                dmg_file="$candidate"
+                break
+              fi
+            fi
+          done
+
+          if [ -z "$dmg_file" ]; then
+            echo "ERROR: No DMG file found in expected directories"
+            for dir in "${search_dirs[@]}"; do
+              echo "  Checked: $dir"
+            done
+            exit 1
+          fi
+
+          dmg_name=$(basename "$dmg_file")
+          dmg_dir=$(dirname "$dmg_file")
+
+          # Generate SHA256 checksum
+          hash=$(shasum -a 256 "$dmg_file" | cut -d' ' -f1)
+          hash_file="${dmg_file}.sha256"
+          echo "${hash}  ${dmg_name}" > "$hash_file"
+
+          # Extract version from tag or Cargo.toml
+          version="${GITHUB_REF_NAME#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            version=$(grep '^version' src-tauri/Cargo.toml | head -1 | cut -d'"' -f2)
+          fi
+
+          echo "dmg_path=$dmg_file" >> "$GITHUB_OUTPUT"
+          echo "dmg_name=$dmg_name" >> "$GITHUB_OUTPUT"
+          echo "dmg_dir=$dmg_dir" >> "$GITHUB_OUTPUT"
+          echo "sha256_file=$hash_file" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          echo "DMG found: $dmg_file"
+          echo "SHA256: $hash"
+          echo "Version: $version"
+
+      - name: Upload DMG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-player-dmg-${{ matrix.arch_suffix }}-${{ steps.dmg.outputs.version }}
+          path: |
+            ${{ steps.dmg.outputs.dmg_path }}
+            ${{ steps.dmg.outputs.sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Output build summary
+        shell: bash
+        run: |
+          echo "=========================================="
+          echo "  Helix Player — macOS DMG Build Output"
+          echo "=========================================="
+          echo ""
+          echo "DMG file:       ${{ steps.dmg.outputs.dmg_name }}"
+          echo "Architecture:   ${{ matrix.target }}"
+          echo "Version:        ${{ steps.dmg.outputs.version }}"
+          echo ""
+          echo "To update the Homebrew cask, you need:"
+          echo "  1. Download the .sha256 file from the artifact"
+          echo "  2. Update packaging/homebrew/Casks/helix-player.rb"
+          echo "     with the version, URL, and SHA256 per architecture"
+          echo ""
+
+      # Attach DMG to GitHub Release when building from a version tag
+      - name: Upload DMG to Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.dmg.outputs.dmg_path }}
+            ${{ steps.dmg.outputs.sha256_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

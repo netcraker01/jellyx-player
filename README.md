@@ -51,8 +51,11 @@ yay -S helix-player
 
 | Channel | Status | Install |
 |---------|--------|---------|
-| **.dmg** | ✅ Ready | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
+| **.dmg (Apple Silicon)** | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) (built by CI on `v*` tags) |
+| **.dmg (Intel)** | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) (built by CI on `v*` tags) |
 | **Homebrew Cask** | 📦 Template ready | Cask at `packaging/homebrew/` — not yet in a tap |
+
+> The DMG is built automatically by the **macOS DMG** GitHub Actions workflow (`.github/workflows/macos-dmg.yml`), which produces separate builds for Apple Silicon (`macos-14`) and Intel (`macos-13`). Push a `v*` tag to trigger a release build, or see the workflow file for details.
 
 **Homebrew (once published):**
 ```bash
@@ -161,7 +164,7 @@ This repo contains packaging scaffolds for distributing Helix through native pac
 |----------|-----------|--------|
 | Flatpak / Flathub | `packaging/flatpak/` | 📦 Manifest ready, needs Flathub submission |
 | AUR | `packaging/aur/` | 📦 PKGBUILD ready, needs AUR account |
-| Homebrew Cask | `packaging/homebrew/` | 📦 Cask ready, needs a Homebrew tap |
+| Homebrew Cask | `packaging/homebrew/` | 📦 Cask ready, needs first DMG release + Homebrew tap |
 | winget | `packaging/winget/` | 📦 Manifests ready, needs winget-pkgs PR |
 
 See [`docs/packaging.md`](docs/packaging.md) for maintainer instructions on publishing each channel.

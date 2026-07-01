@@ -119,23 +119,35 @@ This document explains what accounts, credentials, and steps are needed to publi
 ### Accounts needed
 - **GitHub account** (to create the tap repository)
 
+### Prerequisites
+- At least one macOS DMG must exist on a GitHub Release. The CI workflow (`.github/workflows/macos-dmg.yml`) builds both Apple Silicon (`aarch64`) and Intel (`x64`) DMGs on every `v*` tag push.
+- The cask file at `packaging/homebrew/Casks/helix-player.rb` contains placeholder checksums that must be replaced with real values from the release artifacts.
+
 ### Steps
-1. Create a Homebrew tap repository:
-   - Name it `homebrew-helix` under your GitHub org/user
-   - URL: `https://github.com/netcraker01/homebrew-helix`
+1. **Trigger a DMG release** (if not done already):
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
+   This builds two DMGs and attaches them to the GitHub Release.
 
-2. Update the cask file (`packaging/homebrew/Casks/helix-player.rb`):
-   - Set `version` to the release version
-   - Set `sha256` for each architecture (`on_arm` / `on_intel` blocks)
-   - Set `url` to the GitHub release `.dmg` download
-
-3. Generate SHA256:
+2. **Get the SHA256 checksums** from the release:
    ```bash
    shasum -a 256 Helix_0.1.0_aarch64.dmg
    shasum -a 256 Helix_0.1.0_x64.dmg
    ```
+   Or download the `.sha256` files attached to the release.
 
-4. Push to the tap:
+3. **Update the cask file** (`packaging/homebrew/Casks/helix-player.rb`):
+   - Replace `REPLACE_WITH_AARCH64_SHA256` with the actual aarch64 checksum
+   - Replace `REPLACE_WITH_X64_SHA256` with the actual x64 checksum
+   - Confirm `version` matches the release tag (without `v` prefix)
+
+4. Create a Homebrew tap repository:
+   - Name it `homebrew-helix` under your GitHub org/user
+   - URL: `https://github.com/netcraker01/homebrew-helix`
+
+5. Push to the tap:
    ```bash
    git clone https://github.com/netcraker01/homebrew-helix.git
    cd homebrew-helix
@@ -146,16 +158,39 @@ This document explains what accounts, credentials, and steps are needed to publi
    git push
    ```
 
-5. Users install via:
+6. **Test locally**:
    ```bash
    brew tap netcraker01/helix
    brew install --cask helix-player
    ```
 
-6. On each release: update version, sha256, URL in the cask file, commit and push.
+7. **Verify with Homebrew audit**:
+   ```bash
+   brew audit --cask helix-player
+   brew style --cask Casks/helix-player.rb
+   ```
+
+8. Users install via:
+   ```bash
+   brew tap netcraker01/helix
+   brew install --cask helix-player
+   ```
+
+9. On each release: update version, sha256, URL in the cask file, commit and push to both repos.
+
+### Architecture support
+
+The CI workflow builds DMGs for two architectures:
+
+| Runner | Target | DMG filename |
+|--------|--------|-------------|
+| `macos-14` (M1) | `aarch64-apple-darwin` | `Helix_<version>_aarch64.dmg` |
+| `macos-13` (Intel) | `x86_64-apple-darwin` | `Helix_<version>_x64.dmg` |
+
+The cask uses `on_arm` / `on_intel` blocks so Homebrew automatically selects the correct DMG.
 
 ### Future: Official Homebrew Cask
-If Helix gains traction, consider submitting to the official homebrew/cask repo for `brew install --cask helix-player` without a custom tap. See: https://docs.brew.sh/Adding-Software-to-Homebrew#casks
+If Helix gains enough traction, consider submitting to the official homebrew/cask repo for `brew install --cask helix-player` without a custom tap. See: https://docs.brew.sh/Adding-Software-to-Homebrew#casks
 
 ---
 
@@ -216,9 +251,9 @@ Local builds require a Windows host with the WiX Toolset (Tauri bundles it autom
 
 ---
 
-## 5. AppImage / .deb / .rpm / .dmg (GitHub Releases)
+## 5. AppImage / .deb / .rpm / .dmg / .msi (GitHub Releases)
 
-These are built automatically by Tauri's bundler. No separate account is needed beyond a GitHub account for releases.
+These are built automatically by Tauri's bundler and attached to GitHub Releases by CI workflows. No separate account is needed beyond a GitHub account for releases.
 
 ### AppImage: RELR workaround
 
@@ -238,18 +273,16 @@ NO_STRIP=1 cargo tauri build --bundles appimage
 
 ### CI integration (GitHub Actions)
 
-The **Windows MSI** workflow (`.github/workflows/windows-msi.yml`) builds the MSI automatically:
+| Artifact | Workflow | Runner | Trigger |
+|----------|----------|--------|---------|
+| **Windows MSI** | `.github/workflows/windows-msi.yml` | `windows-latest` | Push to main, `v*` tags, PRs |
+| **macOS DMG (Apple Silicon)** | `.github/workflows/macos-dmg.yml` | `macos-14` (M1) | Push to main, `v*` tags, PRs |
+| **macOS DMG (Intel)** | `.github/workflows/macos-dmg.yml` | `macos-13` | Push to main, `v*` tags, PRs |
 
-```yaml
-# Triggers:
-#   - Push to main (artifact only, 30-day retention)
-#   - Push of v* tag (attaches MSI to GitHub Release)
-#   - PR to main (validation build)
-```
-
-For Linux and macOS builds, create a separate release workflow or extend the existing one.
-The current workflow focuses on Windows because it requires a Windows runner and cannot
-be built on Linux.
+All workflows:
+- Upload artifacts with 30-day retention on every push
+- Attach built artifacts to the GitHub Release when a `v*` tag is pushed
+- Generate `.sha256` checksum files alongside each artifact
 
 ---
 
@@ -260,8 +293,9 @@ When cutting a new release, update these placeholders:
 - [ ] `packaging/aur/PKGBUILD` — `pkgver`, `sha256sums`
 - [ ] `packaging/flatpak/com.helix.music.yml` — source URL and SHA256
 - [ ] `packaging/flatpak/com.helix.music.metainfo.xml` — `<release>` entry
-- [ ] `packaging/homebrew/Casks/helix-player.rb` — `version`, `sha256`, `url`
+- [ ] `packaging/homebrew/Casks/helix-player.rb` — `version`, `sha256` (both aarch64 and x64), `url`
 - [ ] `packaging/winget/manifests/*.yaml` — `PackageVersion`, `InstallerSha256`, `InstallerUrl`, `ProductCode`
+- [ ] Download `.sha256` files from the macOS DMG CI artifacts for both architectures
 - [ ] Run `scripts/inspect-msi.ps1` on the built MSI to extract ProductCode and UpgradeCode
 - [ ] Submit winget-pkgs PR with updated manifests
 - [ ] Regenerate `cargo-sources.json` for Flatpak (if dependencies changed)
