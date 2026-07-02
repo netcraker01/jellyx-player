@@ -161,9 +161,9 @@ Before creating a release, verify ALL of the following:
 
 ### Code
 
-- [ ] `pnpm check` passes (0 errors, 0 warnings)
+- [ ] `cd ui && npm run check` passes (0 errors, 0 warnings)
 - [ ] `cargo test --lib` passes
-- [ ] `pnpm build` succeeds
+- [ ] `cd ui && npm run build` succeeds
 - [ ] No uncommitted changes in the working tree
 
 ### Commit & tag
