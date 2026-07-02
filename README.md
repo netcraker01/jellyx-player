@@ -1,6 +1,6 @@
 # Helix
 
-**Privacy-first desktop music player. Stream from YouTube, SoundCloud, and Bandcamp. Visualize in real time. No tracking, no cookies.**
+**Privacy-first desktop music player. Stream from YouTube and SoundCloud. Visualize in real time. No tracking, no cookies.**
 
 > **Status**: Alpha. Core streaming, playback, and visualization are working. See [Current Status](#current-status) for details.
 
@@ -8,14 +8,15 @@
 
 ## What is Helix?
 
-Helix is an open-source desktop music player built with **Rust + Tauri v2 + Svelte**. It streams music from YouTube, SoundCloud, and Bandcamp without requiring accounts, and renders real-time audio visualizations — spectrum analyzer, oscilloscope, Winamp-style effects, and OpenGL shaders.
+Helix is an open-source desktop music player built with **Rust + Tauri v2 + Svelte**. It streams music from YouTube and SoundCloud without requiring accounts, and renders real-time audio visualizations — spectrum analyzer, oscilloscope, Winamp-style effects, and a cinematic ambient background mode.
 
 Unlike browser-based players (which hit MSE limits and latency bugs), Helix runs the entire audio pipeline natively in Rust: stream resolution via yt-dlp → symphonia decode → raw PCM → cpal output → FFT → visualizer. Lower latency, real FFT data, more formats.
 
 ### Key features
 
-- **Multi-source streaming** — YouTube, SoundCloud, Bandcamp via yt-dlp
-- **Real-time visualizations** — Spectrum, oscilloscope, Winamp-style effects, OpenGL shaders
+- **Multi-source streaming** — YouTube, SoundCloud via yt-dlp
+- **Real-time visualizations** — 7 modes: Bars, Wave, Mirror, Radial, Aurora, Grid, Tunnel
+- **Cinematic ambient mode** — Reactive full-app background that pulses with your music
 - **Privacy-first** — No accounts, no tracking, no cookies, no data collection
 - **Auto-managed yt-dlp** — Downloads and updates yt-dlp automatically on first run
 - **Local file playback** — Play your own music library
@@ -90,7 +91,7 @@ Helix uses a single unified release workflow: `.github/workflows/release.yml`. I
 ### How to publish a release
 
 ```bash
-# 1. Bump the version in src-tauri/Cargo.toml and src-tauri/tauri.conf.json
+# 1. Bump the version in src-tauri/Cargo.toml, src-tauri/tauri.conf.json, and ui/package.json
 # 2. Commit and tag
 git tag v0.2.0
 git push origin v0.2.0
@@ -125,7 +126,7 @@ After a release, follow the per-channel checklist in [`docs/packaging.md`](docs/
 
 ## Remote sources & yt-dlp
 
-Helix uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) to resolve streams from YouTube, SoundCloud, and Bandcamp. **You do not need to install yt-dlp manually.** On first launch, Helix auto-downloads the correct binary for your platform:
+Helix uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) to resolve streams from YouTube and SoundCloud. **You do not need to install yt-dlp manually.** On first launch, Helix auto-downloads the correct binary for your platform:
 
 | Platform | Auto-download location |
 |----------|----------------------|
@@ -185,16 +186,16 @@ Helix is in **alpha** — core functionality works, but the API and file formats
 |---------|--------|
 | YouTube search & streaming | ✅ Working |
 | SoundCloud search & streaming | ✅ Working |
-| Bandcamp streaming | ✅ Working |
 | Local file playback | ✅ Working |
 | Queue management | ✅ Working |
 | Playlists & favorites | ✅ Working |
-| Audio visualizations (spectrum) | ✅ Working |
+| Audio visualizations (7 modes) | ✅ Working |
+| Cinematic ambient background | ✅ Working |
 | yt-dlp auto-download | ✅ Working |
+| i18n (English, Spanish) | ✅ Working |
 | WASM plugin system | 🔲 Planned |
 | IceCast/Shoutcast radio | 🔲 Planned |
 | Last.fm integration | 🔲 Planned |
-| i18n | 🔲 Planned |
 
 ---
 
@@ -225,18 +226,15 @@ See [`docs/packaging.md`](docs/packaging.md) for maintainer instructions on publ
 │                                                      │
 │  ┌────────────┐  ┌───────────┐  ┌───────────────┐   │
 │  │   SEARCH    │  │   AUDIO   │  │  VISUALIZER   │   │
-│  │  ─ yt-dlp  │  │ symphonia  │  │  FFT → WGPU   │   │
-│  │  ─ APIs    │  │  + cpal    │  │  ─ spectrum    │   │
-│  │             │  │  + HLS    │  │  ─ bars       │   │
-│  │  SOURCES   │  │            │  │  ─ oscilloscope│  │
-│  │  ─ YouTube │  │  RADIO     │  │  ─ shaders    │  │
-│  │  ─ SC      │  │  IceCast   │  └───────────────┘   │
-│  │  ─ BC      │  │  Shoutcast │                      │
-│  │  ─ Radio   │  └───────────┘                      │
-│  └────────────┘  ┌───────────┐                      │
-│                  │  PLUGINS   │                      │
-│                  │  (WASM)    │                      │
-│                  └───────────┘                      │
+│  │  ─ yt-dlp  │  │ symphonia  │  │  FFT → Canvas │   │
+│  │  ─ APIs    │  │  + cpal    │  │  ─ bars       │   │
+│  │             │  │  + HLS    │  │  ─ wave       │   │
+│  │  SOURCES   │  │            │  │  ─ mirror     │   │
+│  │  ─ YouTube │  │            │  │  ─ radial     │   │
+│  │  ─ SC      │  │            │  │  ─ aurora     │   │
+│  │             │  │            │  │  ─ grid       │   │
+│  │             │  │            │  │  ─ tunnel     │   │
+│  └────────────┘  └───────────┘  └───────────────┘   │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -249,18 +247,26 @@ See [`docs/packaging.md`](docs/packaging.md) for maintainer instructions on publ
 | **Frontend** | Svelte | Lightweight, reactive, compiles to WASM |
 | **Audio** | symphonia + cpal | Native decode, no browser MSE limits |
 | **FFT** | rustfft | Real-time audio data for visualizations |
-| **Visualization** | WGPU | 60fps shaders, cross-platform GPU |
+| **Remote FFT** | Web Audio AnalyserNode | Frequency data for YouTube/SoundCloud streams |
 | **Streaming** | yt-dlp (auto-managed) | Battle-tested stream resolution |
 
 ### Audio pipeline
 
+**Local playback:**
 ```
 Stream URL → symphonia decode → raw PCM → cpal output → 🎧
                                        ↓
-                                   rustfft → FFT data → visualizer (WGPU)
+                                   rustfft → FFT data → visualizer
 ```
 
-This native pipeline gives Helix real FFT data (not browser-limited), avoids the MSE Infinity-duration bug, and supports more formats (FLAC, OPUS, etc.).
+**Remote playback (YouTube/SoundCloud):**
+```
+yt-dlp stream URL → proxy → HTMLAudioElement → Web Audio AnalyserNode → 🎧
+                                                        ↓
+                                                  FFT data → visualizer
+```
+
+This dual pipeline gives Helix real FFT data for both local and remote tracks, avoids the MSE Infinity-duration bug, and supports more formats (FLAC, OPUS, etc.).
 
 ---
 
@@ -272,14 +278,20 @@ helix/
 │   ├── src/
 │   │   ├── main.rs      # Tauri entry point
 │   │   ├── audio/       # Audio pipeline (symphonia + cpal + FFT)
-│   │   ├── sources/     # Stream resolvers (yt-dlp, radio)
+│   │   ├── sources/     # Stream resolvers (yt-dlp)
 │   │   ├── playback/    # Playback state & queue management
-│   │   ├── visualizer/  # FFT → WGPU rendering
 │   │   └── ...
 │   ├── Cargo.toml
 │   └── tauri.conf.json  # Tauri config (bundle targets: MSI + NSIS)
 ├── ui/                  # Svelte frontend
 │   ├── src/
+│   │   ├── features/
+│   │   │   ├── player/
+│   │   │   │   ├── components/  # Visualizer, VisualizerSelector
+│   │   │   │   ├── stores/      # player.ts, remotePlayer.ts
+│   │   │   │   └── visualizers/ # 7 renderer modes + registry
+│   │   │   └── ...
+│   │   └── ...
 │   └── package.json
 ├── packaging/           # Distribution scaffolds
 │   ├── flatpak/         # Flathub manifest + metainfo
@@ -324,6 +336,8 @@ See [CLA.md](CLA.md) for details.
 
 ## Acknowledgments
 
-- **[Nuclear](https://github.com/nukeop/nuclear)** — Inspiration for streaming architecture and plugin system
 - **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — The backbone of stream resolution
 - **[Winamp](https://winamp.com)** — Visualizations that defined a generation
+- **[Tauri](https://tauri.app)** — The framework that made this possible
+- **[Symphonia](https://github.com/symphonia-corp/symphonia)** — Pure-Rust audio decoding
+- **[rustfft](https://github.com/ejmahler/rustfft)** — Real-time FFT for visualizations
