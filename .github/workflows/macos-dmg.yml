@@ -1,13 +1,13 @@
 # =============================================================================
 # Helix Player — macOS DMG Build (CI validation)
 # =============================================================================
-# Builds the macOS DMG installer on every push to main and on PRs.
-# This is CI validation only — it produces artifacts for review, NOT release.
+# Builds the macOS DMG installer for releases, PR validation, and manual runs.
+# We intentionally do NOT run this on every push to main because GitHub-hosted
+# macOS runners are scarce and queued runs can delay real release work.
 #
-# The release pipeline lives in .github/workflows/release.yml, which is the
-# single source of truth for publishing (triggers on v* tags and attaches
-# artifacts to the GitHub Release). This workflow does NOT run on tags, so
-# there is no duplicate-build race on release.
+# The release pipeline lives in .github/workflows/release.yml for Linux/Windows.
+# This workflow handles macOS DMGs separately and attaches them to the GitHub
+# Release on v* tags.
 #
 # Architecture support:
 #   - macos-14 runner (Apple Silicon M1) → builds aarch64-apple-darwin
@@ -24,10 +24,10 @@ name: macOS DMG
 
 on:
   push:
-    branches: [main]
     tags: ["v*"]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: macos-dmg-${{ github.ref }}
