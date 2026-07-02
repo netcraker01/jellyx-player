@@ -1,45 +1,41 @@
 # Helix Screenshot Guide
 
-Use this checklist when preparing screenshots for Flathub, Homebrew, winget pages, and GitHub releases.
+Use this checklist when preparing screenshots for the GitHub README, Flathub, Homebrew, winget pages, and GitHub releases.
 
 ## Goal
 
-Create a small, stable set of screenshots that explain what Helix does without marketing fluff.
+Create a small, stable set of screenshots that explain what Helix does at a glance. The screenshots should sell the user experience, not the implementation details.
 
-Helix is not a landing page product. The screenshots should show the real application clearly:
+Helix is a privacy-first desktop music player. The screenshots should show the real application clearly:
 
-1. Search and discovery
-2. Playback and queue
-3. Playlists / organization
-4. Visual identity / desktop app feel
+1. Home and discovery
+2. Search and results
+3. Playback and queue
+4. Playlists / organization
 
-## Minimum set for Flathub
+## Minimum set
 
-Prepare **3 screenshots** first. Add 4-5 only if they add new information.
+Prepare **3-4 screenshots** first. Add a fifth only if it adds new information.
 
-### Screenshot 1 — Search and results
-- Route: `Search`
-- Show: search box + results list
+### Screenshot 1 — Home
+- File: `docs/screenshots/home.png`
+- Show: Discover moods + Recently Played
+- Purpose: show the entry point and personalized feel
+
+### Screenshot 2 — Search and results
+- File: `docs/screenshots/search-results.png`
+- Show: search box + multi-source results list
 - Purpose: prove multi-source discovery exists
 
-### Screenshot 2 — Playback / Now Playing
-- Route: `Now Playing`
-- Show: active track, queue, controls
+### Screenshot 3 — Playback / Now Playing
+- File: `docs/screenshots/now-playing.png`
+- Show: active track, album art, queue, controls
 - Purpose: prove this is a real desktop player, not just a search shell
 
-### Screenshot 3 — Playlists / Library organization
-- Route: `Playlists`
-- Show: user playlists, cover thumbnails, recent organization flow
+### Screenshot 4 — Playlists / Library organization
+- File: `docs/screenshots/playlists.png`
+- Show: user playlists, artist favorites, recent organization flow
 - Purpose: prove persistent organization features exist
-
-## Recommended optional screenshots
-
-### Screenshot 4 — Home screen
-- Show: Discover + Recently Played + Recent Lists
-
-### Screenshot 5 — Visualization mode
-- Only include if it is visually stable and representative
-- Avoid placeholder or half-finished modes
 
 ## Technical requirements
 
@@ -50,37 +46,32 @@ Prepare **3 screenshots** first. Add 4-5 only if they add new information.
 - Do not include debug windows, terminals, or dev overlays
 - Do not include personal/private browsing history
 
-## File names
-
-Store them under `docs/screenshots/` with predictable names:
-
-- `search-results.png`
-- `now-playing.png`
-- `playlists.png`
-- `home.png`
-- `visualizer.png`
-
 ## Hosting
 
 For Flathub, the screenshot URLs must be reachable over HTTPS.
 
-Simplest option:
-
-1. Commit images into `docs/screenshots/`
-2. Push to GitHub
-3. Reference the raw GitHub URLs in `packaging/flatpak/com.helix.music.metainfo.xml`
-
-Example URL pattern:
+Commit the images into `docs/screenshots/` and reference the raw GitHub URLs:
 
 ```text
+https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png
 https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search-results.png
+https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/now-playing.png
+https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/playlists.png
 ```
+
+## README usage
+
+The [README.md](../README.md) embeds these screenshots with relative paths so they render on GitHub and in any local markdown preview.
 
 ## XML snippet template
 
 ```xml
 <screenshots>
   <screenshot type="default">
+    <caption>Home screen with discovery and recently played tracks</caption>
+    <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png</image>
+  </screenshot>
+  <screenshot>
     <caption>Search and stream music from multiple sources</caption>
     <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search-results.png</image>
   </screenshot>
@@ -95,10 +86,11 @@ https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search
 </screenshots>
 ```
 
-## Final check before Flathub review
+## Final check before publishing
 
 - [ ] All screenshot URLs load in a browser without authentication
 - [ ] Images are 16:9 and at least 1280×720
 - [ ] Captions describe the feature, not the implementation
 - [ ] Images match the current release behavior
 - [ ] No personal data appears on screen
+- [ ] README renders correctly on GitHub

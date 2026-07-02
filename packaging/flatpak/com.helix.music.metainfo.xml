@@ -24,7 +24,7 @@
     </p>
     <p>Highlights:</p>
     <ul>
-      <li>Search and stream from YouTube, SoundCloud, and Bandcamp</li>
+      <li>Search and stream from YouTube and SoundCloud</li>
       <li>Real-time audio visualizations including spectrum and oscilloscope modes</li>
       <li>Queue management, playlists, artist favorites, and listening history</li>
       <li>Local file playback support</li>
@@ -84,20 +84,20 @@
 
   <screenshots>
     <screenshot type="default">
+      <caption>Home screen with discovery and recently played tracks</caption>
+      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png</image>
+    </screenshot>
+    <screenshot>
       <caption>Search and stream music from multiple sources</caption>
-      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/screenshot-2026-06-30_13-25-39.png</image>
+      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search-results.png</image>
     </screenshot>
     <screenshot>
       <caption>Playback controls and queue in the desktop player</caption>
-      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/screenshot-2026-06-30_13-26-18.png</image>
+      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/now-playing.png</image>
     </screenshot>
     <screenshot>
       <caption>Create and manage playlists locally</caption>
-      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/screenshot-2026-06-30_22-18-18.png</image>
-    </screenshot>
-    <screenshot>
-      <caption>Discover recent tracks and recent lists from the home screen</caption>
-      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/screenshot-2026-06-30_22-18-58.png</image>
+      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/playlists.png</image>
     </screenshot>
   </screenshots>
 </component>

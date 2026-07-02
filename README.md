@@ -1,312 +1,150 @@
-# Helix
+<p align="center">
+  <img src="imagen/logo_minimalista_de_helix_y_reproducción.png" alt="Helix Player" width="640">
+</p>
 
-**Privacy-first desktop music player. Stream from YouTube and SoundCloud. Visualize in real time. No tracking, no cookies.**
+<p align="center">
+  <b>Privacy-first desktop music player</b><br>
+  Stream from YouTube & SoundCloud. Play local files. Real-time visuals. No accounts, no ads, no tracking.
+<br>
+<small>Helix is currently in alpha — core playback is solid, but formats and APIs may still change.</small>
+</p>
 
-> **Status**: Alpha. Core streaming, playback, and visualization are working. See [Current Status](#current-status) for details.
+<p align="center">
+  <a href="https://github.com/netcraker01/helix/releases"><img src="https://img.shields.io/github/v/release/netcraker01/helix?style=flat-square&color=00E5FF" alt="Latest release"></a>
+  <a href="https://github.com/netcraker01/helix/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/netcraker01/helix/release.yml?style=flat-square&label=build&color=8A5CFF" alt="Build status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-D946FF?style=flat-square" alt="License"></a>
+  <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-00E5FF?style=flat-square" alt="Platforms">
+</p>
 
----
-
-## What is Helix?
-
-Helix is an open-source desktop music player built with **Rust + Tauri v2 + Svelte**. It streams music from YouTube and SoundCloud without requiring accounts, and renders real-time audio visualizations — spectrum analyzer, oscilloscope, Winamp-style effects, and a cinematic ambient background mode.
-
-Unlike browser-based players (which hit MSE limits and latency bugs), Helix runs the entire audio pipeline natively in Rust: stream resolution via yt-dlp → symphonia decode → raw PCM → cpal output → FFT → visualizer. Lower latency, real FFT data, more formats.
-
-### Key features
-
-- **Multi-source streaming** — YouTube, SoundCloud via yt-dlp
-- **Real-time visualizations** — 7 modes: Bars, Wave, Mirror, Radial, Aurora, Grid, Tunnel
-- **Cinematic ambient mode** — Reactive full-app background that pulses with your music
-- **Privacy-first** — No accounts, no tracking, no cookies, no data collection
-- **Auto-managed yt-dlp** — Downloads and updates yt-dlp automatically on first run
-- **Local file playback** — Play your own music library
-- **Queue & playlists** — Full playback control, playlists, artist favorites
-- **Plugin system** (planned) — WASM-based extensibility
-
----
-
-## Installation
-
-### Linux
-
-| Channel | Status | Install |
-|---------|--------|---------|
-| **AppImage** | ✅ Ready | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
-| **.deb / .rpm** | ✅ Ready | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
-| **Flatpak (Flathub)** | 🔄 Submission in revision | Manifest is prepared and a submission was attempted; currently being revised after reviewer feedback |
-| **AUR** | ⏸ Waiting on AUR registration | PKGBUILD is ready, but AUR account registration is currently disabled |
-
-**AppImage note:** Helix AppImages are built with `NO_STRIP=1` to preserve RELR relocation metadata. If you build from source, use `./scripts/build.sh linux-appimage` or `./scripts/build-appimage.sh` — do NOT use plain `cargo tauri build` for AppImage targets.
-
-**Flatpak (once published):**
-```bash
-flatpak install flathub com.helix.music
-```
-
-**AUR (once published):**
-```bash
-yay -S helix-player
-```
-
-### macOS
-
-| Channel | Status | Install |
-|---------|--------|---------|
-| **.dmg (Apple Silicon)** | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) (built by CI on `v*` tags) |
-| **.dmg (Intel)** | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) (built by CI on `v*` tags) |
-| **Homebrew Cask** | 📦 Template ready | Cask at `packaging/homebrew/` — not yet in a tap |
-
-> The DMG is built automatically by the unified **Release** GitHub Actions workflow (`.github/workflows/release.yml`), which produces separate builds for Apple Silicon (`macos-14`) and Intel (`macos-13`). Push a `v*` tag to trigger a full release build across all platforms (see the [Release pipeline](#release-pipeline) section).
-
-**Homebrew (once published):**
-```bash
-brew tap netcraker01/helix
-brew install --cask helix-player
-```
-
-### Windows
-
-| Channel | Format | Status | Install |
-|---------|--------|--------|---------|
-| **Direct install (recommended)** | `.exe` (NSIS) | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
-| **winget** | `.msi` | 🔄 Submission in review | `winget install netcraker01.helix-player` |
-| **Managed / enterprise** | `.msi` | 🔧 CI-built | Download from [GitHub Releases](https://github.com/netcraker01/helix/releases) |
-
-> **Which Windows installer should I use?**
-> - **NSIS setup.exe** — Recommended for most users. Per-user install, no admin required, friendlier installer with language selection and better error messages.
-> - **MSI** — For winget installs and enterprise/managed deployments. Required format for winget.
-
-> ⚠️ **Windows signing warning:** These installers are **unsigned**. Windows 11 may show a "Windows protected your PC" SmartScreen warning, and organizations with restrictive policies may block them. Click **More info → Run anyway** to proceed. For a smoother experience, code signing is needed — see [docs/packaging.md](docs/packaging.md) for details.
-
-> **Local Windows builds** require a Windows host with WiX. On Linux/macOS, use the Release pipeline: push a `v*` tag to trigger a full release build (see `.github/workflows/release.yml`). The `windows.yml` workflow handles CI validation only.
-
-> 📦 **"Template ready"** means the packaging files exist in this repo and are maintained, but haven't been submitted to the respective package registry yet. See [Packaging](#packaging) for details.
+<p align="center">
+  <a href="#download"><strong>Download</strong></a> ·
+  <a href="#features"><strong>Features</strong></a> ·
+  <a href="#screenshots"><strong>Screenshots</strong></a> ·
+  <a href="#why-helix"><strong>Why Helix</strong></a> ·
+  <a href="#contribute"><strong>Contribute</strong></a>
+</p>
 
 ---
 
-## Release pipeline
+## Watch it in action
 
-Helix uses a single unified release workflow: `.github/workflows/release.yml`. It is the single source of truth for publishing a new version.
+<video src="docs/videos/demo.mp4" controls width="100%" poster="docs/screenshots/now-playing.png"></video>
 
-### How to publish a release
-
-```bash
-# 1. Bump the version in src-tauri/Cargo.toml, src-tauri/tauri.conf.json, and ui/package.json
-# 2. Commit and tag
-git tag v0.2.0
-git push origin v0.2.0
-# That's it. CI builds everything and attaches it to the GitHub Release.
-```
-
-### What happens on tag push
-
-Pushing a `v*` tag triggers three parallel jobs:
-
-| Job | Runner | Artifacts |
-|-----|--------|-----------|
-| **linux**   | `ubuntu-22.04`   | AppImage (`NO_STRIP=1`), `.deb`, `.rpm` |
-| **windows** | `windows-latest` | MSI, NSIS `setup.exe`, portable `helix.exe` |
-| **macos**   | `macos-14` + `macos-13` | DMG for Apple Silicon + Intel |
-
-Each job builds its artifacts, generates a `.sha256` checksum file alongside each, uploads them as workflow artifacts (30-day retention), and attaches them to the GitHub Release for the tag.
-
-### CI vs. release
-
-| Workflow | Trigger | Purpose |
-|----------|---------|---------|
-| `release.yml`   | `v*` tag push | Full release: build + attach to GitHub Release |
-| `windows.yml`   | push to `main`, PRs | Windows CI validation (artifacts only, no release) |
-| `macos-dmg.yml` | push to `main`, PRs | macOS CI validation (artifacts only, no release) |
-
-The CI workflows do **not** run on tags — only `release.yml` does, so there's no duplicate-build race on release.
-
-After a release, follow the per-channel checklist in [`docs/packaging.md`](docs/packaging.md) to update Flatpak/AUR/Homebrew/winget manifests with the new version and checksums.
+A 50-second demo of search, playback, and the player UI. No sign-up, no browser tab, just music.
 
 ---
 
-## Remote sources & yt-dlp
+## Screenshots
 
-Helix uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) to resolve streams from YouTube and SoundCloud. **You do not need to install yt-dlp manually.** On first launch, Helix auto-downloads the correct binary for your platform:
-
-| Platform | Auto-download location |
-|----------|----------------------|
-| Linux | `~/.local/share/helix/bin/yt-dlp` |
-| macOS | `~/Library/Application Support/helix/bin/yt-dlp` |
-| Windows | `%LOCALAPPDATA%\helix\bin\yt-dlp.exe` |
-
-If yt-dlp is already on your system PATH, Helix will use that instead. Release packages do not bundle yt-dlp — it's fetched on demand to keep downloads small and stay current.
-
----
-
-## Building from source
-
-### Prerequisites
-
-- [Rust](https://rustup.rs/) (1.87+ for RELR support, or any recent stable)
-- [Node.js](https://nodejs.org/) 18+ and npm
-- [cargo-tauri CLI](https://v2.tauri.app/start/prerequisites/): `cargo install tauri-cli`
-- Linux: `webkit2gtk-4.1`, `libgtk-3-dev`, `libappindicator3-dev` (see [Tauri Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux))
-
-### Build
-
-```bash
-git clone https://github.com/netcraker01/helix
-cd helix
-
-# Build all targets for the current platform
-./scripts/build.sh
-
-# Or build specific targets:
-./scripts/build.sh linux-appimage   # AppImage (includes RELR workaround)
-./scripts/build.sh linux-deb         # .deb package
-./scripts/build.sh macos             # macOS .dmg
-./scripts/build.sh windows           # Windows .msi (requires Windows host; use CI on Linux)
-
-# Development mode
-cargo tauri dev
-```
-
-### AppImage RELR workaround
-
-Modern Rust toolchains produce ELF binaries with RELR relocations (`.relr.dyn` section). The `linuxdeploy` tool used by Tauri's bundler strips binaries, which corrupts RELR metadata and produces a broken AppImage.
-
-The official build scripts handle this automatically:
-- `scripts/build.sh linux-appimage` — sets `NO_STRIP=1` before building
-- `scripts/build-appimage.sh` — standalone script that builds and verifies the AppImage
-
-**Do not** build AppImages with a bare `cargo tauri build` without setting `NO_STRIP=1`, as the resulting binary will crash at startup.
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/home.png" alt="Helix home screen">
+      <p align="center"><b>Home</b> — Discover moods and continue listening instantly.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/search-results.png" alt="Helix search results">
+      <p align="center"><b>Search</b> — YouTube and SoundCloud results in one place.</p>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/now-playing.png" alt="Helix now playing">
+      <p align="center"><b>Now Playing</b> — Queue, controls, and real-time visuals.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/playlists.png" alt="Helix playlists">
+      <p align="center"><b>Your Library</b> — Favorites, playlists, and imports.</p>
+    </td>
+  </tr>
+</table>
 
 ---
 
-## Current status
+## Why Helix
 
-Helix is in **alpha** — core functionality works, but the API and file formats may change.
+Most music apps make you choose between convenience and control:
 
-| Feature | Status |
-|---------|--------|
-| YouTube search & streaming | ✅ Working |
-| SoundCloud search & streaming | ✅ Working |
-| Local file playback | ✅ Working |
-| Queue management | ✅ Working |
-| Playlists & favorites | ✅ Working |
-| Audio visualizations (7 modes) | ✅ Working |
-| Cinematic ambient background | ✅ Working |
-| yt-dlp auto-download | ✅ Working |
-| i18n (English, Spanish) | ✅ Working |
-| WASM plugin system | 🔲 Planned |
-| IceCast/Shoutcast radio | 🔲 Planned |
-| Last.fm integration | 🔲 Planned |
+- **Streaming services** charge subscriptions, track your taste, and serve ads.
+- **Web players** live inside a browser tab, fight with MSE bugs, and can not offer real audio processing.
+- **Traditional desktop players** rarely handle modern streaming sources.
 
----
+Helix combines the best of both worlds: a **native desktop app** with a clean, modern UI, streaming from the sources you already use, and real-time audio visualization — without accounts, ads, or tracking.
 
-## Packaging
+### What makes it different
 
-This repo contains packaging scaffolds for distributing Helix through native package managers. These are **templates** — they compile and install correctly but haven't been submitted to their respective registries yet.
-
-| Platform | Directory | Status |
-|----------|-----------|--------|
-| Flatpak / Flathub | `packaging/flatpak/` | 📦 Manifest ready, needs Flathub submission |
-| AUR | `packaging/aur/` | 📦 PKGBUILD ready, needs AUR account |
-| Homebrew Cask | `packaging/homebrew/` | 📦 Cask ready, needs first DMG release + Homebrew tap |
-| winget | `packaging/winget/` | 📦 Manifests ready, needs winget-pkgs PR |
-| Windows NSIS | (Tauri build) | 🔧 CI-built, direct user install |
-| Windows MSI | (Tauri build) | 🔧 CI-built, winget + enterprise |
-
-See [`docs/packaging.md`](docs/packaging.md) for maintainer instructions on publishing each channel.
+| | Helix | Spotify/Apple Music | Browser players | Other open-source players |
+|---|---|---|---|---|
+| No subscription | ✅ | ❌ | ✅ (with ads/tracking) | varies |
+| No sign-in required to play | ✅ | ❌ | ❌ | ✅ |
+| Native desktop app | ✅ | ✅ | ❌ | varies |
+| YouTube + SoundCloud | ✅ | ❌ | ✅ | rarely |
+| Real-time visualizer | ✅ | ❌ | ❌ | rarely |
+| Privacy-first / no tracking | ✅ | ❌ | ❌ | varies |
+| Open source | ✅ | ❌ | ❌ | ✅ |
 
 ---
 
-## Architecture
+## Features
 
-```
-┌──────────────────────────────────────────────────────┐
-│                     Helix                            │
-│              Tauri v2 + Rust + Svelte                │
-├──────────────────────────────────────────────────────┤
-│                                                      │
-│  ┌────────────┐  ┌───────────┐  ┌───────────────┐   │
-│  │   SEARCH    │  │   AUDIO   │  │  VISUALIZER   │   │
-│  │  ─ yt-dlp  │  │ symphonia  │  │  FFT → Canvas │   │
-│  │  ─ APIs    │  │  + cpal    │  │  ─ bars       │   │
-│  │             │  │  + HLS    │  │  ─ wave       │   │
-│  │  SOURCES   │  │            │  │  ─ mirror     │   │
-│  │  ─ YouTube │  │            │  │  ─ radial     │   │
-│  │  ─ SC      │  │            │  │  ─ aurora     │   │
-│  │             │  │            │  │  ─ grid       │   │
-│  │             │  │            │  │  ─ tunnel     │   │
-│  └────────────┘  └───────────┘  └───────────────┘   │
-└──────────────────────────────────────────────────────┘
-```
+- 🎵 **Stream everything** — YouTube and SoundCloud search and playback, no account needed.
+- 💿 **Local library** — Play your own FLAC, MP3, OPUS, and other files.
+- 🎨 **7 real-time visualizers** — Bars, Wave, Mirror, Radial, Aurora, Grid, Tunnel.
+- 🌌 **Cinematic mode** — Full-app ambient background that reacts to the music.
+- 📋 **Queue & playlists** — Organize tracks, favorite artists, import YouTube playlists by URL.
+- 🔒 **Privacy-first** — No accounts, no cookies, no tracking, no ads from Helix.
+- 🛠 **Auto-managed yt-dlp** — Helix downloads and updates yt-dlp automatically on first run.
+- 🌍 **Bilingual UI** — English and Spanish.
 
-### Stack
+---
 
-| Layer | Technology | Why |
+## Download
+
+Pick your platform and install in seconds:
+
+| Platform | Recommended | Alternative |
 |---|---|---|
-| **Shell** | Tauri v2 | Native, secure, Rust backend, tiny bundle |
-| **Backend** | Rust | Performance, FFT, audio pipeline, yt-dlp bindings |
-| **Frontend** | Svelte | Lightweight, reactive, compiles to WASM |
-| **Audio** | symphonia + cpal | Native decode, no browser MSE limits |
-| **FFT** | rustfft | Real-time audio data for visualizations |
-| **Remote FFT** | Web Audio AnalyserNode | Frequency data for YouTube/SoundCloud streams |
-| **Streaming** | yt-dlp (auto-managed) | Battle-tested stream resolution |
+| **Linux** | [AppImage](https://github.com/netcraker01/helix/releases) | `.deb`, `.rpm`, [Flatpak](https://flathub.org) *(submission in review)* |
+| **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | [DMG for Intel](https://github.com/netcraker01/helix/releases) |
+| **Windows** | [NSIS setup.exe](https://github.com/netcraker01/helix/releases) | `.msi` for winget / enterprise *(winget submission in review)* |
 
-### Audio pipeline
+> **Windows note:** Installers are currently unsigned. Windows 11 may show a SmartScreen warning. Click “More info → Run anyway” to install.
 
-**Local playback:**
-```
-Stream URL → symphonia decode → raw PCM → cpal output → 🎧
-                                       ↓
-                                   rustfft → FFT data → visualizer
-```
-
-**Remote playback (YouTube/SoundCloud):**
-```
-yt-dlp stream URL → proxy → HTMLAudioElement → Web Audio AnalyserNode → 🎧
-                                                        ↓
-                                                  FFT data → visualizer
-```
-
-This dual pipeline gives Helix real FFT data for both local and remote tracks, avoids the MSE Infinity-duration bug, and supports more formats (FLAC, OPUS, etc.).
+All downloads, checksums, and release notes are on the [Releases](https://github.com/netcraker01/helix/releases) page.
 
 ---
 
-## Project structure
+## Roadmap
 
-```
-helix/
-├── src-tauri/           # Rust backend
-│   ├── src/
-│   │   ├── main.rs      # Tauri entry point
-│   │   ├── audio/       # Audio pipeline (symphonia + cpal + FFT)
-│   │   ├── sources/     # Stream resolvers (yt-dlp)
-│   │   ├── playback/    # Playback state & queue management
-│   │   └── ...
-│   ├── Cargo.toml
-│   └── tauri.conf.json  # Tauri config (bundle targets: MSI + NSIS)
-├── ui/                  # Svelte frontend
-│   ├── src/
-│   │   ├── features/
-│   │   │   ├── player/
-│   │   │   │   ├── components/  # Visualizer, VisualizerSelector
-│   │   │   │   ├── stores/      # player.ts, remotePlayer.ts
-│   │   │   │   └── visualizers/ # 7 renderer modes + registry
-│   │   │   └── ...
-│   │   └── ...
-│   └── package.json
-├── packaging/           # Distribution scaffolds
-│   ├── flatpak/         # Flathub manifest + metainfo
-│   ├── aur/             # PKGBUILD for Arch Linux
-│   ├── homebrew/        # Homebrew cask for macOS
-│   └── winget/          # winget manifests for Windows
-├── scripts/             # Build helpers
-│   ├── build.sh         # Platform-aware build wrapper
-│   ├── build-appimage.sh  # AppImage builder with RELR fix
-│   └── inspect-msi.ps1  # Extract winget metadata from MSI
-├── docs/                # Architecture & packaging docs
-├── Cargo.toml           # Workspace root
-├── LICENSE              # AGPL-3.0
-└── README.md
-```
+| Now | Next | Later |
+|---|---|---|
+| ✅ Core streaming & playback | 🔄 Flatpak publishing | 🔲 WASM plugin system |
+| ✅ 7 visualizer modes | 🔄 Homebrew / wingit publishing | 🔲 IceCast/Shoutcast radio |
+| ✅ Local files + playlists | 🔄 AUR publishing | 🔲 Last.fm integration |
+
+---
+
+## Contribute
+
+Helix is open source and community-driven. If you want to help:
+
+- 🐛 [Report a bug](https://github.com/netcraker01/helix/issues/new?template=bug_report.md)
+- 💡 [Suggest a feature](https://github.com/netcraker01/helix/issues/new?template=feature_request.md)
+- 🔧 [Read the contributor guide](CONTRIBUTING.md)
+- 🎨 [See the design tokens](imagen/helix_design_tokens.json)
+
+All contributors keep ownership of their work and are credited in [AUTHORS.md](AUTHORS.md).
+
+---
+
+## For developers
+
+Want to build from source or hack on the audio pipeline?
+
+- [Building from source](docs/BUILDING.md)
+- [Architecture overview](docs/ARCHITECTURE.md)
+- [Packaging & release guide](docs/packaging.md)
+- [Release conventions](docs/release-conventions.md)
 
 ---
 
@@ -314,30 +152,13 @@ helix/
 
 Helix is dual-licensed:
 
-### Open Source — AGPL-3.0
+- **Open source:** [AGPL-3.0](LICENSE)
+- **Commercial:** Available for organizations that can not comply with AGPL-3.0. Contact the project owner for details.
 
-The code is free and open-source under the **GNU Affero General Public License v3.0**. Anyone can use, modify, and distribute it, provided they comply with AGPL-3.0 (modified versions distributed to users must also be open-source).
-
-See [LICENSE](LICENSE) for the full text.
-
-### Commercial License
-
-If your organization cannot comply with AGPL-3.0 (e.g., embedding Helix in a proprietary product), you can purchase a commercial license from the project owner.
-
-Contact: [netcraker01@users.noreply.github.com](mailto:netcraker01@users.noreply.github.com)
-
-### Contributing
-
-When you contribute to Helix, you agree to the **Contributor License Agreement (CLA)**, which grants the project owner permission to include your contribution under both AGPL-3.0 and commercial licenses. You retain ownership of your work and receive credit in [AUTHORS.md](AUTHORS.md).
-
-See [CLA.md](CLA.md) for details.
+By contributing, you agree to the [CLA](CLA.md).
 
 ---
 
-## Acknowledgments
-
-- **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** — The backbone of stream resolution
-- **[Winamp](https://winamp.com)** — Visualizations that defined a generation
-- **[Tauri](https://tauri.app)** — The framework that made this possible
-- **[Symphonia](https://github.com/symphonia-corp/symphonia)** — Pure-Rust audio decoding
-- **[rustfft](https://github.com/ejmahler/rustfft)** — Real-time FFT for visualizations
+<p align="center">
+  Built with Rust + Tauri v2 + Svelte · Powered by yt-dlp, Symphonia, and rustfft
+</p>
