@@ -62,7 +62,16 @@
     "spectrum": "Spectrum",
     "oscilloscope": "Oscilloscope",
     "album_art": "Album Art",
-    "fullscreen": "Fullscreen"
+    "fullscreen": "Fullscreen",
+    "modes": {
+      "bars": "Bars",
+      "wave": "Wave",
+      "mirror": "Mirror",
+      "radial": "Radial",
+      "aurora": "Aurora",
+      "grid": "Grid",
+      "tunnel": "Tunnel"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -77,6 +86,9 @@
     "normalize_audio_desc": "Even out volume differences between tracks. Quiet tracks are boosted, loud peaks are compressed.",
     "appearance": "Appearance",
     "appearance_desc": "Customize the application window.",
+    "cinematic_mode": "Cinematic mode",
+    "cinematic_mode_desc": "Show a soft, music-reactive ambient background behind the app. Only active while audio is playing and the fullscreen visualizer is off.",
+    "cinematic_intensity": "Cinematic intensity",
     "hide_title_bar": "Hide title bar",
     "hide_title_bar_desc": "Remove the native window title bar for a cleaner look. Restart the app to restore the title bar."
   },

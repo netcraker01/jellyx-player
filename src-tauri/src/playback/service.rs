@@ -348,6 +348,23 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             .play_local(&PathBuf::from(path))
             .map_err(|e| AppError::from(e))?;
 
+        // Apply the persisted volume to the freshly-created backend.
+        // CpalBackend defaults to volume=1.0 in its own AudioState, so without
+        // this every new track would play at full volume until the user moves
+        // the slider. Re-apply so the new stream matches InternalState.volume.
+        // Also re-apply the normalization gain from the persisted DB setting so
+        // a backend swap does not silently drop the +6dB boost.
+        {
+            let s = self.state.lock().map_err(|_| AppError {
+                code: "UNKNOWN_ERROR".into(),
+                details: Some("mutex lock".into()),
+            })?;
+            let _ = cpal_backend.volume(s.volume);
+        }
+        let normalize_enabled = self.db.get_normalize_audio().unwrap_or(true);
+        let gain = if normalize_enabled { 2.0 } else { 1.0 }; // +6dB ≈ 2x linear
+        let _ = cpal_backend.set_normalize_gain(gain);
+
         // Store backend in shared ref for volume access
         {
             let mut shared = shared_backend.lock().unwrap();
@@ -2411,6 +2428,44 @@ mod tests {
 
         let volume: f32 = 0.7_f32.clamp(0.0, 1.0);
         assert!((volume - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn set_volume_persists_in_internal_state() {
+        // set_volume must update InternalState.volume (clamped to 0.0..=1.0)
+        // so a freshly-created backend can inherit it. This guards the fix for
+        // local playback clamping almost everything to max.
+        let service = PlaybackService::<tauri::test::MockRuntime>::new(
+            tauri::test::mock_app().handle().clone(),
+            Arc::new(Database::open_in_memory().expect("failed to open db")),
+            Arc::new(LibraryService::new(Arc::new(
+                Database::open_in_memory().expect("failed to open db"),
+            ))),
+            Arc::new(Mutex::new(None)),
+        );
+
+        // Default volume is 1.0 (full).
+        assert!((service.volume() - 1.0).abs() < f32::EPSILON);
+
+        // Set a mid volume — the frontend sends 0.0-1.0 (scaled from 0-100).
+        let result = service.set_volume(0.5);
+        assert!(result.is_ok(), "set_volume(0.5) should succeed");
+        assert!(
+            (service.volume() - 0.5).abs() < f32::EPSILON,
+            "InternalState.volume must be 0.5 after set_volume(0.5)"
+        );
+
+        // Out-of-range values clamp, not error.
+        let _ = service.set_volume(2.0);
+        assert!(
+            (service.volume() - 1.0).abs() < f32::EPSILON,
+            "set_volume(2.0) must clamp to 1.0"
+        );
+        let _ = service.set_volume(-1.0);
+        assert!(
+            (service.volume() - 0.0).abs() < f32::EPSILON,
+            "set_volume(-1.0) must clamp to 0.0"
+        );
     }
 
     #[test]

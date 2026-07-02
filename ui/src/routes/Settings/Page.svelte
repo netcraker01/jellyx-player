@@ -3,7 +3,7 @@
   import { t, locale, switchLocale } from '@i18n';
   import { getVersion, getSourceSettings, setSourceEnabled, getAudioSettings } from '@services/commands';
   import type { SourceSetting } from '@services/commands';
-  import { normalizeAudio, toggleNormalizeAudio } from '@features/player/stores/player';
+  import { normalizeAudio, toggleNormalizeAudio, cinematicMode, toggleCinematicMode, cinematicIntensity, setCinematicIntensity } from '@features/player/stores/player';
   import { Library, Info, Languages, Plug, Volume2, Monitor } from 'lucide-svelte';
 
   let version = '';
@@ -80,6 +80,16 @@
     }
   }
 
+  function handleCinematicToggle() {
+    toggleCinematicMode();
+  }
+
+  function handleCinematicIntensity(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const v = Number(input.value);
+    if (Number.isFinite(v)) setCinematicIntensity(v);
+  }
+
   const SUPPORTED_LOCALES = [
     { code: 'en', label: 'English' },
     { code: 'es', label: 'Español' },
@@ -110,13 +120,39 @@
     </div>
   </section>
 
-  {#if isLinux}
-    <section class="settings-section">
-      <div class="section-header">
-        <Monitor size={20} />
-        <h2>{$t('settings.appearance')}</h2>
-      </div>
-      <p class="section-desc">{$t('settings.hide_title_bar_desc')}</p>
+  <section class="settings-section">
+    <div class="section-header">
+      <Monitor size={20} />
+      <h2>{$t('settings.appearance')}</h2>
+    </div>
+    <p class="section-desc">{$t('settings.cinematic_mode_desc')}</p>
+    <div class="setting-row">
+      <span class="setting-label">{$t('settings.cinematic_mode')}</span>
+      <label class="toggle">
+        <input
+          type="checkbox"
+          checked={$cinematicMode}
+          on:change={handleCinematicToggle}
+        />
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">{$t('settings.cinematic_intensity')}</span>
+      <input
+        class="slider"
+        type="range"
+        min="0"
+        max="1"
+        step="0.05"
+        value={$cinematicIntensity}
+        on:input={handleCinematicIntensity}
+        aria-label={$t('settings.cinematic_intensity')}
+      />
+      <span class="setting-value">{$cinematicIntensity.toFixed(2)}</span>
+    </div>
+
+    {#if isLinux}
       <div class="setting-row">
         <span class="setting-label">{$t('settings.hide_title_bar')}</span>
         <label class="toggle">
@@ -128,8 +164,9 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
-    </section>
-  {/if}
+      <p class="section-desc">{$t('settings.hide_title_bar_desc')}</p>
+    {/if}
+  </section>
 
   <section class="settings-section">
     <div class="section-header">
@@ -329,5 +366,35 @@
   .toggle input:checked + .toggle-slider::before {
     transform: translateX(20px);
     background: white;
+  }
+
+  /* Range slider for cinematic intensity */
+  .slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 140px;
+    height: 6px;
+    background: var(--bg-elevated, #1f2937);
+    border: 1px solid var(--border-color, #1f2937);
+    border-radius: 3px;
+    cursor: pointer;
+  }
+
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--color-accent, #6366f1);
+    border: none;
+  }
+
+  .slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--color-accent, #6366f1);
+    border: none;
   }
 </style>

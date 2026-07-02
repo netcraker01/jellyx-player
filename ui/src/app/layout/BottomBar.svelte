@@ -9,6 +9,7 @@
     progress,
     volume,
     modoCineActive,
+    toggleModoCine,
     shuffle,
     repeatMode,
     togglePlayPause,
@@ -145,8 +146,9 @@
   <div class="volume">
     <button
       class="control-btn modo-cine-btn"
+      class:active={$modoCineActive}
       aria-label={$modoCineActive ? $t('visualizer.fullscreen') : $t('visualizer.spectrum')}
-      on:click={() => modoCineActive.set(!$modoCineActive)}
+      on:click={toggleModoCine}
     >
       {#if $modoCineActive}
         <Minimize size={16} />
@@ -167,6 +169,7 @@
       min="0"
       max="100"
       bind:value={$volume}
+      on:input={handleVolumeChange}
       on:change={handleVolumeChange}
       aria-label={$t('player.volume')}
     />

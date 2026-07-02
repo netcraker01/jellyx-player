@@ -62,7 +62,16 @@
     "spectrum": "Espectro",
     "oscilloscope": "Osciloscopio",
     "album_art": "Carátula",
-    "fullscreen": "Pantalla completa"
+    "fullscreen": "Pantalla completa",
+    "modes": {
+      "bars": "Barras",
+      "wave": "Onda",
+      "mirror": "Espejo",
+      "radial": "Radial",
+      "aurora": "Aurora",
+      "grid": "Cuadrícula",
+      "tunnel": "Túnel"
+    }
   },
   "settings": {
     "title": "Configuración",
@@ -77,6 +86,9 @@
     "normalize_audio_desc": "Equilibrá las diferencias de volumen entre pistas. Las pistas quietas se amplifican, los picos fuertes se comprimen.",
     "appearance": "Apariencia",
     "appearance_desc": "Personalizá la ventana de la aplicación.",
+    "cinematic_mode": "Modo cinematográfico",
+    "cinematic_mode_desc": "Muestra un fondo ambiental suave que reacciona a la música detrás de la app. Solo está activo mientras hay audio reproduciéndose y el visualizador en pantalla completa está apagado.",
+    "cinematic_intensity": "Intensidad cinematográfica",
     "hide_title_bar": "Ocultar barra de título",
     "hide_title_bar_desc": "Eliminá la barra de título nativa para un aspecto más limpio. Reiniciá la app para restaurarla."
   },

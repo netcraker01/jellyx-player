@@ -41,9 +41,16 @@ function createPlaylistsStore(): PlaylistsStore {
     async create(title: string): Promise<UserPlaylist | undefined> {
       try {
         const pl = await commands.createPlaylist(title);
-        update((entries) => [pl, ...entries]);
-        notifications.push({ type: 'success', title: 'Lists', message: 'List created', dismissible: true });
-        return pl;
+        // Guard against a falsy/invalid return so the store never carries
+        // undefined entries — those would crash `{#each ... (pl.id)}`
+        // consumers (e.g. ListPicker displayLists) and corrupt Svelte's
+        // render, leaving modal backdrops mounted and the UI locked.
+        if (pl && typeof pl === 'object' && 'id' in pl) {
+          update((entries) => [pl, ...entries]);
+          notifications.push({ type: 'success', title: 'Lists', message: 'List created', dismissible: true });
+          return pl;
+        }
+        return undefined;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         notifications.push({ type: 'error', title: 'Lists Error', message: msg, dismissible: true });

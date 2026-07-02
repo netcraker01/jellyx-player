@@ -45,6 +45,13 @@
     padding: 1rem 0;
   }
 
+  :global(.app-shell.cinematic-active) .sidebar {
+    background: rgba(17, 24, 39, 0.58);
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    border-right-color: rgba(255, 255, 255, 0.08);
+  }
+
   nav {
     display: flex;
     flex-direction: column;

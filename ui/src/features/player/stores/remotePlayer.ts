@@ -7,27 +7,194 @@
  * into an HTMLAudio element and drives play/pause/seek natively.
  *
  * For YouTube tracks, the frontend calls `cache_remote_stream` to download
- * the stream to a local file for instant seeking. The local file is loaded
- * via Tauri's `convertFileSrc` (asset:// protocol) which provides direct local
- * file access — no proxy round-trip, instant byte-range seeks. SoundCloud
- * stays on the remote proxy path (its seek already works fine over HTTP
- * Range requests).
+ * the stream to a local file for instant seeking. The local file is routed
+ * back through the proxy (`file://` via the proxy) instead of
+ * `convertFileSrc` (asset://) so the Web Audio AnalyserNode stays
+ * CORS-un-tainted and keeps producing real frequency data for Modo Cine.
+ * SoundCloud stays on the remote proxy path (its seek already works fine
+ * over HTTP Range requests).
  *
- * Local tracks still use the Rust Symphonia/cpal pipeline.
+ * A Web Audio AnalyserNode is bound to the audio element once and kept
+ * alive across tracks; a rAF loop publishes FrequencyData to the same
+ * `frequencyData` store the local Rust FFT path uses, so the visualizer
+ * works uniformly regardless of source.
+ *
+ * Local tracks still use the Rust Symphonia/cpal pipeline (and the Rust
+ * FFT engine), which is untouched here.
  */
 
 import { writable, get } from 'svelte/store';
-import { progress, isPlaying, currentTrack, volume, nextTrack, normalizeAudio } from './player';
+import { progress, isPlaying, currentTrack, volume, nextTrack, normalizeAudio, frequencyData } from './player';
 import { skipToNext } from './player';
 import { notifications } from '@shared/stores/notifications';
 import { t } from '@i18n';
 import { cacheRemoteStream } from '@services/commands';
 import { convertFileSrc } from '@tauri-apps/api/core';
-import type { Track } from '@shared/types/models';
+import type { Track, FrequencyData } from '@shared/types/models';
 import { Source } from '@shared/types/models';
 
 /** The underlying HTMLAudio element for remote playback. */
 let audioEl: HTMLAudioElement | null = null;
+
+// ── Remote Web Audio FFT (AnalyserNode) ─────────────────────────────
+// Remote tracks (YouTube, SoundCloud) bypass the Rust Symphonia/cpal
+// pipeline and therefore have no Rust FFT. We attach a Web Audio API
+// AnalyserNode to the HTMLAudioElement and run a requestAnimationFrame
+// loop that publishes FrequencyData to the same `frequencyData` store
+// the local path uses, so Modo Cine / the visualizer works uniformly.
+//
+// CORS note (the lesson from the earlier rollback):
+// `createMediaElementSource` permanently "taints" the element if the
+// source is not CORS-compliant, after which getFloatFrequencyData
+// returns all zeros. The local proxy already responds with
+// `Access-Control-Allow-Origin: *` on both the remote-forward path and
+// the `file://` local-cache path. To keep analysis working across the
+// YouTube local-cache swap, we set `audioEl.crossOrigin = 'anonymous'`
+// up front and route cached local files through the proxy (`file://`
+// via the proxy) instead of `convertFileSrc` (asset://), which is not
+// CORS-compliant. This is a minimal, opt-in change: local playback
+// (Symphonia/cpal) is untouched.
+
+/** Web Audio context kept alive across tracks (never closed on stop). */
+let audioCtx: AudioContext | null = null;
+/** Media element source bound to audioEl. Created ONCE per element lifetime. */
+let mediaSource: MediaElementAudioSourceNode | null = null;
+/** Gain node for remote playback volume/mute when routed through Web Audio. */
+let gainNode: GainNode | null = null;
+/** Analyser node used for frequency-bin extraction. */
+let analyser: AnalyserNode | null = null;
+/** rAF id for the remote FFT loop (null when not running). */
+let fftRafId: number | null = null;
+/** Reusable byte buffer for analyser.getByteFrequencyData (Uint8Array bins).
+ *  Typed as `Uint8Array<ArrayBuffer>` to match the narrower lib.dom signature. */
+let fftByteBins: Uint8Array<ArrayBuffer> | null = null;
+/** Reusable Float32Array for publishing to the frequencyData store. */
+let fftFloatBins: Float32Array | null = null;
+
+/** FFT size for the remote AnalyserNode. Must be a power of two; 1024
+ *  matches the Rust FftEngine size used for local playback so the
+ *  visualizer sees the same bin count regardless of source. */
+const REMOTE_FFT_SIZE = 1024;
+
+/** Parse the proxy port from a proxied stream URL like
+ *  `http://127.0.0.1:8765/proxy?url=...`. Returns null if the URL is
+ *  not a local proxy URL. */
+function parseProxyPort(url: string): number | null {
+  const m = url.match(/^https?:\/\/127\.0\.0\.1:(\d+)\/proxy\?/);
+  return m ? Number(m[1]) : null;
+}
+
+/** Build a proxy-routed URL for a local file path so the cached YouTube
+ *  m4a is served with CORS headers (the proxy injects
+ *  `Access-Control-Allow-Origin: *`). Falls back to `convertFileSrc`
+ *  (asset://) when the proxy port cannot be derived — in that case the
+ *  AnalyserNode simply won't produce real data for the cached file, but
+ *  playback still works (mirrors pre-FFT behavior). */
+function proxyLocalUrl(port: number | null, path: string): string {
+  if (port == null) return convertFileSrc(path);
+  // Encode the file:// URL the same way the Rust proxy expects it.
+  const fileUrl = `file://${path}`;
+  return `http://127.0.0.1:${port}/proxy?url=${encodeURIComponent(fileUrl)}`;
+}
+
+/** Lazily create the AudioContext + MediaElementSource + AnalyserNode.
+ *  `createMediaElementSource` can only be called ONCE per element —
+ *  after that the source is permanently bound — so we create the chain
+ *  on the first track and keep it alive for the element's lifetime. */
+function ensureWebAudioChain(el: HTMLAudioElement): void {
+  if (mediaSource) return; // already bound to this element
+  const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+  if (!Ctx) return; // WebKitGTK without Web Audio — gracefully no-op
+  audioCtx = new Ctx();
+  try {
+    mediaSource = audioCtx.createMediaElementSource(el);
+  } catch {
+    // Source may already be bound (HMR edge case) — bail out safely.
+    mediaSource = null;
+    audioCtx = null;
+    return;
+  }
+  gainNode = audioCtx.createGain();
+  gainNode.gain.value = Math.max(0, Math.min(1, get(volume) / 100));
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = REMOTE_FFT_SIZE;
+  analyser.smoothingTimeConstant = 0.8;
+  mediaSource.connect(gainNode);
+  gainNode.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  // Pre-allocate reusable buffers (half the FFT size = Nyquist bins).
+  fftByteBins = new Uint8Array(analyser.frequencyBinCount);
+  fftFloatBins = new Float32Array(analyser.frequencyBinCount);
+}
+
+/** Start the rAF loop that reads the analyser and publishes FrequencyData.
+ *  No-op if the analyser isn't ready. */
+function startRemoteFftLoop(): void {
+  if (!analyser || !fftByteBins || !fftFloatBins) return;
+  if (fftRafId !== null) return; // already running
+
+  const sampleRate = audioCtx?.sampleRate ?? 44100;
+
+  const tick = (): void => {
+    if (!analyser || !fftByteBins || !fftFloatBins) {
+      fftRafId = null;
+      return;
+    }
+    // getByteFrequencyData returns 0..255 magnitudes. Convert to 0..1
+    // floats so the visualizer's existing peak-based normalization works.
+    analyser.getByteFrequencyData(fftByteBins);
+    let peak = 0;
+    for (let i = 0; i < fftByteBins.length; i++) {
+      const v = fftByteBins[i] / 255;
+      fftFloatBins[i] = v;
+      if (v > peak) peak = v;
+    }
+    frequencyData.set({
+      bins: fftFloatBins,
+      sampleRate,
+      peak,
+    });
+    fftRafId = requestAnimationFrame(tick);
+  };
+  fftRafId = requestAnimationFrame(tick);
+}
+
+/** Stop the rAF loop and clear the frequencyData store. Called on
+ *  stopRemote and when local playback takes over. */
+function stopRemoteFftLoop(): void {
+  if (fftRafId !== null) {
+    cancelAnimationFrame(fftRafId);
+    fftRafId = null;
+  }
+  frequencyData.set(null);
+}
+
+/** Resume the AudioContext if it was suspended (autoplay policy / WebKit
+ *  requiring a user gesture). Safe to call repeatedly.
+ *
+ *  WebKitGTK starts a fresh AudioContext in the `suspended` state and will
+ *  only move it to `running` from within a user-gesture call stack. When
+ *  `loadRemoteStream()` runs outside a gesture (e.g. an auto-advanced queue
+ *  or a programmatic `nextTrack()`), the initial `resumeAudioCtx()` call
+ *  silently no-ops and the AnalyserNode keeps producing all-zero bins.
+ *
+ *  Any genuine user gesture that should light up Modo Cine — the Modo Cine
+ *  button click — MUST call this so the suspended context finally resumes
+ *  and `frequencyData` starts carrying real magnitudes. */
+export function resumeRemoteAudioCtx(): void {
+  if (audioCtx && audioCtx.state === 'suspended') {
+    audioCtx.resume().catch(() => {
+      // Autoplay gesture not yet received — loop will start producing
+      // data once the context is resumed by a later user interaction.
+    });
+  }
+}
+
+/** Internal alias kept for the existing `loadRemoteStream` / `resumeRemote`
+ *  call sites. Delegates to the public function. */
+function resumeAudioCtx(): void {
+  resumeRemoteAudioCtx();
+}
 
 /** Whether normalization is currently active (read-only flag for UI). */
 let normalizationActive = false;
@@ -76,23 +243,19 @@ function appendProxyParam(url: string, key: string, value: string): string {
   return `${url}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 }
 
-/** Build a loadable URL for a local file path via Tauri's asset protocol.
- *
- * Using `convertFileSrc` produces a `http://asset.localhost/` URL that the
- * Tauri WebView can access directly — no proxy round-trip, no HTTP/2 chunked
- * read issues, and instant byte-range seeks because the file is local. */
-function localFileUrl(localPath: string): string {
-  return convertFileSrc(localPath);
-}
-
 /** Create or reuse an HTMLAudio element. */
 function getAudio(): HTMLAudioElement {
   if (!audioEl) {
     audioEl = new Audio();
     audioEl.preload = 'auto';
-    // Do NOT set crossOrigin — it forces CORS on ALL sources including local
-    // asset:// files via convertFileSrc. When combined with Web Audio API's
-    // createMediaElementSource, non-CORS-compliant sources produce silent output.
+    // crossOrigin='anonymous' is REQUIRED for the AnalyserNode to see
+    // real data. The proxy already responds with
+    // `Access-Control-Allow-Origin: *` on both the remote-forward path
+    // and the file:// local-cache path, so all remote sources are
+    // CORS-compliant when routed through the proxy. This MUST be set
+    // before any src is assigned, otherwise the element is tainted and
+    // getByteFrequencyData returns all zeros.
+    audioEl.crossOrigin = 'anonymous';
 
     // Sync timeupdate → progress store, and drive MSE segment prefetching
     audioEl.addEventListener('timeupdate', () => {
@@ -195,8 +358,20 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
   audio.pause();
   audio.src = '';
 
-  // Set volume (0-1)
-  audio.volume = get(volume) / 100;
+  // Ensure the Web Audio AnalyserNode chain is bound to this audio
+  // element BEFORE we assign a src. createMediaElementSource can only be
+  // called once per element lifetime; subsequent tracks reuse it.
+  ensureWebAudioChain(audio);
+
+  // Set playback volume. When the remote track is routed through Web Audio,
+  // control loudness via GainNode (audioEl.volume can become ineffective once
+  // playback is flowing through createMediaElementSource on some WebKit builds).
+  if (gainNode) {
+    gainNode.gain.value = Math.max(0, Math.min(1, get(volume) / 100));
+    audio.volume = 1;
+  } else {
+    audio.volume = get(volume) / 100;
+  }
   // Give the proxy the known metadata duration so it can expose
   // X-Content-Duration / Content-Duration on the initial media response. This
   // is especially important for YouTube m4a streams, where the WebView often
@@ -226,6 +401,12 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
     return; // Don't attempt cache download if playback failed
   }
 
+  // Start the remote FFT rAF loop so Modo Cine has frequency data. The
+  // AudioContext may start suspended (autoplay policy) — resume it on
+  // play, and the loop will begin producing real data once it's running.
+  resumeAudioCtx();
+  startRemoteFftLoop();
+
   // YouTube local-cache: download the stream to a local file for instant seeking.
   // SoundCloud stays on the remote proxy (its seek works fine over HTTP Range).
   // Only cache tracks shorter than 15 minutes — longer tracks produce files
@@ -244,7 +425,14 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
       // Swap the audio source to the local file for instant seeking.
       // Only swap if the track hasn't changed while we were downloading.
       if (currentStreamUrl === playableUrl && currentSource === Source.YouTube) {
-        const localUrl = localFileUrl(localPath);
+        // Route the cached file through the proxy so it is served with
+        // CORS headers (Access-Control-Allow-Origin: *). The audio
+        // element has crossOrigin='anonymous' set, so a non-CORS source
+        // (like asset:// from convertFileSrc) would silently taint the
+        // AnalyserNode and zero out frequency data. The proxy serves
+        // file:// URLs with the same CORS + Range headers as remote.
+        const port = parseProxyPort(playableUrl);
+        const localUrl = proxyLocalUrl(port, localPath);
         // Preserve current playback position across the source swap.
         // The browser must load the new source's metadata before currentTime
         // can be set — setting it immediately after src change is a no-op.
@@ -254,7 +442,7 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
         swappingSource = true;
 
         // Revert to the proxy URL if the local file fails to load.
-        // This handles: corrupt file, unsupported codec, asset protocol error.
+        // This handles: corrupt file, unsupported codec, proxy/asset error.
         const revertToProxy = () => {
           if (!swappingSource) return; // already handled
           swappingSource = false;
@@ -324,6 +512,9 @@ export function pauseRemote(): void {
 /** Resume remote playback. */
 export function resumeRemote(): void {
   if (audioEl) {
+    // The AudioContext may have been suspended by the autoplay policy;
+    // a user gesture (clicking play) is the right moment to resume it.
+    resumeAudioCtx();
     audioEl.play().catch((e) => {
       const msg = e instanceof Error ? e.message : String(e);
       notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
@@ -409,7 +600,13 @@ export function seekRemote(position: number): void {
 /** Set volume for remote playback (0-100). */
 export function setRemoteVolume(value: number): void {
   if (audioEl) {
-    audioEl.volume = Math.max(0, Math.min(1, value / 100));
+    const normalized = Math.max(0, Math.min(1, value / 100));
+    if (gainNode) {
+      gainNode.gain.value = normalized;
+      audioEl.volume = 1;
+    } else {
+      audioEl.volume = normalized;
+    }
   }
 }
 
@@ -449,6 +646,9 @@ export function setRemoteNormalization(_enabled: boolean): void {
 
 /** Stop and cleanup remote playback. */
 export function stopRemote(): void {
+  // Stop the remote FFT rAF loop first so we don't keep publishing
+  // stale frequency data after the element is torn down.
+  stopRemoteFftLoop();
   if (audioEl) {
     audioEl.pause();
     audioEl.src = '';

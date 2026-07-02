@@ -15,10 +15,15 @@ import {
   loadRemoteStream,
   pauseRemote,
   resumeRemote,
+  resumeRemoteAudioCtx,
   seekRemote,
   stopRemote,
   remoteActive,
 } from './remotePlayer';
+import {
+  DEFAULT_VISUALIZER_MODE,
+  type VisualizerModeId,
+} from '../visualizers/registry';
 
 // ── Stores ────────────────────────────────────────────────────────
 
@@ -58,8 +63,36 @@ export const shuffle = writable(false);
 /** Current repeat mode: Off, All, or One. */
 export const repeatMode = writable<QueueState['repeatMode']>('Off');
 
-/** Current volume level (0-100). */
-export const volume = writable(80);
+/** localStorage key for persisted volume (0-100, the user-facing unit). */
+const VOLUME_KEY = 'helix-volume';
+
+/** Default volume (0-100). Used when no persisted value exists. */
+const VOLUME_DEFAULT = 80;
+
+/** Read the persisted volume (0-100), falling back to the default. */
+function readPersistedVolume(): number {
+  try {
+    const raw = localStorage.getItem(VOLUME_KEY);
+    if (raw == null) return VOLUME_DEFAULT;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return VOLUME_DEFAULT;
+    return Math.min(100, Math.max(0, Math.round(n)));
+  } catch {
+    return VOLUME_DEFAULT;
+  }
+}
+
+/** Current volume level (0-100, the user-facing unit). Persisted to localStorage. */
+export const volume = writable<number>(readPersistedVolume());
+
+// Persist volume to localStorage whenever it changes.
+volume.subscribe((v) => {
+  try {
+    localStorage.setItem(VOLUME_KEY, String(v));
+  } catch {
+    // localStorage may be unavailable (SSR / private mode) — value stays in-memory
+  }
+});
 
 /** Whether audio normalization is enabled. Persisted in DB. */
 export const normalizeAudio = writable(true);
@@ -67,8 +100,139 @@ export const normalizeAudio = writable(true);
 /** Latest frequency data from the Rust FFT engine (null until first event). */
 export const frequencyData = writable<FrequencyData | null>(null);
 
-/** Whether Modo Cine (immersive fullscreen visualizer) is active. */
+/** Whether the Winamp-style fullscreen visualizer overlay is active.
+ *
+ *  This is the VISUALIZER toggle — independent from `cinematicMode` (the
+ *  ambient background controlled by Settings). It is driven by the bottom-bar
+ *  button next to the volume slider (see `toggleModoCine`) and consumed by
+ *  `Visualizer.svelte` to expand its canvas to a fullscreen overlay. It is
+ *  NOT persisted: the visualizer is a transient, per-session view. */
 export const modoCineActive = writable<boolean>(false);
+
+/** localStorage key for the persisted visualizer mode. */
+const VISUALIZER_MODE_KEY = 'helix-visualizer-mode';
+
+/** Read a persisted visualizer mode id, validating it is a known mode.
+ *  Unknown/missing values fall back to the default (bars) so the store
+ *  never carries a stale id that the registry can't resolve. */
+function readPersistedVisualizerMode(): VisualizerModeId {
+  try {
+    const raw = localStorage.getItem(VISUALIZER_MODE_KEY);
+    if (raw == null) return DEFAULT_VISUALIZER_MODE;
+    // Validate against the registry's known ids; ignore anything else.
+    // (We import the mode set lazily to avoid a circular import with the
+    //  registry importing renderers that import types only.)
+    const known: VisualizerModeId[] = ['bars', 'wave', 'mirror'];
+    return (known as readonly string[]).includes(raw) ? (raw as VisualizerModeId) : DEFAULT_VISUALIZER_MODE;
+  } catch {
+    return DEFAULT_VISUALIZER_MODE;
+  }
+}
+
+/** Currently selected visualizer mode id (persisted to localStorage).
+ *
+ *  Driven by the `VisualizerSelector` inside the fullscreen overlay. The host
+ *  (`Visualizer.svelte`) resolves this id to a renderer via the registry on
+ *  every frame, so switching modes is a pure dispatch with no rAF churn.
+ *  `modoCineActive` toggles the overlay itself; this store only picks which
+ *  renderer runs while the overlay is open. */
+export const visualizerMode = writable<VisualizerModeId>(readPersistedVisualizerMode());
+
+visualizerMode.subscribe((v) => {
+  try {
+    localStorage.setItem(VISUALIZER_MODE_KEY, String(v));
+  } catch {
+    // localStorage unavailable — value stays in-memory
+  }
+});
+
+/** Toggle the fullscreen visualizer overlay from the bottom-bar button.
+ *
+ *  This toggles the VISUALIZER (`modoCineActive`), which is independent from
+ *  the cinematic background (`cinematicMode`, controlled by Settings). It
+ *  MUST run inside the user-gesture call stack so it can also call
+ *  `resumeRemoteAudioCtx()`. On WebKitGTK a remote-track AudioContext starts
+ *  suspended and only resumes from within a gesture; if playback began
+ *  outside a gesture (auto-advanced queue, programmatic nextTrack), the
+ *  initial `resumeRemoteAudioCtx()` in `loadRemoteStream` silently no-ops
+ *  and the AnalyserNode keeps emitting all-zero bins, so the visualizer
+ *  renders black. Calling `resumeRemoteAudioCtx()` here guarantees the
+ *  context finally moves to `running` the instant the user asks for the
+ *  visualizer, and `frequencyData` starts carrying real magnitudes. */
+export function toggleModoCine(): void {
+  modoCineActive.update((v) => !v);
+  resumeRemoteAudioCtx();
+}
+
+// ── Cinematic ambient mode ─────────────────────────────────────────
+// Opt-in reactive background that paints layered gradients/glows behind the
+// app content, pulsing on frequencyData. Persisted to localStorage only — no
+// backend round-trip — matching the Helix appearance-settings convention.
+
+/** localStorage key for the cinematic-mode on/off preference. */
+const CINEMATIC_MODE_KEY = 'helix-cinematic-mode';
+
+/** localStorage key for the cinematic intensity (0..1) preference. */
+const CINEMATIC_INTENSITY_KEY = 'helix-cinematic-intensity';
+
+/** Default intensity when no persisted value exists (0..1). */
+const CINEMATIC_INTENSITY_DEFAULT = 0.5;
+
+/** Read a boolean preference from localStorage, defaulting to false. */
+function readPersistedFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/** Read a clamped float preference from localStorage. */
+function readPersistedFloat(key: string, fallback: number, min = 0, max = 1): number {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  } catch {
+    return fallback;
+  }
+}
+
+/** Whether the cinematic ambient background is enabled (persisted, default off). */
+export const cinematicMode = writable<boolean>(readPersistedFlag(CINEMATIC_MODE_KEY));
+
+cinematicMode.subscribe((v) => {
+  try {
+    localStorage.setItem(CINEMATIC_MODE_KEY, String(v));
+  } catch {
+    // localStorage unavailable — value stays in-memory
+  }
+});
+
+/** Cinematic background intensity (0..1, persisted, default 0.5). */
+export const cinematicIntensity = writable<number>(
+  readPersistedFloat(CINEMATIC_INTENSITY_KEY, CINEMATIC_INTENSITY_DEFAULT)
+);
+
+cinematicIntensity.subscribe((v) => {
+  try {
+    localStorage.setItem(CINEMATIC_INTENSITY_KEY, String(v));
+  } catch {
+    // localStorage unavailable — value stays in-memory
+  }
+});
+
+/** Toggle the cinematic ambient mode on/off. */
+export function toggleCinematicMode(): void {
+  cinematicMode.update((v) => !v);
+}
+
+/** Set the cinematic intensity, clamped to 0..1. */
+export function setCinematicIntensity(value: number): void {
+  cinematicIntensity.set(Math.min(1, Math.max(0, value)));
+}
 
 // ── Event Initialization ──────────────────────────────────────────
 
@@ -151,6 +315,15 @@ export async function initPlayerEvents(): Promise<void> {
     await commands.setPlaybackNormalizeAudio(settings.normalizeAudio);
   } catch {
     // Defaults to enabled — leave the store's default (true)
+  }
+
+  // Sync the persisted volume to the Rust backend's InternalState so the first
+  // local track plays at the user's chosen level instead of the backend's 1.0
+  // default. The command clamps to 0.0-1.0; divide the 0-100 UI value here.
+  try {
+    await commands.setVolume(get(volume) / 100);
+  } catch {
+    // Backend unavailable — volume applies on next track start via the store.
   }
 }
 
@@ -266,18 +439,22 @@ export async function seekTo(position: number): Promise<void> {
   }
 }
 
-/** Set volume (0-100). */
+/** Set volume (0-100, the user-facing unit). Scales to 0.0-1.0 for the Rust
+ *  backend and forwards to the remote HTMLAudio path (which also expects 0-100
+ *  and divides internally). Persists to localStorage via the volume store subscriber. */
 export async function setVolume(value: number): Promise<void> {
-  volume.set(value);
-  // Sync remote playback volume if active
+  const clamped = Math.min(100, Math.max(0, Math.round(value)));
+  volume.set(clamped);
+  // Sync remote playback volume if active (remotePlayer divides by 100 itself)
   try {
     const { setRemoteVolume } = await import('./remotePlayer');
-    setRemoteVolume(value);
+    setRemoteVolume(clamped);
   } catch {
     // remotePlayer may not be available in test environments
   }
   try {
-    await commands.setVolume(value);
+    // Backend expects 0.0-1.0 — scale the 0-100 UI value here at the IPC boundary.
+    await commands.setVolume(clamped / 100);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });

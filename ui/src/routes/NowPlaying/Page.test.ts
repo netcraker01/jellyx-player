@@ -23,6 +23,7 @@ vi.mock('@features/player/stores/player', () => ({
   currentIndex: { subscribe: (fn: any) => { fn(null); return () => {}; } },
   frequencyData: { subscribe: (fn: any) => { fn(null); return () => {}; }, set: vi.fn() },
   modoCineActive: { subscribe: (fn: any) => { fn(false); return () => {}; }, set: vi.fn() },
+  visualizerMode: { subscribe: (fn: any) => { fn('bars'); return () => {}; }, set: vi.fn() },
   seekTo: vi.fn(),
   playTrack: vi.fn(),
   removeTrack: vi.fn(),

@@ -56,6 +56,9 @@ export function seek(position: number): Promise<void> {
   return invokeCommand<void>('seek', { position });
 }
 
+/** Set playback volume. `volume` is in backend units (0.0..1.0), matching the
+ *  Rust `set_volume(volume: f32)` command. Convert UI 0-100 to 0.0-1.0 in the
+ *  player action layer before calling this. */
 export function setVolume(volume: number): Promise<void> {
   return invokeCommand<void>('set_volume', { volume });
 }

@@ -19,10 +19,14 @@
   let newListTitle = '';
   let searchInputEl: HTMLInputElement | undefined;
   let newListInputEl: HTMLInputElement | undefined;
+  let popupEl: HTMLDivElement | undefined;
 
   onMount(() => {
     playlists.load();
-    checkTrackInLists();
+    // checkTrackInLists() temporarily disabled — it makes up to 10 sequential
+    // IPC calls (getPlaylistTracks) that may hang and leave the component in a
+    // bad state. This is a non-critical feature (showing checkmarks for lists
+    // that already contain the track).
   });
 
   async function checkTrackInLists() {
@@ -60,21 +64,31 @@
   }
 
   async function selectList(playlistId: string) {
-    await playlists.addTrack(playlistId, track);
-    dispatch('close');
-  }
-
-  async function createAndAdd() {
-    if (!newListTitle.trim()) return;
-    const pl = await playlists.create(newListTitle.trim());
-    if (pl && typeof pl === 'object' && 'id' in pl) {
-      await playlists.addTrack(pl.id, track);
+    try {
+      await playlists.addTrack(playlistId, track);
+    } finally {
+      // ALWAYS close the picker — the backdrop is a fixed full-screen
+      // overlay (z-index 200) that intercepts all clicks, including sidebar
+      // navigation. If close is skipped (e.g. on IPC error), the entire UI
+      // locks and only an app reload recovers it.
       dispatch('close');
     }
   }
 
-  function handleBackdropClick() {
-    dispatch('close');
+  async function createAndAdd() {
+    if (!newListTitle.trim()) return;
+    try {
+      const pl = await playlists.create(newListTitle.trim());
+      if (pl && typeof pl === 'object' && 'id' in pl) {
+        await playlists.addTrack(pl.id, track);
+      }
+    } finally {
+      // ALWAYS close, even when create/add fails. The old code only
+      // dispatched 'close' inside the success branch, so any create failure
+      // (IPC error, DB constraint) left the backdrop mounted and locked the
+      // whole UI. See bug: Search -> add-to-list -> UI stuck on Search tab.
+      dispatch('close');
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -83,7 +97,13 @@
     }
   }
 
-  $: displayLists = searchQuery.trim() ? searchResults : $recentPlaylists;
+  function handleBackdropClick() {
+    dispatch('close');
+  }
+
+  $: displayLists = (searchQuery.trim() ? searchResults : $recentPlaylists).filter(
+    (pl): pl is UserPlaylist => !!pl && typeof pl === 'object' && 'id' in pl,
+  );
 
   $: if (visible) {
     tick().then(() => searchInputEl?.focus());
@@ -98,8 +118,9 @@
 
 {#if visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="picker-backdrop" on:click={handleBackdropClick} on:keydown={handleKeydown} role="presentation">
+  <div class="picker-backdrop" on:click={handleBackdropClick} role="presentation">
     <div
+      bind:this={popupEl}
       class="picker-popup"
       on:click|stopPropagation
       on:keydown={handleKeydown}
