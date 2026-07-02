@@ -9,7 +9,7 @@ Thanks for your interest in Helix! This guide covers how to report bugs, suggest
 - [Architecture overview](docs/ARCHITECTURE.md)
 - [Building from source](docs/BUILDING.md)
 - [Packaging guide](docs/packaging.md)
-- [Design tokens](imagen/helix_design_tokens.json)
+- [Design tokens](assets/brand/design-tokens.json)
 
 ## How to contribute
 
@@ -45,9 +45,9 @@ cargo tauri dev
 
 If your change touches UI, visuals, or public-facing assets, check the brand system:
 
-- Colors, gradients, and typography: [`imagen/helix_design_tokens.json`](imagen/helix_design_tokens.json)
-- CSS variables: [`imagen/helix-theme.css`](imagen/helix-theme.css)
-- Logo SVG: [`imagen/helix-icon-white.svg`](imagen/helix-icon-white.svg)
+- Colors, gradients, and typography: [`assets/brand/design-tokens.json`](assets/brand/design-tokens.json)
+- CSS variables: [`assets/brand/theme.css`](assets/brand/theme.css)
+- Logo SVG: [`assets/brand/icon.svg`](assets/brand/icon.svg)
 
 ## Contributor License Agreement
 

@@ -2,7 +2,7 @@
   /**
    * BrandLockup — Helix visual identity for sidebar header.
    *
-   * Derived from imagen/HelixIcon.svelte. Strips the outer app-tile
+   * Derived from assets/brand/HelixIcon.svelte. Strips the outer app-tile
    * chrome (shadow, rounded rect frame) and keeps only the core
    * mark so it scales cleanly inside a header row.
    */
@@ -29,7 +29,7 @@
     font-size: 1.5rem;
     font-weight: 700;
     letter-spacing: -0.02em;
-    /* Brand gradient mapped from imagen/helix_design_tokens.json.
+    /* Brand gradient mapped from assets/brand/design-tokens.json.
        Falls back gracefully to the existing accent token. */
     background: linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%);
     -webkit-background-clip: text;

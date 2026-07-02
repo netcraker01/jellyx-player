@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="imagen/logo_minimalista_de_helix_y_reproducción.png" alt="Helix Player" width="640">
+  <img src="assets/brand/logo-wide.png" alt="Helix Player" width="640">
 </p>
 
 <p align="center">
@@ -131,7 +131,7 @@ Helix is open source and community-driven. If you want to help:
 - 🐛 [Report a bug](https://github.com/netcraker01/helix/issues/new?template=bug_report.md)
 - 💡 [Suggest a feature](https://github.com/netcraker01/helix/issues/new?template=feature_request.md)
 - 🔧 [Read the contributor guide](CONTRIBUTING.md)
-- 🎨 [See the design tokens](imagen/helix_design_tokens.json)
+- 🎨 [See the design tokens](assets/brand/design-tokens.json)
 
 All contributors keep ownership of their work and are credited in [AUTHORS.md](AUTHORS.md).
 
