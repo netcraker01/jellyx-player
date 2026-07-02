@@ -21,6 +21,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+.atl/
 
 # Build artifacts
 *.AppImage
@@ -31,3 +32,6 @@ Thumbs.db
 
 # Local tooling artifacts
 ui/vite.config.ts.timestamp-*.mjs
+
+# SDD process artifacts (internal)
+openspec/changes/
