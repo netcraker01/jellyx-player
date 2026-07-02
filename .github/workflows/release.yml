@@ -132,13 +132,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bundle_root="src-tauri/target/release/bundle"
+
+          # Tauri v2 places bundles under the workspace root target/ when built
+          # from the workspace root (not src-tauri/target/). Search both paths
+          # as a fallback in case the build context changes.
+          search_root=""
+          for candidate in "target/release/bundle" "src-tauri/target/release/bundle"; do
+            if [ -d "$candidate" ]; then
+              search_root="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$search_root" ]; then
+            echo "ERROR: No bundle directory found under target/release/bundle or src-tauri/target/release/bundle" >&2
+            exit 1
+          fi
+
+          echo "Bundle root: $search_root"
 
           # --- AppImage ---
-          appimage_file="$(find "$bundle_root/appimage" -name '*.AppImage' -type f 2>/dev/null | head -1)"
+          appimage_file="$(find "$search_root/appimage" -name '*.AppImage' -type f 2>/dev/null | head -1)"
           if [ -z "$appimage_file" ]; then
-            echo "ERROR: No AppImage found under $bundle_root/appimage" >&2
-            find "$bundle_root" -maxdepth 3 -type f >&2 || true
+            echo "ERROR: No AppImage found under $search_root/appimage" >&2
+            find "$search_root" -maxdepth 3 -type f >&2 || true
             exit 1
           fi
           appimage_hash=$(sha256sum "$appimage_file" | cut -d' ' -f1)
@@ -146,9 +163,9 @@ jobs:
           echo "${appimage_hash}  $(basename "$appimage_file")" > "$appimage_hash_file"
 
           # --- .deb ---
-          deb_file="$(find "$bundle_root/deb" -name '*.deb' -type f 2>/dev/null | head -1)"
+          deb_file="$(find "$search_root/deb" -name '*.deb' -type f 2>/dev/null | head -1)"
           if [ -z "$deb_file" ]; then
-            echo "ERROR: No .deb found under $bundle_root/deb" >&2
+            echo "ERROR: No .deb found under $search_root/deb" >&2
             exit 1
           fi
           deb_hash=$(sha256sum "$deb_file" | cut -d' ' -f1)
@@ -156,9 +173,9 @@ jobs:
           echo "${deb_hash}  $(basename "$deb_file")" > "$deb_hash_file"
 
           # --- .rpm ---
-          rpm_file="$(find "$bundle_root/rpm" -name '*.rpm' -type f 2>/dev/null | head -1)"
+          rpm_file="$(find "$search_root/rpm" -name '*.rpm' -type f 2>/dev/null | head -1)"
           if [ -z "$rpm_file" ]; then
-            echo "ERROR: No .rpm found under $bundle_root/rpm" >&2
+            echo "ERROR: No .rpm found under $search_root/rpm" >&2
             exit 1
           fi
           rpm_hash=$(sha256sum "$rpm_file" | cut -d' ' -f1)
