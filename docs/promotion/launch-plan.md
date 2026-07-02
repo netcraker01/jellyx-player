@@ -1,6 +1,8 @@
 # Helix Player — Launch & Promotion Plan
 
-> **Version:** v0.2.1 · **Date:** July 2026 · **Status:** Alpha
+> **Version:** v0.2.1 (2026-07-02) · **Status:** Alpha
+> **All platforms build ✅** — Linux (AppImage, .deb, .rpm), Windows (MSI, NSIS, portable), macOS aarch64
+> **macOS Intel DMG** queued in CI (runner quota) — will auto-attach when available
 > **Repo:** https://github.com/netcraker01/helix
 > **Downloads:** https://github.com/netcraker01/helix/releases
 
@@ -47,9 +49,10 @@
 ### Ready now (v0.2.1)
 | Platform | Format | Download |
 |----------|--------|----------|
-| Linux | AppImage, .deb, .rpm | GitHub Releases |
-| macOS | DMG (Apple Silicon + Intel) | GitHub Releases (separate workflow) |
-| Windows | MSI, NSIS setup.exe, portable exe | GitHub Releases |
+| Linux | AppImage, .deb, .rpm | GitHub Releases ✅ |
+| macOS | DMG (Apple Silicon) | GitHub Releases ✅ |
+| macOS | DMG (Intel) | CI queued (runner quota) ⏳ |
+| Windows | MSI, NSIS setup.exe, portable exe | GitHub Releases ✅ |
 
 ### Pending submission
 | Channel | What's needed | Effort |
