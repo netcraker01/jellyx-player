@@ -28,7 +28,9 @@
 
 ## Watch it in action
 
-<video src="docs/videos/demo.mp4" controls width="100%" poster="docs/screenshots/now-playing.png"></video>
+<video src="docs/videos/demo.mp4" controls width="100%" poster="docs/screenshots/now-playing.png">
+  <img src="docs/videos/demo.gif" alt="Helix demo animation">
+</video>
 
 A 50-second demo of search, playback, and the player UI. No sign-up, no browser tab, just music.
 
@@ -117,10 +119,11 @@ All downloads, checksums, and release notes are on the [Releases](https://github
 ## Roadmap
 
 | Now | Next | Later |
-|---|---|---|
-| ✅ Core streaming & playback | 🔄 Flatpak publishing | 🔲 WASM plugin system |
-| ✅ 7 visualizer modes | 🔄 Homebrew / wingit publishing | 🔲 IceCast/Shoutcast radio |
-| ✅ Local files + playlists | 🔄 AUR publishing | 🔲 Last.fm integration |
+|---|---|---|---|
+| ✅ Core streaming & playback | 🔄 Homebrew tap | 🔲 WASM plugin system |
+| ✅ 7 visualizer modes | 🔄 winget publishing | 🔲 IceCast/Shoutcast radio |
+| ✅ Local files + playlists | 🔄 Flatpak publishing (blocked) | 🔲 Last.fm integration |
+| ✅ Cinematic mode + visualizers | 🔄 AUR publishing | 🔲 Community radio |
 
 ---
 

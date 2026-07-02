@@ -1,5 +1,5 @@
 cask "helix-player" do
-  version "0.1.0"
+  version "0.2.1"
 
   # Architecture-specific URLs and checksums.
   # Replace SHA256 placeholders with actual values after the first DMG release.
