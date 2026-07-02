@@ -105,10 +105,10 @@ Helix combines the best of both worlds: a **native desktop app** with a clean, m
 Pick your platform and install in seconds:
 
 | Platform | Recommended | Alternative |
-|---|---|---|
-| **Linux** | [AppImage](https://github.com/netcraker01/helix/releases) | `.deb`, `.rpm`, [Flatpak](https://flathub.org) *(submission in review)* |
-| **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | [DMG for Intel](https://github.com/netcraker01/helix/releases) |
-| **Windows** | [NSIS setup.exe](https://github.com/netcraker01/helix/releases) | `.msi` for winget / enterprise *(winget submission in review)* |
+|---|---|---|---|
+| **Linux** | [AppImage](https://github.com/netcraker01/helix/releases) | `.deb`, `.rpm` |
+| **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | [DMG for Intel](https://github.com/netcraker01/helix/releases) *(CI queued)* |
+| **Windows** | [NSIS setup.exe](https://github.com/netcraker01/helix/releases) | `.msi` for enterprise / `.exe` portable |
 
 > **Windows note:** Installers are currently unsigned. Windows 11 may show a SmartScreen warning. Click “More info → Run anyway” to install.
 
@@ -122,8 +122,8 @@ All downloads, checksums, and release notes are on the [Releases](https://github
 |---|---|---|---|
 | ✅ Core streaming & playback | 🔄 Homebrew tap | 🔲 WASM plugin system |
 | ✅ 7 visualizer modes | 🔄 winget publishing | 🔲 IceCast/Shoutcast radio |
-| ✅ Local files + playlists | 🔄 Flatpak publishing (blocked) | 🔲 Last.fm integration |
-| ✅ Cinematic mode + visualizers | 🔄 AUR publishing | 🔲 Community radio |
+| ✅ Local files + playlists | 🔄 macOS Intel DMG (CI queued) | 🔲 Last.fm integration |
+| ✅ Cinematic mode + visualizers | 🔄 Community building | 🔲 Plugin system |
 
 ---
 
