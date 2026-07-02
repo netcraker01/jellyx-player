@@ -25,12 +25,16 @@ name: macOS DMG
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
 concurrency:
   group: macos-dmg-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -166,6 +170,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Attach DMG to Release (on tag push only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.dmg.outputs.dmg_path }}
+            ${{ steps.dmg.outputs.sha256_file }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Output build summary
         shell: bash
         run: |
@@ -181,6 +195,3 @@ jobs:
           echo "  1. Download the .sha256 file from the artifact"
           echo "  2. Update packaging/homebrew/Casks/helix-player.rb"
           echo "     with the version, URL, and SHA256 per architecture"
-          echo ""
-          # NOTE: release publishing is handled by .github/workflows/release.yml.
-          # This CI workflow uploads artifacts only — no GitHub Release upload.
