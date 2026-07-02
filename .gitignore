@@ -1,14 +1,14 @@
 # Rust
+# For applications, Cargo.lock SHOULD be committed for reproducible builds.
+# It is tracked in this repository; do not add it here.
 target/
-Cargo.lock
+src-tauri/target/
 
 # Node
 node_modules/
+ui/node_modules/
 ui/dist/
 ui/.svelte-kit/
-
-# Tauri
-src-tauri/target/
 
 # Bundled yt-dlp binaries (large, platform-specific — download separately for release)
 # These are placed next to the app executable at build time, not committed to git.
@@ -31,4 +31,3 @@ Thumbs.db
 
 # Local tooling artifacts
 ui/vite.config.ts.timestamp-*.mjs
-src-tauri/!
