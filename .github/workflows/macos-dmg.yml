@@ -9,9 +9,10 @@
 # This workflow handles macOS DMGs separately and attaches them to the GitHub
 # Release on v* tags.
 #
-# Architecture support:
+# Architecture support for the current alpha:
 #   - macos-14 runner (Apple Silicon M1) → builds aarch64-apple-darwin
-#   - macos-13 runner (Intel) → builds x86_64-apple-darwin
+# Intel DMGs are intentionally deferred until we have a reliable macOS runner
+# path that does not block release promotion.
 #
 # Outputs:
 #   - Uploads DMG + SHA256 as GitHub Actions artifacts (all builds)
@@ -55,9 +56,6 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-14
             arch_suffix: aarch64
-          - target: x86_64-apple-darwin
-            runner: macos-13
-            arch_suffix: x64
 
     steps:
       - name: Checkout repository

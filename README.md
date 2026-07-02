@@ -107,7 +107,7 @@ Pick your platform and install in seconds:
 | Platform | Recommended | Alternative |
 |---|---|---|---|
 | **Linux** | [AppImage](https://github.com/netcraker01/helix/releases) | `.deb`, `.rpm` |
-| **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | [DMG for Intel](https://github.com/netcraker01/helix/releases) *(CI queued)* |
+| **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | Intel support deferred in alpha |
 | **Windows** | [NSIS setup.exe](https://github.com/netcraker01/helix/releases) | `.msi` for enterprise / `.exe` portable |
 
 > **Windows note:** Installers are currently unsigned. Windows 11 may show a SmartScreen warning. Click “More info → Run anyway” to install.
@@ -122,7 +122,7 @@ All downloads, checksums, and release notes are on the [Releases](https://github
 |---|---|---|---|
 | ✅ Core streaming & playback | 🔄 Homebrew tap | 🔲 WASM plugin system |
 | ✅ 7 visualizer modes | 🔄 winget publishing | 🔲 IceCast/Shoutcast radio |
-| ✅ Local files + playlists | 🔄 macOS Intel DMG (CI queued) | 🔲 Last.fm integration |
+| ✅ Local files + playlists | 🔄 Homebrew tap | 🔲 Last.fm integration |
 | ✅ Cinematic mode + visualizers | 🔄 Community building | 🔲 Plugin system |
 
 ---
