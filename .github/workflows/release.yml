@@ -37,6 +37,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 # Required to create the GitHub Release and upload assets to it.
 permissions:
@@ -71,6 +72,7 @@ jobs:
             libappindicator3-dev \
             librsvg2-dev \
             patchelf \
+            rpm \
             file
 
       - name: Install Rust toolchain

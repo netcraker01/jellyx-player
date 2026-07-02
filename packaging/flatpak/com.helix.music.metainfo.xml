@@ -69,6 +69,18 @@
   </content_rating>
 
   <releases>
+    <release version="0.2.1" date="2026-07-02" type="development">
+      <description>
+        <ul>
+          <li>Full platform release — AppImage, .deb, .rpm, DMG, MSI, NSIS</li>
+          <li>All 7 visualizer modes available</li>
+          <li>Cinematic mode with reactive background</li>
+          <li>Remote FFT visualization for YouTube and SoundCloud</li>
+          <li>Volume persistence across restarts</li>
+          <li>Bilingual UI (English and Spanish)</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-06-30" type="development">
       <description>
         <ul>
