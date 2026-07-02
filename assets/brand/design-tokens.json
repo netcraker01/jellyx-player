@@ -1,41 +1,41 @@
 {
   "brand": "Helix",
-  "purpose": "Aplicación de escritorio para reproducción de música",
+  "purpose": "Desktop music player application",
   "colors": {
     "midnight": {
       "hex": "#0B0F2B",
       "rgb": "11, 15, 43",
-      "use": "Fondo principal, icono de escritorio, barras laterales"
+      "use": "Primary background, desktop icon, sidebars"
     },
     "indigo": {
       "hex": "#1A1F4D",
       "rgb": "26, 31, 77",
-      "use": "Superficies oscuras secundarias, tarjetas, hover oscuro"
+      "use": "Secondary dark surfaces, cards, dark hover states"
     },
     "electric_cyan": {
       "hex": "#00E5FF",
       "rgb": "0, 229, 255",
-      "use": "Acento activo, punto de la i, iconos de acción"
+      "use": "Active accent, dot on the i, action icons"
     },
     "helix_violet": {
       "hex": "#8A5CFF",
       "rgb": "138, 92, 255",
-      "use": "Progreso, selección, estados activos secundarios"
+      "use": "Progress, selection, secondary active states"
     },
     "magenta_pulse": {
       "hex": "#D946FF",
       "rgb": "217, 70, 255",
-      "use": "Acento emocional, visualizador, destacados"
+      "use": "Emotional accent, visualizer, highlights"
     },
     "ice": {
       "hex": "#F2F4F8",
       "rgb": "242, 244, 248",
-      "use": "Fondos claros, divisores suaves"
+      "use": "Light backgrounds, soft dividers"
     },
     "white": {
       "hex": "#FFFFFF",
       "rgb": "255, 255, 255",
-      "use": "Superficies y texto sobre fondo oscuro"
+      "use": "Surfaces and text on dark backgrounds"
     }
   },
   "gradients": {
@@ -44,7 +44,7 @@
     "progress": "linear-gradient(90deg, #00E5FF 0%, #8A5CFF 70%, #D946FF 100%)"
   },
   "typography": {
-    "logo_style": "Geométrica, tecnológica, redondeada, con X angular y punto de la i en cian",
+    "logo_style": "Geometric, tech-forward, rounded, with an angular X and a cyan dot on the i",
     "ui_primary": "Inter / SF Pro / Segoe UI Variable",
     "ui_fallback": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     "scale_px": {
@@ -72,8 +72,8 @@
   },
   "iconography": {
     "stroke": "2 px",
-    "corners": "redondeados",
-    "style": "lineal y limpio",
+    "corners": "rounded",
+    "style": "linear and clean",
     "metaphors": [
       "play",
       "pause",
