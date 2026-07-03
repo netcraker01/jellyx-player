@@ -180,6 +180,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_ref, 'v'))
         uses: softprops/action-gh-release@v2
         with:
+          name: Helix ${{ steps.dmg.outputs.version }}
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref_name }}
           files: |
             ${{ steps.dmg.outputs.dmg_path }}

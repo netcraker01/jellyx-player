@@ -178,6 +178,7 @@ Before creating a release, verify ALL of the following:
 ### Post-release verification
 
 - [ ] GitHub Actions `release.yml` triggered successfully
+- [ ] GitHub Actions `verify-release` job passed (title + asset naming validation)
 - [ ] All expected artifacts are attached to the release
 - [ ] Release title matches: `Helix X.Y.Z`
 - [ ] Release body follows the template in section 4
@@ -260,9 +261,17 @@ For alpha, beta, or release candidates:
 - ❌ Do not reference internal file names or commit hashes in the user-facing body
 - ❌ Do not include "Co-Authored-By" or AI attribution in release commits
 
+## 10. Automated enforcement
+
+The release pipeline is expected to enforce the convention automatically:
+
+- `softprops/action-gh-release` sets the public release title to `Helix {VERSION}`
+- `scripts/validate-release.sh` validates the final title and required asset names
+- A release that drifts from the naming rules should fail CI rather than relying on manual cleanup afterward
+
 ---
 
-## 10. Quick reference
+## 11. Quick reference
 
 ```
 Tag:    vX.Y.Z

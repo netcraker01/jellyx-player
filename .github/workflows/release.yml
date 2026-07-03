@@ -275,6 +275,7 @@ jobs:
       - name: Attach Linux artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
+          name: Helix ${{ steps.artifacts.outputs.version }}
           files: |
             ${{ steps.artifacts.outputs.appimage_path }}
             ${{ steps.artifacts.outputs.appimage_sha256_file }}
@@ -511,6 +512,7 @@ jobs:
       - name: Attach Windows artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
+          name: Helix ${{ steps.msi.outputs.version }}
           files: |
             ${{ steps.msi.outputs.msi_path }}
             ${{ steps.msi.outputs.sha256_file }}
@@ -520,3 +522,37 @@ jobs:
             ${{ steps.portable.outputs.sha256_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify-release:
+    name: Verify release metadata and asset names
+    runs-on: ubuntu-22.04
+    needs:
+      - build-linux
+      - build-windows
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate release title and required assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          ./scripts/validate-release.sh \
+            "$GITHUB_REF_NAME" \
+            "Helix ${version}" \
+            "Helix_${version}_amd64.AppImage" \
+            "Helix_${version}_amd64.AppImage.sha256" \
+            "Helix_${version}_amd64.deb" \
+            "Helix_${version}_amd64.deb.sha256" \
+            "Helix-${version}-1.x86_64.rpm" \
+            "Helix-${version}-1.x86_64.rpm.sha256" \
+            "Helix_${version}_amd64.tar.gz" \
+            "Helix_${version}_amd64.tar.gz.sha256" \
+            "Helix_${version}_x64-setup.exe" \
+            "Helix_${version}_x64-setup.exe.sha256" \
+            "Helix_${version}_x64_en-US.msi" \
+            "Helix_${version}_x64_en-US.msi.sha256" \
+            "helix.exe" \
+            "helix.exe.sha256"
