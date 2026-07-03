@@ -204,7 +204,7 @@ jobs:
 
           portable_dir="target/release/portable-tar"
           mkdir -p "$portable_dir"
-          tarball_path="$portable_dir/Helix_${version}_linux_x64.tar.gz"
+          tarball_path="$portable_dir/Helix_${version}_amd64.tar.gz"
           tar -C "$(dirname "$binary_path")" -czf "$tarball_path" "$(basename "$binary_path")"
           tarball_hash=$(sha256sum "$tarball_path" | cut -d' ' -f1)
           tarball_hash_file="${tarball_path}.sha256"

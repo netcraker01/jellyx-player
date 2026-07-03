@@ -76,7 +76,9 @@ Every release MUST use this exact structure:
 |----------|------|------|
 | Linux | `Helix_{version}_amd64.AppImage` | AppImage |
 | Linux | `Helix_{version}_amd64.deb` | Debian package |
+| Linux | `Helix_{version}_amd64.tar.gz` | Portable tarball |
 | Linux | `Helix-0.2.0-1.x86_64.rpm` | RPM package |
+| Linux | `Helix_{version}_amd64.tar.gz` | Portable tarball |
 | Windows | `Helix_{version}_x64-setup.exe` | NSIS installer (recommended) |
 | Windows | `Helix_{version}_x64_en-US.msi` | MSI installer |
 | Windows | `helix.exe` | Portable executable |
@@ -119,6 +121,7 @@ All release artifacts MUST follow these patterns:
 | AppImage | `Helix_{version}_amd64.AppImage` | `Helix_0.2.0_amd64.AppImage` |
 | Debian | `Helix_{version}_amd64.deb` | `Helix_0.2.0_amd64.deb` |
 | RPM | `Helix-{version}-1.x86_64.rpm` | `Helix-0.2.0-1.x86_64.rpm` |
+| Portable tarball | `Helix_{version}_amd64.tar.gz` | `Helix_0.2.0_amd64.tar.gz` |
 
 ### Windows
 
@@ -272,6 +275,7 @@ Body:   ## ✨ What's New
         **Full Changelog**: compare link
 Files:  Helix_{ver}_amd64.AppImage + .sha256
         Helix_{ver}_amd64.deb
+        Helix_{ver}_amd64.tar.gz + .sha256
         Helix-{ver}-1.x86_64.rpm
         Helix_{ver}_x64-setup.exe + .sha256
         Helix_{ver}_x64_en-US.msi + .sha256
