@@ -121,7 +121,7 @@ Pick your platform and install in seconds:
 
 | Platform | Recommended | Alternative |
 |---|---|---|---|
-| **Linux** | [AppImage](https://github.com/netcraker01/helix/releases) | `.deb`, `.rpm` |
+| **Linux** | [AppImage](https://github.com/netcraker01/helix/releases) | `.deb`, `.rpm`, `.tar.gz` |
 | **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | Intel support deferred in alpha |
 | **Windows** | [NSIS setup.exe](https://github.com/netcraker01/helix/releases) | `.msi` for enterprise / `.exe` portable |
 
