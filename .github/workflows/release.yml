@@ -188,6 +188,28 @@ jobs:
             version=$(grep '^version' src-tauri/Cargo.toml | head -1 | cut -d'"' -f2)
           fi
 
+          # --- portable tar.gz ---
+          binary_path=""
+          for candidate in "target/release/helix" "src-tauri/target/release/helix"; do
+            if [ -f "$candidate" ]; then
+              binary_path="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$binary_path" ]; then
+            echo "ERROR: No Linux helix binary found under target/release or src-tauri/target/release" >&2
+            exit 1
+          fi
+
+          portable_dir="target/release/portable-tar"
+          mkdir -p "$portable_dir"
+          tarball_path="$portable_dir/Helix_${version}_linux_x64.tar.gz"
+          tar -C "$(dirname "$binary_path")" -czf "$tarball_path" "$(basename "$binary_path")"
+          tarball_hash=$(sha256sum "$tarball_path" | cut -d' ' -f1)
+          tarball_hash_file="${tarball_path}.sha256"
+          echo "${tarball_hash}  $(basename "$tarball_path")" > "$tarball_hash_file"
+
           {
             echo "appimage_path=$appimage_file"
             echo "appimage_name=$(basename "$appimage_file")"
@@ -198,12 +220,16 @@ jobs:
             echo "rpm_path=$rpm_file"
             echo "rpm_name=$(basename "$rpm_file")"
             echo "rpm_sha256_file=$rpm_hash_file"
+            echo "tarball_path=$tarball_path"
+            echo "tarball_name=$(basename "$tarball_path")"
+            echo "tarball_sha256_file=$tarball_hash_file"
             echo "version=$version"
           } >> "$GITHUB_OUTPUT"
 
           echo "AppImage: $appimage_file  (sha256: $appimage_hash)"
           echo "deb:      $deb_file  (sha256: $deb_hash)"
           echo "rpm:      $rpm_file  (sha256: $rpm_hash)"
+          echo "tar.gz:   $tarball_path  (sha256: $tarball_hash)"
           echo "Version:  $version"
 
       - name: Upload AppImage artifact
@@ -236,6 +262,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload tar.gz artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: helix-linux-targz-${{ steps.artifacts.outputs.version }}
+          path: |
+            ${{ steps.artifacts.outputs.tarball_path }}
+            ${{ steps.artifacts.outputs.tarball_sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Attach Linux artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
@@ -246,6 +282,8 @@ jobs:
             ${{ steps.artifacts.outputs.deb_sha256_file }}
             ${{ steps.artifacts.outputs.rpm_path }}
             ${{ steps.artifacts.outputs.rpm_sha256_file }}
+            ${{ steps.artifacts.outputs.tarball_path }}
+            ${{ steps.artifacts.outputs.tarball_sha256_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -482,4 +520,3 @@ jobs:
             ${{ steps.portable.outputs.sha256_file }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
