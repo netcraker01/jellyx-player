@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/logo-wide.png" alt="Helix Player" width="640">
+  <img src="assets/brand/banner-1eng.png" alt="Helix Player banner" width="960">
 </p>
 
 <p align="center">
