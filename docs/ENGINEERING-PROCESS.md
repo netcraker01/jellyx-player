@@ -1,0 +1,60 @@
+# Helix Engineering Process
+
+Helix is an AI-assisted software project under strict human engineering control.
+
+This matters because there is a real difference between low-effort vibe coding and a disciplined engineering workflow. Helix is in the second category.
+
+## Short version
+
+- The project direction, requirements, architecture, and acceptance criteria are human-led.
+- AI is used to write parts of the implementation.
+- Every meaningful change is reviewed, constrained, and validated by a human.
+- The goal is deterministic, reviewable software delivery, not autonomous code generation.
+
+## What that means in practice
+
+| Area | How Helix handles it |
+|---|---|
+| Product direction | Human-defined |
+| Requirements | Human-written and iterated |
+| Architecture | Human-led |
+| Implementation | AI-assisted |
+| Verification | Human-reviewed with rigid checks |
+| Acceptance | Human decision |
+
+## Process principles
+
+1. **Human in the loop at all times**
+   The project is continuously directed by a human. AI does not choose goals, scope, or release decisions on its own.
+
+2. **Requirements before implementation**
+   Changes are driven by explicit requirements, not by improvising code first and rationalizing later.
+
+3. **Deterministic validation**
+   Work is checked through reproducible build, test, and review steps whenever possible.
+
+4. **Rigid harnesses over vibe coding**
+   AI output is constrained by review boundaries, conventions, file scope, acceptance criteria, and engineering judgment.
+
+5. **Engineering accountability stays human**
+   If something is released, the human maintainer owns the decision, the constraints, and the review of that change.
+
+## What Helix is not
+
+Helix is not presented as:
+
+- fully hand-written software
+- autonomous AI software
+- unreviewed AI output
+- "just prompt it and ship it" development
+
+## Why document this
+
+The repo should be honest about how the software is produced.
+
+That means two things at once:
+
+- not pretending the code is entirely hand-written when it is not
+- not allowing the project to be unfairly categorized as low-quality AI slop when a disciplined engineering process is being applied
+
+If you are evaluating the project, judge it by the quality of its requirements, architecture, review discipline, and runtime behavior, not by simplistic assumptions about whether AI touched the implementation.

@@ -100,6 +100,21 @@ Helix combines the best of both worlds: a **native desktop app** with a clean, m
 
 ---
 
+## Engineering Process
+
+Helix is an **AI-assisted project under strict human engineering control**.
+
+That means the requirements, architecture, constraints, and acceptance criteria are human-led, while parts of the implementation are AI-assisted. The project is not built through loose vibe coding or unreviewed autonomous generation.
+
+- Human-defined requirements and product direction
+- Continuous human-in-the-loop review
+- Deterministic validation and release checks
+- AI-assisted implementation inside a constrained engineering process
+
+If you want the full explanation, read [docs/ENGINEERING-PROCESS.md](docs/ENGINEERING-PROCESS.md).
+
+---
+
 ## Download
 
 Pick your platform and install in seconds:
@@ -145,6 +160,7 @@ All contributors keep ownership of their work and are credited in [AUTHORS.md](A
 Want to build from source or hack on the audio pipeline?
 
 - [Building from source](docs/BUILDING.md)
+- [Engineering process](docs/ENGINEERING-PROCESS.md)
 - [Architecture overview](docs/ARCHITECTURE.md)
 - [Packaging & release guide](docs/packaging.md)
 - [Release conventions](docs/release-conventions.md)

@@ -23,6 +23,15 @@
 4. **Privacy-first** — No accounts, no cookies, no tracking, no telemetry. Not even for feature analytics.
 5. **Bilingual UI** — English and Spanish built in.
 
+### AI transparency note
+Use this when people ask whether the project is AI-built:
+
+> Helix was designed and directed by me using a strict software engineering workflow. I use AI to write code, but not through loose vibe coding. The project is guided with continuous human-in-the-loop review, rigid harnesses, deterministic validation, and requirement-driven iteration. The implementation is AI-assisted, the engineering decisions, constraints, and acceptance criteria are human-led.
+
+Short version:
+
+> This is AI-assisted code under strict human engineering control, not autonomous vibe-coded slop.
+
 ---
 
 ## Assets Ready
@@ -66,13 +75,17 @@
 
 ### 1. Reddit — r/linux
 
-**Title:** Helix — privacy-first music player written in Rust (alpha)
+**Title:** Helix — a privacy-first native music player for Linux (AI-assisted, human-led engineering)
 
 **Body:**
 
 > ![Helix](https://raw.githubusercontent.com/netcraker01/helix/main/assets/brand/logo-wide.png)
 >
-> I built Helix because I was tired of choosing between convenience (Spotify tracking everything I listen to) and control (terminal-based players that look like 1995).
+> I was tired of music apps that are either bloated, browser-based, or full of tracking, so I built my own.
+>
+> It’s called **Helix**, a privacy-first desktop music player built with **Rust + Tauri + Svelte**.
+>
+> I also want to be explicit about something up front: **this is an AI-assisted project, but it is not vibe-coded slop**. I designed and directed it using a strict software engineering workflow, with continuous human-in-the-loop review, requirement-driven iteration, rigid validation harnesses, and deterministic checks. AI wrote a significant part of the implementation, but the architecture, constraints, acceptance criteria, and review process were continuously controlled by me.
 >
 > **What it does:**
 >
@@ -83,31 +96,35 @@
 > - **Queue management, playlists, artist favorites, listening history**
 > - **Bilingual UI** (English + Spanish)
 >
-> **The tech stack:**
+> **What it does NOT do:**
 >
-> Built with Rust + Tauri v2 + Svelte. Audio pipeline runs natively: yt-dlp for stream resolution, Symphonia for decoding, cpal for playback, and rustfft for real-time visualizer data. No Electron, no web wrappers, no JavaScript framework bloat on the backend.
+> - no account required
+> - no tracking
+> - no ads
+> - not built with Electron
 >
-> **Privacy:**
+> **Downloads currently available:**
 >
-> No accounts. No cookies. No tracking. No telemetry. No "sign up to continue". The app doesn't even ask for your name. It's not a feature — it's the point.
+> - Linux: AppImage, .deb, .rpm
+> - Windows: NSIS installer, MSI, portable exe
+> - macOS: Apple Silicon
 >
-> **Screenshots:**
+> **GitHub:**
+> https://github.com/netcraker01/helix
 >
-> | Home | Search | Now Playing | Library |
-> |------|--------|-------------|---------|
-> | ![](https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png) | ![](https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search-results.png) | ![](https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/now-playing.png) | ![](https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/playlists.png) |
+> **Release:**
+> https://github.com/netcraker01/helix/releases/tag/v0.2.1
 >
-> **Downloads:**
+> This is still alpha, but it’s already usable and I’d really like feedback from Linux users.
 >
-> | Platform | Format |
-> |----------|--------|
-> | Linux | AppImage, .deb, .rpm |
-> | macOS | DMG (Apple Silicon) |
-> | Windows | MSI, NSIS installer, portable .exe |
+> **What I’m most interested in:**
 >
-> https://github.com/netcraker01/helix/releases
+> - playback stability
+> - distro-specific issues
+> - whether the UI feels comfortable for daily use
+> - whether the visualizers are actually useful or just noise
 >
-> It's alpha — core playback is solid but formats and APIs may still change. Would love feedback, issues, and contributions.
+> Thanks!
 
 ---
 

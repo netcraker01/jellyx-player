@@ -42,6 +42,16 @@ cargo tauri dev
   - `chore:` for maintenance tasks
   - `ci:` for CI/build changes
 
+## Project methodology
+
+Helix is developed as an **AI-assisted project under strict human engineering control**.
+
+- Requirements, architecture, constraints, and acceptance criteria are human-led.
+- AI may write parts of the implementation.
+- Every meaningful contribution still requires human review and verification.
+
+If you want the full public explanation of this workflow, read [docs/ENGINEERING-PROCESS.md](docs/ENGINEERING-PROCESS.md).
+
 ## Design and branding
 
 If your change touches UI, visuals, or public-facing assets, check the brand system:
@@ -80,6 +90,7 @@ This mirrors the SDD delivery strategy: independent, reviewable work units that 
   - The PR description includes a note: "AI-assisted — reviewed by @<author>".
   - The author runs the test suite and manual verification locally before opening the PR.
 - Unreviewed AI submissions will be closed with a request for human review.
+- This policy applies to external contributions as well as changes made in the main project workflow: AI assistance is allowed, unreviewed output is not.
 
 ### General PR requirements
 
