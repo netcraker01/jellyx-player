@@ -121,11 +121,13 @@ Pick your platform and install in seconds:
 
 | Platform | Recommended | Alternative |
 |---|---|---|---|
-| **Linux** | [AppImage](https://github.com/netcraker01/helix/releases) | `.deb`, `.rpm`, `.tar.gz` |
+| **Linux** | [`.deb` / `.rpm`](https://github.com/netcraker01/helix/releases) | `AppImage`, `.tar.gz` |
 | **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | Intel support deferred in alpha |
 | **Windows** | [NSIS setup.exe](https://github.com/netcraker01/helix/releases) | `.msi` for enterprise / `.exe` portable |
 
 > **Windows note:** Installers are currently unsigned. Windows 11 may show a SmartScreen warning. Click “More info → Run anyway” to install.
+
+> **Linux note:** For this alpha, `.deb` and `.rpm` are the recommended Linux packages. AppImage is available, but may have graphics/runtime issues on some Wayland setups.
 
 All downloads, checksums, and release notes are on the [Releases](https://github.com/netcraker01/helix/releases) page.
 

@@ -1,7 +1,7 @@
 # Helix Player — Launch & Promotion Plan
 
 > **Version:** v0.2.1 (2026-07-02) · **Status:** Alpha
-> **Promotion-ready platforms ✅** — Linux (AppImage, .deb, .rpm, .tar.gz), Windows (MSI, NSIS, portable), macOS Apple Silicon
+> **Promotion-ready platforms ✅** — Linux (.deb, .rpm, AppImage, .tar.gz), Windows (MSI, NSIS, portable), macOS Apple Silicon
 > **Intel macOS** is intentionally deferred for this alpha
 > **Repo:** https://github.com/netcraker01/helix
 > **Downloads:** https://github.com/netcraker01/helix/releases
@@ -58,7 +58,7 @@ Short version:
 ### Ready now (v0.2.1)
 | Platform | Format | Download |
 |----------|--------|----------|
-| Linux | AppImage, .deb, .rpm, .tar.gz | GitHub Releases ✅ |
+| Linux | .deb, .rpm, AppImage, .tar.gz | GitHub Releases ✅ |
 | macOS | DMG (Apple Silicon) | GitHub Releases ✅ |
 | Windows | MSI, NSIS setup.exe, portable exe | GitHub Releases ✅ |
 
@@ -105,7 +105,7 @@ Short version:
 >
 > **Downloads currently available:**
 >
-> - Linux: AppImage, .deb, .rpm, .tar.gz
+> - Linux: .deb, .rpm, AppImage, .tar.gz
 > - Windows: NSIS installer, MSI, portable exe
 > - macOS: Apple Silicon
 >
@@ -242,7 +242,7 @@ Short version:
 >
 > ![](https://raw.githubusercontent.com/netcraker01/helix/main/docs/videos/demo.gif)
 >
-> **Downloads:** https://github.com/netcraker01/helix/releases (AppImage, .deb, .rpm, .tar.gz, DMG, MSI, NSIS)
+> **Downloads:** https://github.com/netcraker01/helix/releases (.deb, .rpm, AppImage, .tar.gz, DMG, MSI, NSIS)
 >
 > **Would love feedback on:**
 > - The visualizer modes (too much? not enough?)
