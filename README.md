@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/netcraker01/helix/releases"><img src="https://img.shields.io/github/release/netcraker01/helix.svg?style=flat-square&color=00E5FF" alt="Latest release"></a>
+  <a href="https://github.com/netcraker01/helix/releases"><img src="https://img.shields.io/github/release/netcraker01/helix?style=flat-square&color=00E5FF&label=release" alt="Latest release"></a>
   <a href="https://github.com/netcraker01/helix/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/netcraker01/helix/release.yml?style=flat-square&label=build&color=8A5CFF" alt="Build status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-D946FF?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-00E5FF?style=flat-square" alt="Platforms">
