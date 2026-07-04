@@ -44,7 +44,7 @@ cargo tauri dev
 
 ## Project methodology
 
-Helix is developed as an **AI-assisted project under strict human engineering control**.
+Helix is developed as an **AI-assisted, human-directed, and human-reviewed project**.
 
 - Requirements, architecture, constraints, and acceptance criteria are human-led.
 - AI may write parts of the implementation.

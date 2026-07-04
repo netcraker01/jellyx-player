@@ -1,15 +1,15 @@
 # Helix Engineering Process
 
-Helix is an AI-assisted software project under strict human engineering control.
+Helix is an AI-assisted software project, but it is human-directed, human-reviewed, and human-maintained.
 
-This matters because there is a real difference between low-effort vibe coding and a disciplined engineering workflow. Helix is in the second category.
+This document exists to explain the workflow plainly, not to make AI the center of the product.
 
 ## Short version
 
 - The project direction, requirements, architecture, and acceptance criteria are human-led.
-- AI is used to write parts of the implementation.
-- Every meaningful change is reviewed, constrained, and validated by a human.
-- The goal is deterministic, reviewable software delivery, not autonomous code generation.
+- AI is used to help with parts of implementation and documentation.
+- Every meaningful change is still reviewed, constrained, and validated by a human.
+- The goal is reviewable software delivery, not autonomous shipping.
 
 ## What that means in practice
 
@@ -33,8 +33,8 @@ This matters because there is a real difference between low-effort vibe coding a
 3. **Deterministic validation**
    Work is checked through reproducible build, test, and review steps whenever possible.
 
-4. **Rigid harnesses over vibe coding**
-   AI output is constrained by review boundaries, conventions, file scope, acceptance criteria, and engineering judgment.
+4. **Constrained use of AI**
+   AI output is bounded by review scope, conventions, acceptance criteria, and engineering judgment.
 
 5. **Engineering accountability stays human**
    If something is released, the human maintainer owns the decision, the constraints, and the review of that change.
@@ -52,9 +52,9 @@ Helix is not presented as:
 
 The repo should be honest about how the software is produced.
 
-That means two things at once:
+That means:
 
 - not pretending the code is entirely hand-written when it is not
-- not allowing the project to be unfairly categorized as low-quality AI slop when a disciplined engineering process is being applied
+- not outsourcing product, architecture, or release accountability to a tool
 
-If you are evaluating the project, judge it by the quality of its requirements, architecture, review discipline, and runtime behavior, not by simplistic assumptions about whether AI touched the implementation.
+If you are evaluating the project, judge it by the quality of its requirements, architecture, review discipline, and runtime behavior.
