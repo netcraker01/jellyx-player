@@ -120,7 +120,7 @@ If you want the full explanation, read [docs/ENGINEERING-PROCESS.md](docs/ENGINE
 Pick your platform and install in seconds:
 
 | Platform | Recommended | Alternative |
-|---|---|---|---|
+|---|---|---|
 | **Linux** | [`.deb` / `.rpm`](https://github.com/netcraker01/helix/releases) | `AppImage`, `.tar.gz` |
 | **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | Intel support deferred in alpha |
 | **Windows** | [NSIS setup.exe](https://github.com/netcraker01/helix/releases) | `.msi` for enterprise / `.exe` portable |
@@ -136,7 +136,7 @@ All downloads, checksums, and release notes are on the [Releases](https://github
 ## Roadmap
 
 | Now | Next | Later |
-|---|---|---|---|
+|---|---|---|
 | ✅ Core streaming & playback | 🔄 Homebrew tap | 🔲 WASM plugin system |
 | ✅ 7 visualizer modes | 🔄 winget publishing | 🔲 IceCast/Shoutcast radio |
 | ✅ Local files + playlists | 🔄 Homebrew tap | 🔲 Last.fm integration |
