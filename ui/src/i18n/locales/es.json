@@ -1,7 +1,7 @@
 {
   "app": {
     "title": "Helix",
-    "tagline": "Tu música, tu privacidad",
+    "tagline": "Música de fondo para sesiones largas de trabajo",
     "search_placeholder": "Buscar en YouTube..."
   },
   "player": {
@@ -29,7 +29,8 @@
     "go_search": "Busca música para empezar",
     "welcome": "Bienvenido",
     "discover": "Explorar",
-    "recent_lists": "Listas recientes"
+    "recent_lists": "Listas recientes",
+    "tagline": "Escucha centrada en audio para sesiones largas de trabajo"
   },
   "search": {
     "placeholder": "Buscar canciones, artistas, álbumes...",
@@ -80,7 +81,7 @@
     "audio": "Audio",
     "about": "Acerca de Helix",
     "version": "Versión",
-    "about_description": "Reproductor de música de escritorio centrado en la privacidad. Transmití desde YouTube y SoundCloud, reproducí archivos locales y disfrutá visuales en tiempo real. Sin cuentas, sin anuncios, sin rastreo.",
+    "about_description": "Reproductor de música de fondo para escritorio pensado para personas que trabajan con música puesta. Escuchá YouTube, SoundCloud y archivos locales sin cuentas, sin suscripciones y sin reproducción de vídeo innecesaria.",
     "about_repo": "Código fuente",
     "about_releases": "Versiones",
     "about_issues": "Reportar un error",

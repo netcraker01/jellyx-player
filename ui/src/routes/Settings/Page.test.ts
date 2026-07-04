@@ -48,12 +48,12 @@ describe('Settings page', () => {
     mocks.getVersion.mockReset();
     translations.set({
       'app.title': 'Helix',
-      'app.tagline': 'Your music, your privacy',
+      'app.tagline': 'Background music for long work sessions',
       'settings.title': 'Settings',
       'settings.language': 'Language',
       'settings.about': 'About Helix',
       'settings.version': 'Version',
-      'settings.about_description': 'Privacy-first desktop music player. No accounts, no ads, no tracking.',
+      'settings.about_description': 'Desktop background music player for people who work with music on. Listen to YouTube, SoundCloud and local files without accounts, subscriptions or unnecessary video playback.',
       'settings.about_repo': 'Source code',
       'settings.about_releases': 'Releases',
       'settings.about_issues': 'Report a bug',
@@ -85,9 +85,9 @@ describe('Settings page', () => {
     mocks.getVersion.mockResolvedValueOnce('0.1.0');
     const { container } = render(SettingsPage);
     // Tagline is rendered inside the About section
-    expect(container.textContent).toContain('Your music, your privacy');
+    expect(container.textContent).toContain('Background music for long work sessions');
     // Expanded description
-    expect(container.textContent).toContain('Privacy-first desktop music player');
+    expect(container.textContent).toContain('Desktop background music player');
     // Credits mention netcraker and 2026
     expect(container.textContent).toContain('netcraker');
     expect(container.textContent).toContain('2026');
