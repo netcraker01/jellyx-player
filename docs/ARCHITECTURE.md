@@ -2,6 +2,8 @@
 
 Este documento define las decisiones técnicas core y el diseño de sistemas para el MVP (v0.1) de Helix Player (Rust + Tauri + Svelte).
 
+La arquitectura está orientada al caso de uso principal del producto: sesiones largas de música de fondo en escritorio, con reproducción estable, foco en audio y tolerancia a fallos de fuentes externas.
+
 ---
 
 ## 1. Gestión del Estado (State Management)
@@ -12,7 +14,7 @@ El núcleo del reproductor (Rust) es la *Fuente de la Verdad (Source of Truth)* 
 
 - **Rust controla:** El estado de reproducción (Play/Pause), la pista actual, la cola de reproducción completa (Queue), el progreso de la pista y el volumen.
 - **Svelte actúa como Cliente "Tonto":** El frontend se limita a suscribirse a los eventos emitidos por Rust. Si el usuario cierra o recarga la ventana del frontend, la música no debe detenerse a menos que el demonio de Rust se cierre. Svelte envía comandos ("play", "pause", "next", "add_to_queue") pero no confía en su propio estado local hasta que Rust emite el evento de confirmación de vuelta.
-- **Resiliencia:** Esto evita cortes de audio si el hilo principal de JavaScript (UI) se satura renderizando vistas complejas o bloqueos temporales.
+- **Resiliencia:** Esto evita cortes de audio si el hilo principal de JavaScript (UI) se satura renderizando vistas complejas o bloqueos temporales, algo clave cuando Helix se usa durante horas como reproductor de fondo.
 
 ---
 
@@ -45,7 +47,7 @@ La transferencia de datos FFT/audio entre Rust y Svelte se hace por **IPC binari
 
 ### Arquitectura con Bus Interno de PCM
 
-Helix usa un pipeline de audio con **bus interno de PCM** para desacoplar la salida de audio y el análisis FFT.
+Helix usa un pipeline de audio con **bus interno de PCM** para desacoplar la salida de audio y el análisis FFT. La prioridad es que la reproducción siga siendo estable aunque la UI, las visualizaciones o una fuente externa fallen.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────────────┐
@@ -307,7 +309,7 @@ ui/
 7. Rust emite eventos: `track_changed`, `state_changed`, `queue_updated`.
 8. Svelte actualiza UI: barra de reproducción, carátula, controles, cola.
 
-**Comportamiento clave:** La reproducción es inmediata. La cola contextual se construye con el resto de resultados de búsqueda para que la escucha continúe naturalmente después de la pista seleccionada.
+**Comportamiento clave:** La reproducción es inmediata. La cola contextual se construye con el resto de resultados de búsqueda para que la escucha continúe naturalmente durante sesiones largas sin exigir interacción constante.
 
 ### 6.3 Visualización
 

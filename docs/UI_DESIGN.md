@@ -2,9 +2,11 @@
 
 Este documento define las guías visuales, el layout y el sistema de diseño para Helix Player, asegurando una implementación coherente en el frontend (Svelte + Tauri).
 
+La referencia de producto es clara: Helix es una herramienta de música de fondo para trabajar. La UI debe sentirse tranquila, útil y honesta, con foco en audio, continuidad de reproducción y bajo ruido visual.
+
 ## 1. División de la Ventana (Layout)
 
-Helix Player utiliza un **Layout Clásico** (tipo Spotify) para garantizar una curva de aprendizaje casi nula y priorizar la intuición del usuario.
+Helix Player utiliza un **layout clásico de aplicación de escritorio** para garantizar una curva de aprendizaje baja y priorizar la intuición del usuario.
 
 El espacio se divide en tres áreas principales:
 
@@ -28,7 +30,7 @@ Para la `v0.1`, Helix Player utilizará exclusivamente un **Tema Oscuro Estricto
 
 Justificación:
 - Mejora drásticamente el contraste para las visualizaciones (FFT, osciloscopios) y las carátulas de los álbumes.
-- Reduce la fatiga visual, alineándose con el perfil de usuarios técnicos y entusiastas.
+- Reduce la fatiga visual, alineándose con personas que trabajan durante horas con música de fondo.
 
 ### Estructura de Paleta Base:
 - **Fondos (Backgrounds):** Escala de grises muy oscuros (casi negros) para maximizar el contraste. Diferentes elevaciones (Sidebar vs Main vs Bottom Bar) se separarán por sutiles variaciones de gris o bordes finos.
@@ -53,11 +55,11 @@ Se recomienda usar librerías consistentes y modernas como Lucide o Phosphor Ico
 
 ## 5. Componentes Clave: Visualizaciones (El "Wow Factor")
 
-Las visualizaciones en tiempo real (impulsadas por `rustfft`) son el diferenciador principal de Helix. En `v0.1`, se integrarán de forma **Mixta (Contextual y Dedicada)**:
+Las visualizaciones en tiempo real (impulsadas por `rustfft`) son una capa expresiva de Helix, pero no deben romper el objetivo principal del producto: reproducir música de fondo de forma estable y poco distractora. En `v0.1`, se integrarán de forma **mixta (contextual y dedicada)**:
 
 1. **Modo Contextual (Ambient Blur / Aurora):**
    - Durante la navegación normal por la app, el color dominante de la carátula o una visualización de baja frecuencia se renderizará de fondo, muy desenfocado. 
-   - Aporta una sensación premium y viva a la interfaz sin competir con la legibilidad del texto o las listas de canciones.
+   - Aporta una sensación viva a la interfaz sin competir con la legibilidad del texto o las listas de canciones.
 
 2. **Vista Dedicada (Modo Inmersivo / Cine):**
    - Un botón en los controles ("Expandir Visualización") permitirá ocultar el Sidebar y los menús, llevando las visualizaciones (espectrómetro, osciloscopio) a pantalla completa.

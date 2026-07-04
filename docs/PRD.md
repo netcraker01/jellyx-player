@@ -1,34 +1,35 @@
 # PRD — Helix Player
 
-Helix es un reproductor de música open-source para escritorio, orientado a privacidad, libertad del usuario y una experiencia de escucha moderna. Este PRD es un documento vivo: consolida las decisiones ya tomadas y deja visibles los puntos que siguen abiertos.
+Helix es un reproductor de música de fondo para escritorio pensado para personas que trabajan con música puesta. Este PRD es un documento vivo: consolida las decisiones ya tomadas y deja visibles los puntos que siguen abiertos.
 
 ## Estado
 
 - **Estado**: borrador consolidado
 - **Fuente base verificada**: README del repositorio oficial `netcraker01/helix`
 - **Inspiración de referencia**: Nuclear
-- **Dirección acordada**: Helix no será “solo un Nuclear mejor”, sino una plataforma musical abierta con mejor experiencia base de escucha en el MVP
+- **Dirección acordada**: Helix no se comunica como clon de otra app ni como plataforma total; se comunica como herramienta práctica para escuchar música de fondo en escritorio
 
 ## Resumen ejecutivo
 
-Helix busca cubrir un hueco claro: una aplicación de escritorio para escuchar música gratis, sin suscripción, sin tracking y sin anuncios propios, con soporte para múltiples fuentes y una experiencia visual atractiva.
+Helix busca cubrir un hueco claro: una aplicación de escritorio para escuchar música de fondo durante horas, especialmente cuando la fuente habitual es YouTube o SoundCloud pero la necesidad real es solo audio.
 
-Para `v0.1`, el foco NO será ganar por plugins ni por ambición funcional, sino por una **experiencia base de escucha más simple e intuitiva** que Nuclear. El MVP debe validar que existe demanda para una app que combine:
+Para `v0.1`, el foco NO será ganar por plugins ni por ambición funcional, sino por una **experiencia base de escucha más simple, estable y tranquila**. El MVP debe validar que existe demanda para una app que combine:
 
 - escucha rápida y estable,
-- interfaz clara,
+- interfaz clara y poco distractora,
 - control real de reproducción,
-- soporte inicial para streaming abierto y archivos locales,
+- soporte inicial para YouTube, SoundCloud y archivos locales,
 - identidad visual propia.
 
 ## Problema
 
-El usuario quiere escuchar música de forma cómoda, gratuita y sin anuncios, pero las alternativas actuales suelen imponer al menos uno de estos costes:
+El usuario quiere escuchar música de fondo de forma cómoda mientras trabaja, pero las alternativas actuales suelen imponer al menos uno de estos costes:
 
+- experiencia pensada para vídeo cuando solo quiere audio,
+- consumo innecesario de recursos y ancho de banda,
 - suscripción mensual,
-- publicidad,
 - rastreo del comportamiento,
-- dependencia de una plataforma cerrada.
+- distracciones y ruido visual innecesario.
 
 Además, el mercado deja huecos claros:
 
@@ -38,28 +39,28 @@ Además, el mercado deja huecos claros:
 
 ## Visión del producto
 
-Construir una plataforma musical abierta para escritorio que permita:
+Construir una aplicación de escritorio centrada en audio que permita:
 
 1. escuchar música desde múltiples fuentes,
-2. descubrir nueva música,
-3. disfrutar visualizaciones en tiempo real,
+2. mantener sesiones largas de reproducción estables,
+3. disfrutar visualizaciones en tiempo real sin comprometer el flujo principal,
 4. mantener privacidad y control,
-5. evolucionar a futuro hacia extensibilidad mediante plugins.
+5. evolucionar a futuro sin perder simplicidad.
 
 ## Propuesta de valor
 
-Helix quiere ser la forma más simple y agradable de escuchar música gratis en escritorio, sin suscripción, sin tracking y sin anuncios propios.
+Helix quiere ser una forma simple y honesta de escuchar música de fondo en escritorio, sin cuentas obligatorias, sin suscripción y sin arrastrar vídeo innecesario.
 
 ### Posicionamiento del producto
 
-Helix se posiciona como una **plataforma musical abierta** centrada en:
+Helix se posiciona como una **herramienta de escritorio audio-first** centrada en:
 
-- libertad del usuario,
-- privacidad,
-- experiencia de escucha,
-- extensibilidad futura.
+- trabajo con música de fondo,
+- experiencia de escucha tranquila,
+- control del usuario,
+- extensibilidad futura sin distraer del núcleo.
 
-No debe comunicarse como un simple “Spotify killer” ni como “solo un Nuclear mejor”, aunque Nuclear sea una referencia clara de partida.
+No debe comunicarse como reemplazo universal ni como una startup inflada. La narrativa correcta es: lo hice porque lo necesitaba para mi propio día de trabajo y lo comparto porque quizá también le sirve a alguien más.
 
 ### Definición operativa de “sin publicidad”
 
@@ -89,19 +90,19 @@ La mejora principal frente a Nuclear en `v0.1` será:
 
 ### Usuario principal de `v0.1`
 
-Persona a la que le gusta la música, no quiere pagar una suscripción tipo Spotify, no quiere ser rastreada y quiere escuchar música de forma simple desde una app sin anuncios propios.
+Persona que trabaja muchas horas frente al ordenador, abre YouTube o SoundCloud solo para escuchar sesiones largas y quiere una forma más calmada de tener música de fondo desde una app de escritorio.
 
 ### Público primario
 
-- personas que quieren una alternativa sin cuota mensual,
-- usuarios que valoran privacidad,
+- desarrolladores, diseñadores, escritores y makers que trabajan con música puesta,
 - personas que quieren escuchar música sin fricción,
-- usuarios que quieren streaming sin depender de una sola plataforma.
+- usuarios que abren YouTube solo para escuchar,
+- usuarios que quieren combinar YouTube, SoundCloud y archivos locales.
 
 ### Público secundario
 
 - usuarios que disfrutan una experiencia visual más expresiva,
-- power users que a medio plazo querrán personalización,
+- personas que quieren una app sencilla sin otra suscripción musical,
 - desarrolladores interesados en la extensibilidad futura.
 
 ## Objetivos
@@ -110,14 +111,14 @@ Persona a la que le gusta la música, no quiere pagar una suscripción tipo Spot
 
 - validar demanda para una experiencia base de escucha mejor resuelta,
 - entregar un core player usable, estable y claro,
-- ofrecer una UX más simple e intuitiva que Nuclear,
+- ofrecer una UX simple, estable y centrada en audio,
 - soportar un set inicial de fuentes atractivo pero controlado,
-- sentar una base técnica que permita crecer sin bloquear visualizaciones ni plugins futuros.
+- sentar una base técnica que permita crecer sin bloquear estabilidad, visualizaciones ni plugins futuros.
 
 ### Objetivos a medio plazo
 
 - biblioteca y playlists más completas,
-- radio y discovery más profundo,
+- reanudación de sesión, favoritos y organización más completas,
 - visualizaciones avanzadas,
 - sistema de plugins visible para usuario final.
 
@@ -130,7 +131,7 @@ Quedan fuera del MVP:
 - red social interna,
 - plugin store o instalación de plugins visible,
 - radio online,
-- Bandcamp,
+- más fuentes remotas no esenciales,
 - sistema avanzado de librería local tipo music manager completo.
 
 ## Alcance del MVP (`v0.1`)
@@ -139,7 +140,7 @@ Quedan fuera del MVP:
 
 Helix debe ganar primero por:
 
-- **experiencia base de escucha simple, rápida y estable**.
+- **experiencia base de escucha simple, rápida, estable y poco distractora**.
 
 ### Principios UX del MVP
 
@@ -153,7 +154,7 @@ Helix debe ganar primero por:
 
 ### Estructura general
 
-El MVP seguirá un patrón **tipo Spotify** con vistas separadas y reproductor persistente.
+El MVP seguirá un patrón clásico de app de escritorio con vistas separadas y reproductor persistente.
 
 ### Secciones principales
 
@@ -267,7 +268,7 @@ Entran en el MVP:
 Quedan fuera, por ahora:
 
 - radio online,
-- Bandcamp.
+- más fuentes remotas no esenciales.
 
 ### Archivos locales
 
@@ -303,7 +304,7 @@ Aunque no entren en `v0.1`, la arquitectura debe prepararse para un modelo de **
 
 - los plugins declararán qué permisos necesitan (ej: acceso a red para un dominio concreto),
 - el usuario deberá aprobarlos explícitamente al instalarlos,
-- proporciona un equilibrio óptimo entre seguridad privacy-first y capacidad técnica para extensiones.
+- proporciona un equilibrio razonable entre seguridad, control del usuario y capacidad técnica para extensiones.
 
 El roadmap previsto mantiene plugins como línea fuerte a futuro, no como parte del alcance inmediato.
 
@@ -313,7 +314,7 @@ El roadmap previsto mantiene plugins como línea fuerte a futuro, no como parte 
 |---|---|
 | Rendimiento | Reproducción fluida y UI responsiva |
 | Audio | Pipeline nativo estable y de baja latencia |
-| Privacidad | Sin tracking ni publicidad propia |
+| Privacidad | Sin tracking propio ni publicidad propia |
 | Extensibilidad | Arquitectura que no bloquee plugins futuros |
 | Portabilidad | Base para Linux, Windows y macOS |
 
@@ -334,7 +335,7 @@ Las métricas prioritarias para evaluar `v0.1` serán:
 
 ### Criterio de eficiencia
 
-Helix priorizará un **equilibrio entre rendimiento y visualización**. No debe vaciar la experiencia visual para ahorrar recursos, pero tampoco degradar la escucha por efectos demasiado costosos.
+Helix priorizará un **equilibrio entre rendimiento y visualización**. No debe vaciar la experiencia visual para ahorrar recursos, pero tampoco degradar la escucha de fondo por efectos demasiado costosos.
 
 ## Arquitectura de referencia
 
@@ -371,9 +372,9 @@ Helix quiere evitar depender del navegador para el pipeline de audio. Eso habili
 | Versión | Enfoque |
 |---|---|
 | `v0.1` | Core player + UX base + búsqueda + cola + favoritos + local files básicos |
-| `v0.2` | Biblioteca, playlists, historial y mejoras de organización |
-| `v0.3` | Visualizaciones avanzadas |
-| `v0.4` | Radio y discovery enriquecido |
+| `v0.2` | Biblioteca, playlists, historial, favoritos y reanudación de sesión |
+| `v0.3` | Atajos, tray, miniplayer y mejoras de comportamiento en segundo plano |
+| `v0.4` | Visualizaciones avanzadas y mejoras de resiliencia |
 | `v0.5` | Sistema de plugins |
 | `v1.0` | Empaquetado multiplataforma, auto-updates, i18n, temas más maduros |
 
@@ -410,7 +411,7 @@ Esto implica:
 - comunicar una propuesta de valor fuerte sin lenguaje agresivo innecesario,
 - reconocer límites técnicos y dependencias de terceros,
 - evitar promesas absolutas sobre comportamiento o disponibilidad de fuentes externas,
-- sostener una narrativa clara de libertad del usuario y privacidad sin convertirla en confrontación vacía.
+- sostener una narrativa clara de utilidad, control del usuario y honestidad sin convertirla en confrontación vacía.
 
 ### Mitigaciones iniciales para fuentes externas
 
@@ -428,7 +429,7 @@ Helix debe comunicar estos límites con un tono **claro para usuario final**.
 
 Mensaje base recomendado para producto/documentación:
 
-> Helix te ofrece una forma abierta y privada de escuchar música desde distintas fuentes, pero algunas funciones pueden depender de servicios externos que pueden cambiar, fallar o dejar de estar disponibles con el tiempo.
+> Helix te ofrece una forma práctica de escuchar música de fondo desde distintas fuentes, pero algunas funciones pueden depender de servicios externos que pueden cambiar, fallar o dejar de estar disponibles con el tiempo.
 
 Esta línea mantiene honestidad con el usuario sin convertir la comunicación del producto en un texto legalista o defensivo.
 

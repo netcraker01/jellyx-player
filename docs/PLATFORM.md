@@ -1,6 +1,6 @@
 # Helix Platform Strategy
 
-> Análisis detallado de viabilidad multiplataforma.
+> Análisis detallado de viabilidad multiplataforma para un reproductor de música de fondo orientado a escritorio.
 
 ---
 
@@ -8,7 +8,7 @@
 
 **Desktop first. Mobile as v2.0.**
 
-Helix comparte un **core en Rust** entre todas las plataformas, pero cada plataforma tiene su propio **audio backend** y **capa de UI**.
+Helix comparte un **core en Rust** entre todas las plataformas, pero cada plataforma tiene su propio **audio backend** y **capa de UI**. La prioridad real del producto está en escritorio: reproducción estable, buen comportamiento en segundo plano y soporte para sesiones largas de trabajo.
 
 ```
                 ┌──────────────────────────────┐
@@ -166,4 +166,4 @@ Fase 6: iOS ────────── Port (AVAudioEngine + resolver nativo
 | **Compartir código** | ✅ 80%+ del Rust core se comparte. Solo cambia audio backend + UI adaptación. |
 | **Esfuerzo mobile** | 📊 30-40% adicional del proyecto total. |
 
-> **Conclusión:** Desktop es pan comido con Tauri v2. Mobile es posible pero requiere decisiones arquitectónicas desde el día 1 para no tener que reescribir. Recomiendo abstraer el audio backend como trait desde v0.1 aunque no se use mobile hasta v2.0.
+> **Conclusión:** El foco correcto para Helix sigue siendo escritorio. Ahí es donde mejor encaja el producto, el flujo de trabajo y la promesa de escuchar música de fondo durante horas. Mobile es posible, pero no debe distraer del núcleo actual.
