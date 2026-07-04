@@ -272,10 +272,27 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Generate release body
+        id: body
+        shell: bash
+        run: |
+          # Determine the previous version tag for the changelog link.
+          # Use the tag that v* tags sort before the current one.
+          version="${{ steps.artifacts.outputs.version }}"
+          current_tag="v${version}"
+          prev_tag="$(git tag --sort=-version:refname | grep -E '^v[0-9]' | grep -v "$current_tag" | head -1)"
+          if [ -z "$prev_tag" ]; then
+            prev_tag="$current_tag"
+          fi
+          chmod +x scripts/generate-release-body.sh
+          ./scripts/generate-release-body.sh "$version" "$prev_tag" > release-body.md
+          echo "body_file=${PWD}/release-body.md" >> "$GITHUB_OUTPUT"
+
       - name: Attach Linux artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
           name: Helix ${{ steps.artifacts.outputs.version }}
+          body_path: ${{ steps.body.outputs.body_file }}
           files: |
             ${{ steps.artifacts.outputs.appimage_path }}
             ${{ steps.artifacts.outputs.appimage_sha256_file }}
