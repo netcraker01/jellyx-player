@@ -2,7 +2,7 @@
 Type=Application
 Name=Helix
 GenericName=Music Player
-Comment=Privacy-first music player — stream, visualize, discover
+Comment=Desktop background music player for people who work with music on
 Exec=helix
 Icon=com.helix.music
 Terminal=false

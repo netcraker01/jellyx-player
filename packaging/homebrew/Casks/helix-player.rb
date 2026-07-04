@@ -18,7 +18,7 @@ cask "helix-player" do
   end
 
   name "Helix Player"
-  desc "Privacy-first music player — stream, visualize, discover"
+  desc "Desktop background music player for long work sessions"
   homepage "https://github.com/netcraker01/helix"
 
   # The .dmg installs Helix.app into /Applications

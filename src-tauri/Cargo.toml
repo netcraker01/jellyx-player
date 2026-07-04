@@ -3,7 +3,7 @@ name = "helix"
 version = "0.2.2"
 edition = "2021"
 license = "AGPL-3.0"
-description = "A privacy-first, open-source music platform."
+description = "A desktop background music player for people who work with music on."
 
 [lib]
 name = "helix_lib"

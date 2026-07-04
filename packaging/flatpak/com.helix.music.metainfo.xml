@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>com.helix.music</id>
   <name>Helix</name>
-  <summary>Privacy-first music player — stream, visualize, discover</summary>
+  <summary>Desktop background music player for people who work with music on</summary>
   <developer id="netcraker01">
     <name>netcraker01</name>
   </developer>
@@ -12,23 +12,22 @@
 
   <description>
     <p>
-      Helix is a privacy-first desktop music player built with Rust, Tauri, and Svelte.
-      It lets you search, stream, organize, and visualize music from multiple sources
-      without requiring an account.
+      Helix is a desktop background music player built with Rust, Tauri, and Svelte.
+      It lets you listen to YouTube, SoundCloud, and local files in a native desktop app
+      without accounts, subscriptions, or unnecessary video playback.
     </p>
     <p>
-      Unlike browser-based players, Helix runs the audio pipeline natively: stream
-      resolution via yt-dlp, decoding with Symphonia, playback with cpal, and FFT-driven
-      real-time visualizations. This gives lower latency, broader format support, and
-      real audio data for spectrum and oscilloscope views.
+      Helix was built for long work sessions where the music matters more than the video.
+      It keeps playback focused on audio while still offering queueing, local organization,
+      and FFT-driven visualizers when you want a richer desktop player view.
     </p>
     <p>Highlights:</p>
     <ul>
-      <li>Search and stream from YouTube and SoundCloud</li>
-      <li>Real-time audio visualizations including spectrum and oscilloscope modes</li>
+      <li>Listen to YouTube and SoundCloud in an audio-first desktop workflow</li>
+      <li>Play local files alongside remote sources</li>
       <li>Queue management, playlists, artist favorites, and listening history</li>
-      <li>Local file playback support</li>
-      <li>No tracking, no cookies, and no account requirement</li>
+      <li>Real-time audio visualizations including spectrum and oscilloscope modes</li>
+      <li>No account requirement and no Helix subscription model</li>
       <li>Automatic yt-dlp management on first use</li>
     </ul>
   </description>
@@ -96,19 +95,19 @@
 
   <screenshots>
     <screenshot type="default">
-      <caption>Home screen with discovery and recently played tracks</caption>
+      <caption>Home screen for returning to recent background music sessions</caption>
       <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png</image>
     </screenshot>
     <screenshot>
-      <caption>Search and stream music from multiple sources</caption>
+      <caption>Search YouTube and SoundCloud from one desktop player</caption>
       <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search-results.png</image>
     </screenshot>
     <screenshot>
-      <caption>Playback controls and queue in the desktop player</caption>
+      <caption>Playback controls and queue for long listening sessions</caption>
       <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/now-playing.png</image>
     </screenshot>
     <screenshot>
-      <caption>Create and manage playlists locally</caption>
+      <caption>Save playlists and favorites for repeated work sessions</caption>
       <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/playlists.png</image>
     </screenshot>
   </screenshots>

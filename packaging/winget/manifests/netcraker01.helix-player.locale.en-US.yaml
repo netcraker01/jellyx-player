@@ -16,12 +16,14 @@ License: AGPL-3.0-or-later
 LicenseUrl: https://github.com/netcraker01/helix/blob/main/LICENSE
 Copyright: Copyright (c) 2026 netcraker01
 CopyrightUrl: https://github.com/netcraker01/helix/blob/main/LICENSE
-ShortDescription: Helix Player is a privacy-first music player for streaming, playback, and visualization
+ShortDescription: Helix Player is a desktop background music player for people who work with music on
 Description: >
-  Helix Player is a privacy-first, open-source desktop music player that streams from
-  YouTube, SoundCloud, and Bandcamp. It features real-time audio visualizations
-  (spectrum analyzer, oscilloscope, Winamp-style effects), a WASM plugin system,
-  and zero tracking or cookies.
+  Helix Player is a desktop background music player for people who work with music on.
+  It lets you listen to YouTube, SoundCloud, and local files in a native desktop app
+  without accounts, subscriptions, or unnecessary video playback.
+
+  It includes queue management, playlists, favorites, listening history, and real-time
+  visualizers for users who want a more expressive player view during long work sessions.
 
   yt-dlp is automatically downloaded on first launch for streaming support.
   Alternatively, install yt-dlp separately: winget install yt-dlp
@@ -38,10 +40,10 @@ Tags:
   - tauri
   - rust
 ReleaseNotes: |
-  Initial alpha release of Helix music player.
-  - Stream from YouTube, SoundCloud, Bandcamp
-  - Real-time audio visualizations
-  - Queue management, playlists, favorites
+  Alpha desktop background music player release.
+  - Listen to YouTube, SoundCloud, and local files
+  - Queue management, playlists, favorites, and listening history
+  - Real-time audio visualizers and cinematic mode
   - Auto-downloads yt-dlp on first run
 ReleaseNotesUrl: https://github.com/netcraker01/helix/releases/tag/v0.1.0
 ManifestType: defaultLocale
