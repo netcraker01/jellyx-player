@@ -254,7 +254,54 @@ Short version:
 
 ---
 
-### 5. Mastodon / Fediverse
+### 5. Windows communities
+
+**Title:** Helix, a privacy-first desktop music player for Windows (alpha)
+
+**Body:**
+
+> I’ve released the alpha of **Helix**, a desktop music player focused on privacy and native playback.
+>
+> It supports:
+>
+> - local music files
+> - YouTube and SoundCloud streaming
+> - real-time audio visualizers
+> - playlists, queue, favorites, and history
+>
+> What I wanted to avoid:
+>
+> - forced accounts
+> - tracking
+> - ads
+> - heavy Electron-based desktop apps
+>
+> **Windows downloads currently available:**
+>
+> - `Helix_0.2.1_x64-setup.exe` (recommended)
+> - `Helix_0.2.1_x64_en-US.msi`
+> - `helix.exe` portable
+>
+> GitHub:
+> https://github.com/netcraker01/helix
+>
+> Release:
+> https://github.com/netcraker01/helix/releases/tag/v0.2.1
+>
+> Important note: the Windows builds are currently unsigned, so SmartScreen may show a warning. You can still install by clicking **More info -> Run anyway**.
+>
+> Also, for transparency: this is an AI-assisted project, but developed under strict human-led engineering control, not vibe coding.
+>
+> If anyone here tries it on Windows, I’d especially like feedback on:
+>
+> - installer experience
+> - playback stability
+> - UI responsiveness
+> - whether the visualizers feel useful or distracting
+
+---
+
+### 6. Mastodon / Fediverse
 
 **Post 1 (intro + GIF):**
 > 🎵 I've been building Helix — a privacy-first, open-source music player.
