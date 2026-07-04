@@ -35,3 +35,6 @@ ui/vite.config.ts.timestamp-*.mjs
 
 # SDD process artifacts (internal)
 openspec/changes/
+
+# Local promotion and launch planning
+docs/promotion/
