@@ -286,6 +286,19 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                     }
                 }
 
+                // Check if the audio backend has errored (CPAL stream error)
+                // so we don't keep decoding for a dead stream. The critical
+                // check is before the blocking bus_producer.send() below,
+                // but this early-out saves unnecessary decode work.
+                if let Ok(be_guard) = self_clone.backend.lock() {
+                    if let Some(ref be) = *be_guard {
+                        if be.state() == PlaybackState::Stopped {
+                            decoder_state.lock().unwrap().playback_state = PlaybackState::Stopped;
+                            break;
+                        }
+                    }
+                }
+
                 // The decoder must be accessed under the shared lock
                 // so seek() can also lock it. Decode into a local buffer.
                 let mut buf = vec![0.0f32; 4096];
@@ -320,6 +333,22 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                     }
                     Ok(samples_read) => {
                         let frame = buf[..samples_read].to_vec();
+
+                        // Double-check backend state before the blocking send.
+                        // When a CPAL stream error occurs the backend stops
+                        // consuming PCM frames. Without this check the decoder
+                        // thread blocks forever on bus_producer.send() since
+                        // no one is draining the bus.
+                        if let Ok(be_guard) = self_clone.backend.lock() {
+                            if let Some(ref be) = *be_guard {
+                                if be.state() == PlaybackState::Stopped {
+                                    decoder_state.lock().unwrap().playback_state
+                                        = PlaybackState::Stopped;
+                                    break;
+                                }
+                            }
+                        }
+
                         if bus_producer.send(frame).is_err() {
                             // Bus is closed — stop decoding
                             break;

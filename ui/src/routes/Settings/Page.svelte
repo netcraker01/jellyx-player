@@ -4,7 +4,7 @@
   import { getVersion, getSourceSettings, setSourceEnabled, getAudioSettings } from '@services/commands';
   import type { SourceSetting } from '@services/commands';
   import { normalizeAudio, toggleNormalizeAudio, cinematicMode, toggleCinematicMode, cinematicIntensity, setCinematicIntensity } from '@features/player/stores/player';
-  import { Library, Info, Languages, Plug, Volume2, Monitor } from 'lucide-svelte';
+  import { Library, Languages, Plug, Volume2, Monitor, Github, ExternalLink } from 'lucide-svelte';
 
   let version = '';
   let versionError: string | null = null;
@@ -96,6 +96,13 @@
   ];
 
   $: currentLocale = $locale;
+
+  const HELIX_REPO_URL = 'https://github.com/netcraker01/helix';
+  const HELIX_LINKS = [
+    { key: 'settings.about_repo', url: HELIX_REPO_URL },
+    { key: 'settings.about_releases', url: `${HELIX_REPO_URL}/releases` },
+    { key: 'settings.about_issues', url: `${HELIX_REPO_URL}/issues` },
+  ];
 </script>
 
 <div class="page-settings">
@@ -204,11 +211,14 @@
     </div>
   </section>
 
-  <section class="settings-section">
+  <section class="settings-section about-helix">
     <div class="section-header">
       <Library size={20} />
       <h2>{$t('settings.about')}</h2>
     </div>
+    <p class="about-tagline">{$t('app.tagline')}</p>
+    <p class="about-desc">{$t('settings.about_description')}</p>
+
     <div class="setting-row">
       <span class="setting-label">{$t('settings.version')}</span>
       {#if versionError}
@@ -219,14 +229,20 @@
         <span class="setting-value muted">{$t('common.loading')}</span>
       {/if}
     </div>
-  </section>
 
-  <section class="settings-section">
-    <div class="section-header">
-      <Info size={20} />
-      <h2>{$t('app.title')}</h2>
-    </div>
-    <p class="tagline">{$t('app.tagline')}</p>
+    <ul class="about-links">
+      {#each HELIX_LINKS as link (link.key)}
+        <li>
+          <a href={link.url} target="_blank" rel="noopener noreferrer" class="about-link">
+            <Github size={14} />
+            <span>{$t(link.key)}</span>
+            <ExternalLink size={12} class="about-link-external" />
+          </a>
+        </li>
+      {/each}
+    </ul>
+
+    <p class="about-credits">{$t('settings.about_credits')}</p>
   </section>
 </div>
 
@@ -316,10 +332,57 @@
     outline-offset: 1px;
   }
 
-  .tagline {
+  /* About Helix — subtle expansion */
+  .about-helix .about-tagline {
+    color: var(--text-primary, #e0e0e0);
+    font-size: 0.95rem;
+    font-weight: 500;
+    margin: 0 0 0.5rem 0;
+  }
+
+  .about-helix .about-desc {
     color: var(--text-secondary, #9ca3af);
-    font-size: 0.9rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    margin: 0 0 1rem 0;
+  }
+
+  .about-links {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0 0.75rem 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.25rem;
+  }
+
+  .about-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.85rem;
+    text-decoration: none;
+    transition: color 0.2s;
+  }
+
+  .about-link:hover,
+  .about-link:focus-visible {
+    color: var(--color-accent, #6366f1);
+    outline: none;
+  }
+
+  .about-link :global(.about-link-external) {
+    opacity: 0.55;
+  }
+
+  .about-credits {
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.8rem;
+    opacity: 0.75;
     margin: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color, #1f2937);
   }
 
   /* Toggle switch */

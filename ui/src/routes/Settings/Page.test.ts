@@ -53,6 +53,11 @@ describe('Settings page', () => {
       'settings.language': 'Language',
       'settings.about': 'About Helix',
       'settings.version': 'Version',
+      'settings.about_description': 'Privacy-first desktop music player. No accounts, no ads, no tracking.',
+      'settings.about_repo': 'Source code',
+      'settings.about_releases': 'Releases',
+      'settings.about_issues': 'Report a bug',
+      'settings.about_credits': 'Made with care by netcraker · © 2026 · Licensed under AGPL-3.0',
       'common.loading': 'Loading...',
       'common.error': 'Error',
     });
@@ -74,5 +79,25 @@ describe('Settings page', () => {
     expect(container.textContent).toContain('Language');
     expect(container.textContent).toContain('About Helix');
     expect(container.textContent).toContain('Version');
+  });
+
+  it('renders expanded About Helix content with links and credits', () => {
+    mocks.getVersion.mockResolvedValueOnce('0.1.0');
+    const { container } = render(SettingsPage);
+    // Tagline is rendered inside the About section
+    expect(container.textContent).toContain('Your music, your privacy');
+    // Expanded description
+    expect(container.textContent).toContain('Privacy-first desktop music player');
+    // Credits mention netcraker and 2026
+    expect(container.textContent).toContain('netcraker');
+    expect(container.textContent).toContain('2026');
+    // Repository links target the canonical GitHub repo
+    const links = container.querySelectorAll<HTMLAnchorElement>('.about-link');
+    expect(links.length).toBe(3);
+    for (const a of links) {
+      expect(a.href).toContain('https://github.com/netcraker01/helix');
+      expect(a.getAttribute('target')).toBe('_blank');
+      expect(a.getAttribute('rel')).toBe('noopener noreferrer');
+    }
   });
 });
