@@ -12,4 +12,5 @@ pub mod persistence;
 pub mod playback;
 pub mod shared;
 pub mod sources;
+pub mod updater;
 pub mod visualizer;

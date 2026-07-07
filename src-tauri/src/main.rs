@@ -17,6 +17,7 @@ mod persistence;
 mod playback;
 mod shared;
 mod sources;
+mod updater;
 mod visualizer;
 
 fn main() {

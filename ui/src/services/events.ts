@@ -8,7 +8,7 @@
 
 import { subscribeEvent } from './tauri';
 import { invokeCommand } from './tauri';
-import type { Track, FrequencyData, QueueState } from '@shared/types/models';
+import type { Track, FrequencyData, QueueState, UpdateInfo } from '@shared/types/models';
 
 type UnlistenFn = () => void;
 
@@ -56,6 +56,11 @@ export interface StreamResolvedEvent {
 
 export function onStreamResolved(cb: (payload: StreamResolvedEvent) => void): Promise<UnlistenFn> {
   return subscribeEvent<StreamResolvedEvent>('stream-resolved', cb);
+}
+
+/** Emitted by the backend periodic update check when a newer version is found. */
+export function onUpdateAvailable(cb: (info: UpdateInfo) => void): Promise<UnlistenFn> {
+  return subscribeEvent<UpdateInfo>('update-available', cb);
 }
 
 /**

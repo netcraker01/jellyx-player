@@ -7,6 +7,12 @@
 
 import { initI18n } from './i18n';
 import { initPlayerEvents } from '@features/player/stores/player';
+import {
+  initUpdaterEvents,
+  startPeriodicCheck,
+  loadPrefs,
+  check as checkUpdates,
+} from '@features/updater/updater.store';
 import { mount } from 'svelte';
 import App from './app/App.svelte';
 
@@ -23,6 +29,22 @@ async function bootstrap() {
     initPlayerEvents().catch((err) => {
       console.error('[Helix] Player event init failed:', err);
     });
+
+    // Updater: subscribe to backend `update-available` events, load prefs,
+    // trigger a startup check, and start the 24h periodic re-check.
+    initUpdaterEvents().catch((err) => {
+      console.error('[Helix] Updater event init failed:', err);
+    });
+    loadPrefs().catch((err) => {
+      console.error('[Helix] Updater prefs load failed:', err);
+    });
+    // Small delay so the first check doesn't compete with player/library init.
+    setTimeout(() => {
+      checkUpdates(false).catch((err) => {
+        console.error('[Helix] Updater startup check failed:', err);
+      });
+    }, 5000);
+    startPeriodicCheck();
   } catch (err) {
     console.error('[Helix] Bootstrap failed:', err);
     const app = document.getElementById('app');

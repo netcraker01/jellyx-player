@@ -15,6 +15,7 @@ import ArtistPage from '../routes/Artist/Page.svelte';
 import AlbumPage from '../routes/Album/Page.svelte';
 import Visualizer from '@features/player/components/Visualizer.svelte';
 import { frequencyData, cinematicMode, cinematicIntensity, modoCineActive } from '@features/player/stores/player';
+import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte';
 
   // Cinematic ambient background is active when the Settings cinematic-mode
   // toggle is ON and there is frequency data available. This is INDEPENDENT
@@ -109,6 +110,7 @@ import { frequencyData, cinematicMode, cinematicIntensity, modoCineActive } from
   </main>
   <BottomBar />
   <ToastContainer />
+  <UpdateAvailableModal />
   {#if $modoCineActive}
     <div class="visualizer-embed">
       <Visualizer />

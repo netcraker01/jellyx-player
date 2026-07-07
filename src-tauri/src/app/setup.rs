@@ -14,6 +14,7 @@ use crate::persistence::db::Database;
 use crate::playback::service::PlaybackService;
 use crate::shared::utils::ensure_art_cache_dir;
 use crate::sources::local::ScannerService;
+use crate::updater::service::{UpdateService, DEFAULT_CHECK_INTERVAL_SECS};
 
 /// Build and configure the Tauri application.
 ///
@@ -22,6 +23,7 @@ use crate::sources::local::ScannerService;
 pub fn build_app() -> tauri::Builder<tauri::Wry> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // Ensure art cache directory exists before any scanning.
             // Non-fatal: scanning may degrade without local art caching, but the
@@ -59,7 +61,22 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             // ScannerService is wired with the PlaylistService so the
             // folder-as-playlist generation runs automatically after each
             // successful scan.
-            let scanner = ScannerService::new(db).with_playlist_service(playlist.clone());
+            let scanner = ScannerService::new(db.clone()).with_playlist_service(playlist.clone());
+
+            // Initialize the HTTP client for all async network requests.
+            let http_client = reqwest::Client::new();
+
+            // Channel-aware updater (Phase 1: notify-only / open-release-page).
+            let exe_path = std::env::current_exe().ok();
+            let updater = Arc::new(UpdateService::new(
+                db.clone(),
+                exe_path.as_deref(),
+                env!("CARGO_PKG_VERSION"),
+                http_client.clone(),
+            ));
+            if let Err(e) = updater.persist_detected_channel() {
+                eprintln!("warn: failed to persist detected install channel: {:?}", e);
+            }
 
             app.manage(AppState {
                 playback: Arc::new(playback),
@@ -68,7 +85,43 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
                 settings,
                 scanner: Arc::new(scanner),
                 fft_channel,
+                updater: updater.clone(),
+                http_client,
             });
+
+            // Spawn the startup + periodic update check.
+            // The first check is delayed 5s so it doesn't compete with
+            // playback/library init; the loop then re-checks every 24h.
+            // Errors are logged and never crash the app (spec: transient
+            // check failures keep the last known state and show no UI).
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // 5s startup debounce.
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+                loop {
+                    match updater.check().await {
+                        Ok(Some(info)) => {
+                            // Emit a Tauri event the frontend updater store
+                            // listens for. The store decides whether to show
+                            // the modal (it already got the suppression-aware
+                            // result, so showing is the right call).
+                            use tauri::Emitter;
+                            if let Err(e) = app_handle.emit("update-available", &info) {
+                                eprintln!("update check: failed to emit update-available event: {}", e);
+                            }
+                        }
+                        Ok(None) => {
+                            // No update available or suppressed.
+                        }
+                        Err(e) => {
+                            eprintln!("update check (periodic) failed: {}", e);
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(DEFAULT_CHECK_INTERVAL_SECS)).await;
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -146,6 +199,14 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::remove_artist_favorite,
             crate::ipc::commands::is_artist_favorite,
             crate::ipc::commands::get_all_artist_favorites,
+            // Updater commands (Phase 1: notify-only / open-release-page)
+            crate::ipc::commands::check_for_updates,
+            crate::ipc::commands::skip_update_version,
+            crate::ipc::commands::remind_update_later,
+            crate::ipc::commands::get_update_prefs,
+            crate::ipc::commands::open_release_page,
+            crate::ipc::commands::get_updater_current_version,
+            crate::ipc::commands::updater_now_iso,
         ])
 }
 

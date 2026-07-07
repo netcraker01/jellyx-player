@@ -24,6 +24,8 @@ import type {
   PlaylistTrackEntry,
   ArtistFavorite,
   SuggestionCategory,
+  UpdateInfo,
+  UpdatePrefs,
 } from '@shared/types/models';
 
 // ── Playback commands ──────────────────────────────────────────────
@@ -363,4 +365,43 @@ export function setNormalizeAudio(enabled: boolean): Promise<void> {
 /** Set normalization on the local playback backend (immediate effect). */
 export function setPlaybackNormalizeAudio(enabled: boolean): Promise<void> {
   return invokeCommand<void>('set_playback_normalize_audio', { enabled });
+}
+
+// ── Updater commands (Phase 1: notify-only) ────────────────────────────
+
+/** Check for updates and return info if a newer version is available.
+ *  Applies suppression rules (skip version / remind later). */
+export function checkForUpdates(): Promise<UpdateInfo | null> {
+  return invokeCommand<UpdateInfo | null>('check_for_updates');
+}
+
+/** Persist a skipped version (user clicked "Skip this version"). */
+export function skipUpdateVersion(version: string): Promise<UpdatePrefs> {
+  return invokeCommand<UpdatePrefs>('skip_update_version', { version });
+}
+
+/** Persist a remind-later timestamp (user clicked "Remind me later").
+ *  Backend computes the timestamp from `hours` (default 24). */
+export function remindUpdateLater(hours?: number): Promise<UpdatePrefs> {
+  return invokeCommand<UpdatePrefs>('remind_update_later', { hours: hours ?? null });
+}
+
+/** Read the persisted updater prefs. */
+export function getUpdatePrefs(): Promise<UpdatePrefs> {
+  return invokeCommand<UpdatePrefs>('get_update_prefs');
+}
+
+/** Open the release page in the system default browser via the backend shell plugin. */
+export function openReleasePage(url: string): Promise<void> {
+  return invokeCommand<void>('open_release_page', { url });
+}
+
+/** Return the current app version (used for "You're up to date" display). */
+export function getUpdaterCurrentVersion(): Promise<string> {
+  return invokeCommand<string>('get_updater_current_version');
+}
+
+/** ISO-8601 UTC "now" from the backend clock (for consistent remind-later display). */
+export function updaterNowIso(): Promise<string> {
+  return invokeCommand<string>('updater_now_iso');
 }

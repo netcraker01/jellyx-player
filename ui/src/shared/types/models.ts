@@ -281,3 +281,45 @@ export interface SuggestionCategory {
   query: string;
   color: string;
 }
+
+// ── Updater DTOs ───────────────────────────────────────────────────────
+//
+// Match the Rust `updater` module structs with `serde(rename_all = "camelCase")`.
+// Phase 1: notify-only / open-release-page. `auto_update` is reserved for
+// Phase 2 (signed artifacts + tauri-plugin-updater).
+
+/**
+ * Behavioral policy associated with an install channel.
+ * - `notify_only`: show modal, hide/disable "Update now".
+ * - `open_release_page`: show modal, "Update now" opens the release page externally.
+ * - `auto_update`: Phase 2 — download + verify signature + restart. NOT implemented in Phase 1.
+ */
+export type ChannelPolicy = 'notify_only' | 'open_release_page' | 'auto_update';
+
+/**
+ * Information about an available update, returned by `check_for_updates`.
+ * Matches the Rust `UpdateInfo` struct with `serde(rename_all = "camelCase")`.
+ */
+export interface UpdateInfo {
+  currentVersion: string;
+  latestVersion: string;
+  body?: string;
+  releaseUrl: string;
+  publishedAt?: string;
+  /** Detected install channel (kebab-case, e.g. "linux-deb"). */
+  channel: string;
+  policy: ChannelPolicy;
+  /** Whether the latest version is strictly newer than the current one. */
+  isNewer: boolean;
+}
+
+/**
+ * Persisted updater preferences. Matches the Rust `UpdatePrefs` struct
+ * with `serde(rename_all = "camelCase")`.
+ */
+export interface UpdatePrefs {
+  skippedVersion?: string;
+  remindLaterAt?: string;
+  lastCheckAt?: string;
+  detectedChannel?: string;
+}

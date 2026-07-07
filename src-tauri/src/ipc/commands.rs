@@ -29,6 +29,8 @@ use crate::models::track::Track;
 use crate::persistence::models::{HistoryEntry, LocalTrackEntry, WatchedFolder};
 use crate::playback::service::PlaybackService;
 use crate::sources::local::{ScanResult, ScannerService};
+use crate::updater::prefs::{now_iso_utc, now_plus_seconds};
+use crate::updater::service::UpdateService;
 
 /// Application state shared across Tauri commands.
 /// PlaybackService is the single authority for all playback operations.
@@ -37,6 +39,7 @@ use crate::sources::local::{ScanResult, ScannerService};
 /// SettingsService manages source enable/disable state.
 /// ScannerService manages local file scanning.
 /// fft_channel holds the Tauri Channel for binary FFT streaming.
+/// updater runs the channel-aware update check (Phase 1: notify-only).
 pub struct AppState {
     pub playback: Arc<PlaybackService>,
     pub library: Arc<LibraryService>,
@@ -45,6 +48,10 @@ pub struct AppState {
     pub scanner: Arc<ScannerService>,
     /// Binary FFT streaming channel — set by `start_fft_stream`, used by FFT thread.
     pub fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
+    /// Channel-aware updater service (Phase 1: notify-only / open-release-page).
+    pub updater: Arc<UpdateService>,
+    /// Shared HTTP client for all async network requests.
+    pub http_client: reqwest::Client,
 }
 
 /// Convert a persistence-layer `UserPlaylist` into its IPC DTO form.
@@ -975,4 +982,110 @@ pub fn set_normalize_audio(
     enabled: bool,
 ) -> Result<(), AppError> {
     state.settings.set_normalize_audio(enabled)
+}
+
+// ── Updater commands (Phase 1: notify-only) ───────────────────────────
+//
+// `check_for_updates` is async because it performs network I/O. Preference
+// mutations remain synchronous because they only touch SQLite state.
+
+/// Check for updates and return info if a newer version is available.
+///
+/// Applies suppression rules (skip / remind-later) so startup checks and
+/// frontend-triggered automatic checks behave consistently.
+#[tauri::command]
+pub async fn check_for_updates(
+    state: tauri::State<'_, AppState>,
+) -> Result<Option<crate::ipc::dto::UpdaterInfo>, AppError> {
+    let updater = state.updater.clone();
+    updater.check().await.map_err(|e| AppError {
+        code: "UPDATE_CHECK_FAILED".into(),
+        details: Some(e),
+    })
+}
+
+/// Persist a skipped version (user clicked "Skip this version").
+#[tauri::command]
+pub fn skip_update_version(
+    state: tauri::State<AppState>,
+    version: String,
+) -> Result<crate::ipc::dto::UpdaterPrefs, AppError> {
+    state
+        .updater
+        .skip_version(&version)
+        .map_err(|e| AppError {
+            code: "UPDATE_PREFS_ERROR".into(),
+            details: Some(format!("{:?}", e)),
+        })
+}
+
+/// Persist a remind-later timestamp (user clicked "Remind me later").
+///
+/// Accepts an optional `hours` argument (default 24). The backend computes
+/// the timestamp so the frontend doesn't need to do clock math.
+#[tauri::command]
+pub fn remind_update_later(
+    state: tauri::State<AppState>,
+    hours: Option<u64>,
+) -> Result<crate::ipc::dto::UpdaterPrefs, AppError> {
+    let secs = hours.unwrap_or(24) * 3600;
+    let ts = now_plus_seconds(secs);
+    state
+        .updater
+        .remind_later(&ts)
+        .map_err(|e| AppError {
+            code: "UPDATE_PREFS_ERROR".into(),
+            details: Some(format!("{:?}", e)),
+        })
+}
+
+/// Read the persisted updater prefs.
+#[tauri::command]
+pub fn get_update_prefs(
+    state: tauri::State<AppState>,
+) -> Result<crate::ipc::dto::UpdaterPrefs, AppError> {
+    state.updater.prefs().map_err(|e| AppError {
+        code: "UPDATE_PREFS_ERROR".into(),
+        details: Some(format!("{:?}", e)),
+    })
+}
+
+/// Open the release page in the system default browser.
+///
+/// Implemented via `tauri-plugin-shell`'s `open` API. The `shell` plugin's
+/// `open` permission is enabled in `tauri.conf.json` (`"shell": { "open": true }`).
+#[tauri::command]
+pub fn open_release_page(
+    app: tauri::AppHandle,
+    url: String,
+) -> Result<(), AppError> {
+    if !url.starts_with("https://github.com/netcraker01/helix/releases/") {
+        return Err(AppError {
+            code: "OPEN_RELEASE_PAGE_DENIED".into(),
+            details: Some("release URL is outside the Helix GitHub releases allowlist".into()),
+        });
+    }
+
+    use tauri_plugin_shell::ShellExt;
+    #[allow(deprecated)]
+    app.shell()
+        .open(url, None)
+        .map_err(|e| AppError {
+            code: "OPEN_RELEASE_PAGE_FAILED".into(),
+            details: Some(format!("{}", e)),
+        })
+}
+
+/// Return the current app version (used by the frontend to display
+/// "You're up to date" alongside the latest version).
+#[tauri::command]
+pub fn get_updater_current_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Returns the ISO-8601 UTC timestamp for "now" — exposed so the frontend can
+/// compute remind-later displays consistently with the backend's clock.
+#[tauri::command]
+pub fn updater_now_iso() -> String {
+    now_iso_utc()
 }

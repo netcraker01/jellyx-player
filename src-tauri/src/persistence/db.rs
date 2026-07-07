@@ -16,9 +16,10 @@ use rusqlite::{params, Connection};
 use crate::errors::types::PersistenceError;
 use crate::models::track::Track;
 use crate::persistence::models::{ArtistFavorite, HistoryEntry, LocalTrackEntry, PlaylistTrackEntry, SourceSetting, UserPlaylist, WatchedFolder};
+use crate::updater::prefs::UpdatePrefs;
 
 /// Current schema version — increment when adding migrations.
-const SCHEMA_VERSION: u32 = 6;
+const SCHEMA_VERSION: u32 = 7;
 
 /// Default history query limit.
 const HISTORY_LIMIT: u32 = 100;
@@ -184,22 +185,31 @@ impl Database {
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS update_prefs (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    skipped_version TEXT,
+                    remind_later_at TEXT,
+                    last_check_at TEXT,
+                    detected_channel TEXT
+                );
                 ",
         )
         .map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to initialize schema: {}", e))
         })?;
 
-        // Insert schema version using the constant so it stays in sync.
-        // Use ON CONFLICT to update the version when migrations have been
-        // applied (instead of OR IGNORE which would keep the old value).
+        // Seed the schema version only for brand-new databases. Do NOT set it
+        // to SCHEMA_VERSION here: migrations must be the only code path that
+        // marks the database as current. Otherwise an older fresh-install
+        // schema can be incorrectly marked as up-to-date before v6/v7 repairs
+        // add required columns.
         conn.execute(
-            "INSERT INTO _meta (key, value) VALUES ('schema_version', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            params![SCHEMA_VERSION],
+            "INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '0')",
+            [],
         )
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to set schema version: {}", e))
+            PersistenceError::DatabaseError(format!("failed to initialize schema version: {}", e))
         })?;
 
         Ok(())
@@ -229,14 +239,30 @@ impl Database {
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
 
-        if current >= SCHEMA_VERSION {
+        let needs_v6 = current < 6
+            || !Self::column_exists(&conn, "local_tracks", "subfolder_path")
+            || !Self::column_exists(&conn, "user_playlists", "kind")
+            || !Self::column_exists(&conn, "user_playlists", "source_folder_path")
+            || !Self::column_exists(&conn, "user_playlists", "parent_playlist_id")
+            || !Self::column_exists(&conn, "artist_favorites", "source")
+            || !Self::column_exists(&conn, "artist_favorites", "source_artist_ref");
+
+        let needs_v7 = current < 7 || !Self::table_exists(&conn, "update_prefs");
+
+        if current >= SCHEMA_VERSION && !needs_v6 && !needs_v7 {
             return Ok(());
         }
 
         // v5 → v6: subfolder_path on local_tracks, folder/parent/kind on
         // user_playlists, composite PK + source columns on artist_favorites.
-        if current < 6 {
+        if needs_v6 {
             Self::migrate_to_v6(&conn)?;
+        }
+
+        // v6 → v7: add the `update_prefs` table for the channel-aware updater.
+        // Idempotent: only creates the table if it doesn't already exist.
+        if needs_v7 {
+            Self::migrate_to_v7(&conn)?;
         }
 
         // Record the new schema version.
@@ -261,17 +287,7 @@ impl Database {
         column: &str,
         definition: &str,
     ) -> Result<(), PersistenceError> {
-        let exists: i64 = conn
-            .query_row(
-                &format!(
-                    "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = ?1",
-                    table
-                ),
-                params![column],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-        if exists == 0 {
+        if !Self::column_exists(conn, table, column) {
             conn.execute(&format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition), [])
                 .map_err(|e| {
                     PersistenceError::DatabaseError(format!(
@@ -281,6 +297,29 @@ impl Database {
                 })?;
         }
         Ok(())
+    }
+
+    fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
+        conn.query_row(
+            &format!(
+                "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = ?1",
+                table
+            ),
+            params![column],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count > 0)
+        .unwrap_or(false)
+    }
+
+    fn table_exists(conn: &Connection, table: &str) -> bool {
+        conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            params![table],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|count| count > 0)
+        .unwrap_or(false)
     }
 
     /// v5 → v6 migration.
@@ -384,7 +423,92 @@ impl Database {
                     e
                 ))
             })?;
+        } else {
+            Self::add_column_if_missing(
+                conn,
+                "artist_favorites",
+                "source_artist_ref",
+                "TEXT",
+            )?;
         }
+
+        Ok(())
+    }
+
+    /// v6 → v7 migration.
+    ///
+    /// Adds the `update_prefs` table for the channel-aware updater. The table
+    /// uses a single-row design enforced by `CHECK (id = 1)` so the updater
+    /// prefs are uniquely typed and easy to upsert.
+    fn migrate_to_v7(conn: &Connection) -> Result<(), PersistenceError> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS update_prefs (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                skipped_version TEXT,
+                remind_later_at TEXT,
+                last_check_at TEXT,
+                detected_channel TEXT
+            );",
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to create update_prefs (v7): {}", e))
+        })?;
+        Ok(())
+    }
+
+    // ── Update Prefs ──────────────────────────────────────────────────
+
+    /// Read the persisted updater prefs. Returns `UpdatePrefs::default()`
+    /// (all fields `None`) when no row exists yet (fresh install).
+    pub fn get_update_prefs(&self) -> Result<UpdatePrefs, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let result = conn.query_row(
+            "SELECT skipped_version, remind_later_at, last_check_at, detected_channel
+             FROM update_prefs WHERE id = 1",
+            [],
+            |row| {
+                Ok(UpdatePrefs {
+                    skipped_version: row.get(0)?,
+                    remind_later_at: row.get(1)?,
+                    last_check_at: row.get(2)?,
+                    detected_channel: row.get(3)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(prefs) => Ok(prefs),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(UpdatePrefs::default()),
+            Err(e) => Err(PersistenceError::DatabaseError(format!(
+                "failed to read update_prefs: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Persist the updater prefs (insert or replace the single row).
+    pub fn save_update_prefs(&self, prefs: &UpdatePrefs) -> Result<(), PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        conn.execute(
+            "INSERT OR REPLACE INTO update_prefs
+                (id, skipped_version, remind_later_at, last_check_at, detected_channel)
+             VALUES (1, ?1, ?2, ?3, ?4)",
+            params![
+                prefs.skipped_version,
+                prefs.remind_later_at,
+                prefs.last_check_at,
+                prefs.detected_channel,
+            ],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to save update_prefs: {}", e))
+        })?;
 
         Ok(())
     }
@@ -1969,6 +2093,169 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let version = db.schema_version().unwrap();
         assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn repairs_missing_playlist_and_artist_columns_even_when_version_is_current() {
+        let path = std::env::temp_dir().join(format!(
+            "helix-schema-repair-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    track_id TEXT NOT NULL,
+                    track_json TEXT NOT NULL,
+                    played_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE watched_folders (
+                    path TEXT PRIMARY KEY,
+                    last_scanned_at TEXT,
+                    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE local_tracks (
+                    file_path TEXT PRIMARY KEY,
+                    track_json TEXT NOT NULL,
+                    folder_path TEXT NOT NULL,
+                    file_modified_at TEXT
+                );
+                CREATE TABLE user_playlists (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE playlist_tracks (
+                    playlist_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    track_json TEXT NOT NULL,
+                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (playlist_id, position)
+                );
+                CREATE TABLE artist_favorites (
+                    artist_id TEXT PRIMARY KEY,
+                    artist_name TEXT NOT NULL,
+                    thumbnail TEXT,
+                    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE source_settings (
+                    source TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE audio_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                CREATE TABLE _meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                INSERT INTO _meta (key, value) VALUES ('schema_version', '7');",
+            )
+            .unwrap();
+        }
+
+        let db = Database::open(&path).unwrap();
+        db.create_playlist("Fresh install playlist").unwrap();
+        db.add_artist_favorite("artist-1", "local", "Artist One", None, None)
+            .unwrap();
+
+        let conn = db.conn.lock().unwrap();
+        assert!(Database::column_exists(&conn, "user_playlists", "kind"));
+        assert!(Database::column_exists(&conn, "artist_favorites", "source"));
+        assert!(Database::column_exists(&conn, "artist_favorites", "source_artist_ref"));
+        drop(conn);
+
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn repairs_artist_source_ref_when_source_column_already_exists() {
+        let path = std::env::temp_dir().join(format!(
+            "helix-artist-source-ref-repair-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    track_id TEXT NOT NULL,
+                    track_json TEXT NOT NULL,
+                    played_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE watched_folders (
+                    path TEXT PRIMARY KEY,
+                    last_scanned_at TEXT,
+                    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE local_tracks (
+                    file_path TEXT PRIMARY KEY,
+                    track_json TEXT NOT NULL,
+                    folder_path TEXT NOT NULL,
+                    file_modified_at TEXT,
+                    subfolder_path TEXT
+                );
+                CREATE TABLE user_playlists (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'manual',
+                    source_folder_path TEXT,
+                    parent_playlist_id TEXT,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE TABLE playlist_tracks (
+                    playlist_id TEXT NOT NULL,
+                    position INTEGER NOT NULL,
+                    track_json TEXT NOT NULL,
+                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (playlist_id, position)
+                );
+                CREATE TABLE artist_favorites (
+                    artist_id TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'local',
+                    artist_name TEXT NOT NULL,
+                    thumbnail TEXT,
+                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (artist_id, source)
+                );
+                CREATE TABLE source_settings (
+                    source TEXT PRIMARY KEY,
+                    enabled INTEGER NOT NULL DEFAULT 1
+                );
+                CREATE TABLE audio_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                CREATE TABLE _meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                INSERT INTO _meta (key, value) VALUES ('schema_version', '7');",
+            )
+            .unwrap();
+        }
+
+        let db = Database::open(&path).unwrap();
+        db.add_artist_favorite(
+            "artist-1",
+            "youtube",
+            "Artist One",
+            None,
+            Some("youtube:artist-1"),
+        )
+        .unwrap();
+
+        let conn = db.conn.lock().unwrap();
+        assert!(Database::column_exists(&conn, "artist_favorites", "source_artist_ref"));
+        drop(conn);
+
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]

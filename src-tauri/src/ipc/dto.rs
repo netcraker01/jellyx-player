@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::models::track::Track;
 use crate::persistence::models::HistoryEntry;
+use crate::updater::channel::ChannelPolicy;
+use crate::updater::checker::UpdateInfo;
+use crate::updater::prefs::UpdatePrefs;
 
 /// Filter for grouped search: limit results to a single entity type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -282,6 +285,23 @@ pub struct HomeSnapshot {
     pub recently_played: Vec<HistoryEntry>,
     pub recommendations: Vec<RecommendationItem>,
 }
+
+// ── Updater DTOs (re-exported from updater module) ──────────────────
+//
+// The canonical `UpdateInfo`, `ChannelPolicy`, and `UpdatePrefs` types live
+// in the `updater` module next to their logic. We re-export them from the
+// IPC DTO module so the frontend-facing types have a single import surface
+// (`crate::ipc::dto`) consistent with the rest of the IPC layer.
+
+pub use crate::updater::checker::UpdateInfo as UpdateInfoDto;
+pub use crate::updater::channel::ChannelPolicy as ChannelPolicyDto;
+pub use crate::updater::prefs::UpdatePrefs as UpdatePrefsDto;
+
+/// Keep the alias names referenced by commands. The underlying type is the
+/// same as the re-export above; this just documents the IPC intent.
+pub type UpdaterInfo = UpdateInfo;
+pub type UpdaterPrefs = UpdatePrefs;
+pub type UpdaterPolicy = ChannelPolicy;
 
 #[cfg(test)]
 mod tests {
