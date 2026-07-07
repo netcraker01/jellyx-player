@@ -301,7 +301,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
                 // The decoder must be accessed under the shared lock
                 // so seek() can also lock it. Decode into a local buffer.
-                let mut buf = vec![0.0f32; 4096];
+                let mut buf = vec![0.0f32; 16384];
                 let result = {
                     let mut shared = shared_decoder.lock().unwrap();
                     match shared.as_mut() {
@@ -2028,7 +2028,7 @@ mod tests {
             playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
-        db.upsert_local_track("/music/song.mp3", &local_track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &local_track, "/music", Some("1000"), None)
             .expect("failed to insert local track");
 
         let service = PlaybackService::<tauri::test::MockRuntime>::new(
@@ -2073,7 +2073,7 @@ mod tests {
             playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
-        db.upsert_local_track("/music/song.mp3", &local_track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &local_track, "/music", Some("1000"), None)
             .expect("failed to insert local track");
 
         let service = PlaybackService::<tauri::test::MockRuntime>::new(
@@ -2136,6 +2136,7 @@ mod tests {
             &missing_track,
             temp_dir.to_string_lossy().as_ref(),
             Some("1000"),
+            None,
         )
         .expect("failed to persist missing track");
 
@@ -2238,6 +2239,7 @@ mod tests {
             &blocked_track,
             temp_dir.to_string_lossy().as_ref(),
             Some("1000"),
+            None,
         )
         .expect("failed to persist blocked track");
 
@@ -2317,6 +2319,7 @@ mod tests {
             &missing_track,
             temp_dir.to_string_lossy().as_ref(),
             Some("1000"),
+            None,
         )
         .expect("failed to persist missing track");
         std::fs::remove_dir_all(&temp_dir).expect("failed to remove watched folder");
@@ -2385,6 +2388,7 @@ mod tests {
             &blocked_track,
             temp_dir.to_string_lossy().as_ref(),
             Some("1000"),
+            None,
         )
         .expect("failed to persist blocked track");
 
@@ -2860,6 +2864,7 @@ mod tests {
                 t.local_path.as_ref().unwrap(),
                 t,
                 temp_dir.to_string_lossy().as_ref(),
+                None,
                 None,
             )
             .expect("failed to insert track");

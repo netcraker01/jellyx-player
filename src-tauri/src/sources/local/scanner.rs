@@ -22,6 +22,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::errors::types::{AppError, LibraryError, ScannerError};
+use crate::library::PlaylistService;
 use crate::models::source::Source;
 use crate::models::track::Track;
 use crate::persistence::db::Database;
@@ -29,7 +30,7 @@ use crate::persistence::models::{LocalTrackEntry, WatchedFolder};
 use crate::shared::utils::art_cache_dir;
 
 /// Supported audio file extensions for scanning.
-const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "ogg", "wav", "aac", "m4a"];
+const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "ogg", "wav", "aac", "m4a", "opus"];
 
 /// Result summary returned after a scan operation.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -46,12 +47,30 @@ pub struct ScanResult {
 /// Service for scanning local music directories.
 pub struct ScannerService {
     db: Arc<Database>,
+    /// Optional playlist service used to auto-generate folder-as-playlist
+    /// entries after a successful scan. Set via [`ScannerService::with_playlist_service`].
+    playlist_service: Option<Arc<PlaylistService>>,
 }
 
 impl ScannerService {
     /// Create a new ScannerService backed by the given Database.
     pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+        Self {
+            db,
+            playlist_service: None,
+        }
+    }
+
+    /// Attach a `PlaylistService` so the scanner can trigger folder-as-playlist
+    /// generation after a successful scan.
+    pub fn with_playlist_service(mut self, playlist: Arc<PlaylistService>) -> Self {
+        self.playlist_service = Some(playlist);
+        self
+    }
+
+    /// Set or clear the playlist service after construction.
+    pub fn set_playlist_service(&mut self, playlist: Option<Arc<PlaylistService>>) {
+        self.playlist_service = playlist;
     }
 
     /// Check if a file extension is a supported audio format.
@@ -302,11 +321,15 @@ impl ScannerService {
                 Ok(track) => {
                     let is_new = !existing_map.contains_key(&path_str);
                     let mtime_str = current_mtime.as_deref();
+                    let subfolder_path = compute_subfolder(path, folder_path);
 
-                    match self
-                        .db
-                        .upsert_local_track(&path_str, &track, folder_path, mtime_str)
-                    {
+                    match self.db.upsert_local_track(
+                        &path_str,
+                        &track,
+                        folder_path,
+                        mtime_str,
+                        subfolder_path.as_deref(),
+                    ) {
                         Ok(()) => {
                             if is_new {
                                 result.files_added += 1;
@@ -344,6 +367,19 @@ impl ScannerService {
         // Update folder scan time
         let _ = self.db.update_folder_scan_time(folder_path);
 
+        // Auto-generate folder-as-playlist entries. The playlist service is
+        // optional so the scanner can run without it (e.g. in unit tests).
+        // Errors are logged but do not fail the scan — the tracks themselves
+        // are already persisted successfully.
+        if let Some(ref playlist) = self.playlist_service {
+            if let Err(e) = playlist.generate_folder_playlists(folder_path) {
+                eprintln!(
+                    "helix scanner: failed to generate folder playlists for {}: {:?}",
+                    folder_path, e
+                );
+            }
+        }
+
         Ok(result)
     }
 
@@ -360,6 +396,9 @@ impl ScannerService {
     }
 
     /// Remove a watched folder and its associated tracks.
+    ///
+    /// Also cascade-deletes any playlists whose `source_folder_path` matches
+    /// this folder (folder parent + children), preserving manual playlists.
     pub fn remove_folder(&self, folder_path: &str) -> Result<(), AppError> {
         let removed = self
             .db
@@ -372,11 +411,31 @@ impl ScannerService {
         }
         // CASCADE should handle local_tracks deletion, but clean up explicitly
         let _ = self.db.delete_local_tracks_by_folder(folder_path);
+        // Cascade-delete folder-derived playlists (parent + children). Manual
+        // playlists (no source_folder_path) are preserved.
+        let _ = self.db.delete_playlists_by_source_folder(folder_path);
         Ok(())
     }
 }
 
-/// Derive a file extension from a visual's media type.
+/// Compute the subfolder path of a file relative to the watched folder root.
+///
+/// For a file at `/music/Rock/Album1/song.mp3` under watched root `/music/Rock`,
+/// this returns `Some("Album1")`. For a file directly inside the watched root
+/// (`/music/Rock/song.mp3`), returns `None`. Returns `None` on any path
+/// traversal error (e.g. relative path that does not start with the root).
+fn compute_subfolder(file_path: &Path, folder_root: &str) -> Option<String> {
+    let parent = file_path.parent()?;
+    let root = Path::new(folder_root);
+    let rel = parent.strip_prefix(root).ok()?;
+    let rel_str = rel.to_string_lossy().to_string();
+    if rel_str.is_empty() || rel_str == "." {
+        None
+    } else {
+        Some(rel_str)
+    }
+}
+
 ///
 /// - `image/jpeg` or `image/jpg` → `"jpg"`
 /// - `image/png` → `"png"`
@@ -456,6 +515,9 @@ mod tests {
         )));
         assert!(ScannerService::is_supported_extension(Path::new(
             "song.m4a"
+        )));
+        assert!(ScannerService::is_supported_extension(Path::new(
+            "song.opus"
         )));
     }
 
@@ -681,6 +743,7 @@ mod tests {
             &accessible_track,
             temp_dir.to_string_lossy().as_ref(),
             Some("1000"),
+            None,
         )
         .unwrap();
         db.upsert_local_track(
@@ -688,6 +751,7 @@ mod tests {
             &blocked_track,
             temp_dir.to_string_lossy().as_ref(),
             Some("1001"),
+            None,
         )
         .unwrap();
 
@@ -765,6 +829,7 @@ mod tests {
             &live_track,
             temp_dir.to_string_lossy().as_ref(),
             Some("1000"),
+            None,
         )
         .unwrap();
         db.upsert_local_track(
@@ -772,6 +837,7 @@ mod tests {
             &stale_track,
             temp_dir.to_string_lossy().as_ref(),
             Some("1001"),
+            None,
         )
         .unwrap();
 
@@ -797,6 +863,102 @@ mod tests {
         let service = ScannerService::new(Arc::new(db));
         let folders = service.get_watched_folders().unwrap();
         assert!(folders.is_empty());
+    }
+
+    // ── Folder-as-playlist cascade delete tests ───────────────────────
+
+    #[test]
+    fn remove_folder_cascade_deletes_folder_playlists_preserves_manual() {
+        let db = Arc::new(Database::open_in_memory().unwrap());
+        db.insert_watched_folder("/music/Rock").unwrap();
+        // Use a first PlaylistService to drive folder-as-playlist generation.
+        let gen_svc = PlaylistService::new(db.clone());
+        // Use a second PlaylistService wired into the scanner for the scan
+        // hook (they share the same Database via Arc, so changes are visible
+        // to both).
+        let scanner = ScannerService::new(db.clone())
+            .with_playlist_service(Arc::new(PlaylistService::new(db.clone())));
+
+        // Seed a track in a subfolder and generate folder playlists.
+        let track = Track {
+            id: "t1".to_string(),
+            source: Source::Local,
+            source_id: "/music/Rock/Album1/song.mp3".to_string(),
+            title: "Song t1".to_string(),
+            artist: "AC/DC".to_string(),
+            album: None,
+            duration: Some(180.0),
+            thumbnail: None,
+            stream_url: None,
+            local_path: Some("/music/Rock/Album1/song.mp3".to_string()),
+            playlist_id: None,
+            metadata: HashMap::new(),
+        };
+        db.upsert_local_track(
+            "/music/Rock/Album1/song.mp3",
+            &track,
+            "/music/Rock",
+            Some("1000"),
+            Some("Album1"),
+        )
+        .unwrap();
+
+        let created = gen_svc.generate_folder_playlists("/music/Rock").unwrap();
+        assert_eq!(created.len(), 2, "parent + 1 child");
+
+        // Also create a manual playlist to ensure it survives cascade delete.
+        let manual = gen_svc.create_playlist("My Mix").unwrap();
+
+        // Remove the watched folder via the scanner.
+        scanner.remove_folder("/music/Rock").unwrap();
+
+        // Manual playlist should still exist; folder playlists should be gone.
+        let all = gen_svc.get_all_playlists().unwrap();
+        let ids: Vec<String> = all.iter().map(|p| p.id.clone()).collect();
+        assert!(ids.contains(&manual.id), "manual playlist should be preserved");
+        assert_eq!(all.len(), 1, "only the manual playlist should remain");
+        for created_pl in &created {
+            assert!(
+                !ids.contains(&created_pl.id),
+                "folder playlist {:?} should be cascade-deleted",
+                created_pl.title
+            );
+        }
+    }
+
+    // ── compute_subfolder helper tests ────────────────────────────────
+
+    #[test]
+    fn compute_subfolder_returns_subfolder_relative_to_root() {
+        let sub = compute_subfolder(
+            Path::new("/music/Rock/Album1/song.mp3"),
+            "/music/Rock",
+        );
+        assert_eq!(sub.as_deref(), Some("Album1"));
+    }
+
+    #[test]
+    fn compute_subfolder_returns_none_for_file_in_root() {
+        let sub = compute_subfolder(Path::new("/music/Rock/song.mp3"), "/music/Rock");
+        assert_eq!(sub, None);
+    }
+
+    #[test]
+    fn compute_subfolder_handles_nested_subfolder() {
+        let sub = compute_subfolder(
+            Path::new("/music/Rock/Album1/Sub/song.mp3"),
+            "/music/Rock",
+        );
+        assert_eq!(sub.as_deref(), Some("Album1/Sub"));
+    }
+
+    #[test]
+    fn compute_subfolder_returns_none_when_path_outside_root() {
+        let sub = compute_subfolder(
+            Path::new("/other/Album1/song.mp3"),
+            "/music/Rock",
+        );
+        assert_eq!(sub, None);
     }
 
     // ── Album art extraction unit tests ────────────────────────────────
@@ -990,6 +1152,99 @@ mod tests {
     }
 
     #[test]
+    fn extract_metadata_from_real_opus_succeeds() {
+        use std::process::Command;
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("helix_test_opus_probe_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let opus_path = temp_dir.join("test.opus");
+
+        let output = Command::new("ffmpeg")
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=1000:duration=1",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-c:a",
+                "libopus",
+                "-b:a",
+                "96k",
+                opus_path.to_str().unwrap(),
+                "-y",
+            ])
+            .output();
+
+        if output.is_err() || !output.unwrap().status.success() {
+            // ffmpeg unavailable (or libopus encoder missing) — skip gracefully
+            std::fs::remove_dir_all(&temp_dir).ok();
+            return;
+        }
+
+        let track = ScannerService::extract_metadata(&opus_path).unwrap();
+        assert_eq!(track.title, "test", "title should fall back to file stem");
+        assert_eq!(track.artist, "Unknown");
+        assert!(
+            track.duration.unwrap_or(0.0) > 0.0,
+            "Opus duration should be detected"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn extract_metadata_from_real_ogg_vorbis_succeeds() {
+        // Regression test: the OGG demuxer was previously never registered
+        // (the `ogg` feature was not enabled on symphonia), so OGG/Vorbis
+        // files silently failed to probe. This test confirms the demuxer
+        // side-effect fix from enabling the `ogg` feature.
+        use std::process::Command;
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("helix_test_ogg_probe_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let ogg_path = temp_dir.join("test.ogg");
+
+        let output = Command::new("ffmpeg")
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=1000:duration=1",
+                "-ar",
+                "44100",
+                "-ac",
+                "2",
+                "-c:a",
+                "libvorbis",
+                "-b:a",
+                "128k",
+                ogg_path.to_str().unwrap(),
+                "-y",
+            ])
+            .output();
+
+        if output.is_err() || !output.unwrap().status.success() {
+            // ffmpeg unavailable (or libvorbis encoder missing) — skip gracefully
+            std::fs::remove_dir_all(&temp_dir).ok();
+            return;
+        }
+
+        let track = ScannerService::extract_metadata(&ogg_path).unwrap();
+        assert_eq!(track.title, "test", "title should fall back to file stem");
+        assert!(
+            track.duration.unwrap_or(0.0) > 0.0,
+            "OGG/Vorbis duration should be detected"
+        );
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
     fn scan_folder_imports_generated_mp3() {
         use std::process::Command;
 
@@ -1026,6 +1281,57 @@ mod tests {
         let result = service.scan_folder(temp_dir.to_str().unwrap()).unwrap();
         assert_eq!(result.files_scanned, 1, "should scan the generated MP3");
         assert_eq!(result.files_added, 1, "should add the MP3 to local_tracks");
+        assert_eq!(result.errors, 0, "probe error should not occur");
+
+        let tracks = service
+            .get_tracks(Some(temp_dir.to_str().unwrap()))
+            .unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].track.title, "imported");
+
+        std::fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn scan_folder_imports_generated_opus() {
+        use std::process::Command;
+
+        let db = Database::open_in_memory().unwrap();
+        let service = ScannerService::new(Arc::new(db));
+
+        let temp_dir =
+            std::env::temp_dir().join(format!("helix_test_scan_opus_{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let opus_path = temp_dir.join("imported.opus");
+
+        let output = Command::new("ffmpeg")
+            .args([
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=1000:duration=1",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-c:a",
+                "libopus",
+                "-b:a",
+                "96k",
+                opus_path.to_str().unwrap(),
+                "-y",
+            ])
+            .output();
+
+        if output.is_err() || !output.unwrap().status.success() {
+            // ffmpeg unavailable (or libopus encoder missing) — skip gracefully
+            std::fs::remove_dir_all(&temp_dir).ok();
+            return;
+        }
+
+        let result = service.scan_folder(temp_dir.to_str().unwrap()).unwrap();
+        assert_eq!(result.files_scanned, 1, "should scan the generated Opus file");
+        assert_eq!(result.files_added, 1, "should add the Opus file to local_tracks");
         assert_eq!(result.errors, 0, "probe error should not occur");
 
         let tracks = service

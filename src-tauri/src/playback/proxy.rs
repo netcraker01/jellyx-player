@@ -256,7 +256,7 @@ fn serve_local_file(
         "audio/mpeg"
     } else if path.ends_with(".wav") {
         "audio/wav"
-    } else if path.ends_with(".ogg") {
+    } else if path.ends_with(".ogg") || path.ends_with(".opus") {
         "audio/ogg"
     } else if path.ends_with(".flac") {
         "audio/flac"

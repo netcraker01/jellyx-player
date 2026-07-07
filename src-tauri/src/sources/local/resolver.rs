@@ -107,7 +107,7 @@ mod tests {
         db.insert_watched_folder("/music").unwrap();
 
         let track = sample_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         let resolver = LocalResolver::new(Arc::new(db));
@@ -129,7 +129,7 @@ mod tests {
         db.insert_watched_folder("/music").unwrap();
 
         let track = sample_track("9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         let resolver = LocalResolver::new(Arc::new(db));
