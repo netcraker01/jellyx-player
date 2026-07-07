@@ -1,46 +1,96 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { tick } from 'svelte';
   import { get } from 'svelte/store';
   import { navigate } from '@app/router/navigation';
   import { t } from '@i18n';
-  import { Play, Trash2, Edit3, ArrowLeft, Music } from 'lucide-svelte';
+  import { Play, Trash2, Edit3, ArrowLeft, Music, Folder } from 'lucide-svelte';
   import { playlists } from '@features/playlists/stores/playlists';
   import { playTrack, addToQueueAction } from '@shared/utils/actions';
-  import { getPlaylistTracks, removeTrackFromPlaylist, getPlaylistThumbnails } from '@services/commands';
+  import { getPlaylistTracks, removeTrackFromPlaylist, getPlaylistThumbnails, getChildPlaylists, countPlaylistTracks } from '@services/commands';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import HelixLogo from '@shared/components/HelixLogo.svelte';
-  import type { Track, PlaylistTrackEntry } from '@shared/types/models';
+  import type { Track, PlaylistTrackEntry, UserPlaylist } from '@shared/types/models';
 
   export let id: string;
 
   let tracks: PlaylistTrackEntry[] = [];
   let thumbnails: string[] = [];
+  let childPlaylists: UserPlaylist[] = [];
+  let childTrackCounts: Map<string, number> = new Map();
   let loading = true;
   let editingTitle = false;
   let editTitleValue = '';
   let showDeleteDialog = false;
   let titleInputEl: HTMLInputElement | undefined;
 
-  onMount(() => {
-    loadTracks();
-    loadThumbnails();
-  });
+  let lastLoadedId = '';
+
+  // Reload when navigating to a different playlist (e.g. clicking a child)
+  $: if (id && id !== lastLoadedId) {
+    lastLoadedId = id;
+    loadAll();
+  }
+
+  async function loadAll() {
+    loading = true;
+    tracks = [];
+    thumbnails = [];
+    childPlaylists = [];
+    childTrackCounts = new Map();
+    await Promise.all([loadTracks(), loadThumbnails(), loadChildren()]);
+    loading = false;
+  }
 
   async function loadTracks() {
     try {
       tracks = await getPlaylistTracks(id);
     } catch (e) {
       // error handled by notifications store
-    } finally {
-      loading = false;
     }
   }
 
   async function loadThumbnails() {
     try {
-      thumbnails = await getPlaylistThumbnails(id);
+      let thumbs = await getPlaylistThumbnails(id);
+      // Parent folder playlists may have no direct tracks; aggregate the first
+      // available thumbnails from child playlists so the header still shows art.
+      if (thumbs.length === 0) {
+        const children = await getChildPlaylists(id);
+        for (const child of children) {
+          if (thumbs.length >= 4) break;
+          try {
+            const childThumbs = await getPlaylistThumbnails(child.id);
+            for (const ct of childThumbs) {
+              if (!thumbs.includes(ct)) {
+                thumbs.push(ct);
+              }
+              if (thumbs.length >= 4) break;
+            }
+          } catch {
+            // ignore child thumbnail failures
+          }
+        }
+      }
+      thumbnails = thumbs;
     } catch {
       thumbnails = [];
+    }
+  }
+
+  async function loadChildren() {
+    try {
+      childPlaylists = await getChildPlaylists(id);
+      for (const child of childPlaylists) {
+        try {
+          const count = await countPlaylistTracks(child.id);
+          childTrackCounts.set(child.id, count);
+        } catch {
+          childTrackCounts.set(child.id, 0);
+        }
+      }
+      childTrackCounts = new Map(childTrackCounts);
+    } catch {
+      childPlaylists = [];
     }
   }
 
@@ -48,6 +98,12 @@
     const list = get(playlists);
     const found = list.find((p) => p.id === id);
     return found ? found.title : 'List';
+  }
+
+  function isFolderPlaylist(): boolean {
+    const list = get(playlists);
+    const found = list.find((p) => p.id === id);
+    return !!found && found.kind === 'folder';
   }
 
   async function handleRemoveTrack(position: number) {
@@ -85,12 +141,18 @@
     navigate('/playlists');
   }
 
+  function openChild(childId: string) {
+    navigate(`/playlists/${encodeURIComponent(childId)}`);
+  }
+
   function formatDuration(seconds?: number): string {
     if (!seconds) return '--:--';
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
+
+  $: uniqueThumbnails = Array.from(new Set(thumbnails));
 </script>
 
 <div class="page-playlist-detail">
@@ -100,21 +162,21 @@
   </button>
 
   <div class="playlist-header">
-    {#if thumbnails.length >= 4}
-      {@const thumbs = thumbnails.slice(0, 4)}
+    {#if uniqueThumbnails.length >= 4}
+      {@const thumbs = uniqueThumbnails.slice(0, 4)}
       <div class="header-cover grid-2x2">
-        {#each thumbs as thumb (thumb)}
+        {#each thumbs as thumb, i (`${thumb}-${i}`)}
           <img src={albumArtUrl(thumb)} alt="" class="header-cover-img" />
         {/each}
       </div>
-    {:else if thumbnails.length === 1}
+    {:else if uniqueThumbnails.length === 1}
       <div class="header-cover single">
-        <img src={albumArtUrl(thumbnails[0])} alt="" class="header-cover-img" />
+        <img src={albumArtUrl(uniqueThumbnails[0])} alt="" class="header-cover-img" />
       </div>
-    {:else if thumbnails.length >= 2}
-      {@const thumbs = thumbnails.slice(0, 4)}
+    {:else if uniqueThumbnails.length >= 2}
+      {@const thumbs = uniqueThumbnails.slice(0, 4)}
       <div class="header-cover grid-2x2">
-        {#each thumbs as thumb (thumb)}
+        {#each thumbs as thumb, i (`${thumb}-${i}`)}
           <img src={albumArtUrl(thumb)} alt="" class="header-cover-img" />
         {/each}
         {#each { length: 4 - thumbs.length } as _}
@@ -138,6 +200,12 @@
       {:else}
         <h1 class="playlist-title">{getPlaylistTitle()}</h1>
       {/if}
+      {#if isFolderPlaylist()}
+        <span class="folder-badge" title={$t('playlists.folder_badge')}>
+          <Folder size={12} />
+          {$t('playlists.from_folder')}
+        </span>
+      {/if}
       <div class="header-actions">
         <button class="icon-btn" on:click={startRename} title="Rename" type="button">
           <Edit3 size={16} />
@@ -153,13 +221,38 @@
     </div>
   </div>
 
+  {#if childPlaylists.length > 0}
+    <section class="child-section">
+      <h2 class="section-title">{$t('playlists.child_playlists')}</h2>
+      <div class="child-grid">
+        {#each childPlaylists as child (child.id)}
+          <button
+            class="child-card"
+            on:click={() => openChild(child.id)}
+            type="button"
+            aria-label="Open {child.title}"
+          >
+            <div class="child-icon"><Music size={18} /></div>
+            <div class="child-info">
+              <span class="child-title">{child.title}</span>
+              <span class="child-meta">{childTrackCounts.get(child.id) ?? 0} {$t('playlists.tracks')}</span>
+            </div>
+          </button>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   {#if loading}
     <p class="loading">Loading...</p>
-  {:else if tracks.length === 0}
+  {:else if tracks.length === 0 && childPlaylists.length === 0}
     <div class="empty-state">
       <Music size={40} />
       <p>{$t('playlists.empty_list')}</p>
     </div>
+  {:else if tracks.length === 0}
+    <!-- Parent has only children, no direct tracks. Show a soft hint. -->
+    <p class="loading">{$t('playlists.empty_list')}</p>
   {:else}
     <div class="track-list">
       {#each tracks as entry (entry.position)}
@@ -299,6 +392,84 @@
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--text-primary, #e0e0e0);
+  }
+
+  .folder-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-accent, #6366f1);
+    background: color-mix(in srgb, var(--color-accent, #6366f1) 12%, transparent);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    width: fit-content;
+  }
+
+  .child-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .child-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .child-card {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: var(--bg-elevated, #1f2937);
+    border: 1px solid var(--border-color, #1f2937);
+    border-radius: 10px;
+    cursor: pointer;
+    text-align: left;
+    color: var(--text-primary, #e0e0e0);
+    transition: background 0.2s, border-color 0.2s;
+  }
+
+  .child-card:hover {
+    background: rgba(138, 92, 255, 0.1);
+    border-color: var(--color-accent, #6366f1);
+  }
+
+  .child-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--color-accent, #6366f1);
+    flex-shrink: 0;
+  }
+
+  .child-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+
+  .child-info .child-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary, #e0e0e0);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .child-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary, #9ca3af);
   }
 
   .title-input {

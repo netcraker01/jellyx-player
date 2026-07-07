@@ -18,10 +18,29 @@ use crate::models::track::Track;
 use crate::persistence::models::{ArtistFavorite, HistoryEntry, LocalTrackEntry, PlaylistTrackEntry, SourceSetting, UserPlaylist, WatchedFolder};
 
 /// Current schema version — increment when adding migrations.
-const SCHEMA_VERSION: u32 = 5;
+const SCHEMA_VERSION: u32 = 6;
 
 /// Default history query limit.
 const HISTORY_LIMIT: u32 = 100;
+
+/// Column list for `user_playlists` SELECT statements, kept in sync with
+/// [`row_to_playlist`]. Used by every playlist-reading query so the column
+/// set is consistent across methods.
+const PLAYLIST_COLUMNS: &str = "id, title, kind, source_folder_path, parent_playlist_id, created_at, updated_at";
+
+/// Map a `user_playlists` row into a [`UserPlaylist`]. Column order MUST match
+/// [`PLAYLIST_COLUMNS`].
+fn row_to_playlist(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserPlaylist> {
+    Ok(UserPlaylist {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        kind: row.get(2)?,
+        source_folder_path: row.get(3)?,
+        parent_playlist_id: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+    })
+}
 
 /// SQLite-backed database for Helix library data.
 ///
@@ -62,6 +81,7 @@ impl Database {
             conn: Mutex::new(conn),
         };
         db.initialize_schema()?;
+        db.run_migrations()?;
         Ok(db)
     }
 
@@ -76,6 +96,7 @@ impl Database {
             conn: Mutex::new(conn),
         };
         db.initialize_schema()?;
+        db.run_migrations()?;
         Ok(db)
     }
 
@@ -107,6 +128,7 @@ impl Database {
                     track_json TEXT NOT NULL,
                     folder_path TEXT NOT NULL,
                     file_modified_at TEXT,
+                    subfolder_path TEXT,
                     FOREIGN KEY(folder_path) REFERENCES watched_folders(path) ON DELETE CASCADE
                 );
 
@@ -119,6 +141,9 @@ impl Database {
                 CREATE TABLE IF NOT EXISTS user_playlists (
                     id TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
+                    kind TEXT NOT NULL DEFAULT 'manual',
+                    source_folder_path TEXT,
+                    parent_playlist_id TEXT,
                     created_at TEXT NOT NULL DEFAULT (datetime('now')),
                     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
@@ -136,10 +161,13 @@ impl Database {
                     ON playlist_tracks(playlist_id, position);
 
                 CREATE TABLE IF NOT EXISTS artist_favorites (
-                    artist_id TEXT PRIMARY KEY,
+                    artist_id TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'local',
                     artist_name TEXT NOT NULL,
                     thumbnail TEXT,
-                    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+                    source_artist_ref TEXT,
+                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (artist_id, source)
                 );
 
                 CREATE TABLE IF NOT EXISTS source_settings (
@@ -163,13 +191,200 @@ impl Database {
         })?;
 
         // Insert schema version using the constant so it stays in sync.
+        // Use ON CONFLICT to update the version when migrations have been
+        // applied (instead of OR IGNORE which would keep the old value).
         conn.execute(
-            "INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', ?1)",
+            "INSERT INTO _meta (key, value) VALUES ('schema_version', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             params![SCHEMA_VERSION],
         )
         .map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to set schema version: {}", e))
         })?;
+
+        Ok(())
+    }
+
+    /// Apply incremental schema migrations up to [`SCHEMA_VERSION`].
+    ///
+    /// Reads the current version from `_meta` and runs the migration steps
+    /// for every version greater than the stored one. Each step is idempotent
+    /// so re-running on an already-migrated database is a no-op.
+    ///
+    /// Migrations use `ALTER TABLE ... ADD COLUMN` (which errors if the
+    /// column already exists, so we wrap them in a tolerance check) and, for
+    /// the `artist_favorites` PK change, a full table rebuild.
+    fn run_migrations(&self) -> Result<(), PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let current: u32 = conn
+            .query_row(
+                "SELECT value FROM _meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+
+        if current >= SCHEMA_VERSION {
+            return Ok(());
+        }
+
+        // v5 → v6: subfolder_path on local_tracks, folder/parent/kind on
+        // user_playlists, composite PK + source columns on artist_favorites.
+        if current < 6 {
+            Self::migrate_to_v6(&conn)?;
+        }
+
+        // Record the new schema version.
+        conn.execute(
+            "UPDATE _meta SET value = ?1 WHERE key = 'schema_version'",
+            params![SCHEMA_VERSION],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to update schema version: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    /// Add a column to a table if it does not already exist.
+    ///
+    /// SQLite's `ALTER TABLE ... ADD COLUMN` errors when the column exists,
+    /// so we introspect `pragma_table_info` first.
+    fn add_column_if_missing(
+        conn: &Connection,
+        table: &str,
+        column: &str,
+        definition: &str,
+    ) -> Result<(), PersistenceError> {
+        let exists: i64 = conn
+            .query_row(
+                &format!(
+                    "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = ?1",
+                    table
+                ),
+                params![column],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        if exists == 0 {
+            conn.execute(&format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition), [])
+                .map_err(|e| {
+                    PersistenceError::DatabaseError(format!(
+                        "failed to add column {}.{}: {}",
+                        table, column, e
+                    ))
+                })?;
+        }
+        Ok(())
+    }
+
+    /// v5 → v6 migration.
+    ///
+    /// - `local_tracks.subfolder_path TEXT NULL`
+    /// - `user_playlists.kind TEXT NOT NULL DEFAULT 'manual'`
+    /// - `user_playlists.source_folder_path TEXT NULL`
+    /// - `user_playlists.parent_playlist_id TEXT NULL`
+    /// - `artist_favorites` rebuild: PK → `(artist_id, source)`, add
+    ///   `source TEXT NOT NULL DEFAULT 'local'` and `source_artist_ref TEXT`,
+    ///   backfill existing rows with `source = 'local'`.
+    fn migrate_to_v6(conn: &Connection) -> Result<(), PersistenceError> {
+        // local_tracks.subfolder_path
+        Self::add_column_if_missing(conn, "local_tracks", "subfolder_path", "TEXT")?;
+
+        // user_playlists columns
+        Self::add_column_if_missing(
+            conn,
+            "user_playlists",
+            "kind",
+            "TEXT NOT NULL DEFAULT 'manual'",
+        )?;
+        Self::add_column_if_missing(
+            conn,
+            "user_playlists",
+            "source_folder_path",
+            "TEXT",
+        )?;
+        Self::add_column_if_missing(
+            conn,
+            "user_playlists",
+            "parent_playlist_id",
+            "TEXT",
+        )?;
+
+        // Backfill existing playlists to kind='manual' (the DEFAULT already
+        // covers new rows, but rows created before the column existed get the
+        // default value on first read; we normalize to 'manual' explicitly).
+        conn.execute(
+            "UPDATE user_playlists SET kind = 'manual' WHERE kind IS NULL OR kind = ''",
+            [],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to backfill user_playlists.kind: {}", e))
+        })?;
+
+        // Helpful indexes for folder-as-playlist queries.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_user_playlists_source_folder
+                ON user_playlists(source_folder_path)",
+            [],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to create source_folder index: {}", e))
+        })?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_user_playlists_parent
+                ON user_playlists(parent_playlist_id)",
+            [],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to create parent_playlist index: {}", e))
+        })?;
+
+        // artist_favorites rebuild. SQLite cannot change a PRIMARY KEY in
+        // place, so we create a new table, copy data over (backfilling
+        // source = 'local'), drop the old table and rename.
+        // Idempotent: only rebuild if the new `source` column is missing.
+        let has_source: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('artist_favorites') WHERE name = 'source'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+
+        if has_source == 0 {
+            conn.execute_batch(
+                "CREATE TABLE artist_favorites_v6 (
+                    artist_id TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'local',
+                    artist_name TEXT NOT NULL,
+                    thumbnail TEXT,
+                    source_artist_ref TEXT,
+                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (artist_id, source)
+                );
+
+                INSERT INTO artist_favorites_v6 (artist_id, source, artist_name, thumbnail, source_artist_ref, added_at)
+                SELECT artist_id, 'local', artist_name, thumbnail, NULL, added_at
+                FROM artist_favorites;
+
+                DROP TABLE artist_favorites;
+
+                ALTER TABLE artist_favorites_v6 RENAME TO artist_favorites;
+                ",
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to rebuild artist_favorites for v6: {}",
+                    e
+                ))
+            })?;
+        }
 
         Ok(())
     }
@@ -382,12 +597,18 @@ impl Database {
     // ── Local Tracks ──────────────────────────────────────────────────
 
     /// Insert or update a local track. Uses INSERT OR REPLACE.
+    ///
+    /// `subfolder_path` is the file's parent directory relative to the
+    /// watched folder root (e.g. `"Album1"` for `/music/Rock/Album1/song.mp3`
+    /// under `/music/Rock`). Pass `None` or empty string for files that live
+    /// directly in the watched root.
     pub fn upsert_local_track(
         &self,
         file_path: &str,
         track: &Track,
         folder_path: &str,
         file_modified_at: Option<&str>,
+        subfolder_path: Option<&str>,
     ) -> Result<(), PersistenceError> {
         let track_json = serde_json::to_string(track).map_err(|e| {
             PersistenceError::WriteError(format!("failed to serialize track: {}", e))
@@ -398,8 +619,14 @@ impl Database {
         })?;
 
         conn.execute(
-            "INSERT OR REPLACE INTO local_tracks (file_path, track_json, folder_path, file_modified_at) VALUES (?1, ?2, ?3, ?4)",
-            params![file_path, track_json, folder_path, file_modified_at],
+            "INSERT OR REPLACE INTO local_tracks (file_path, track_json, folder_path, file_modified_at, subfolder_path) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                file_path,
+                track_json,
+                folder_path,
+                file_modified_at,
+                subfolder_path
+            ],
         )
         .map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to upsert local track: {}", e))
@@ -426,7 +653,7 @@ impl Database {
 
         if let Some(folder) = folder_path {
             let mut stmt = conn
-                .prepare("SELECT file_path, track_json, folder_path, file_modified_at FROM local_tracks WHERE folder_path = ?1 ORDER BY file_path")
+                .prepare("SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks WHERE folder_path = ?1 ORDER BY file_path")
                 .map_err(|e| {
                     PersistenceError::DatabaseError(format!("failed to prepare local_tracks query: {}", e))
                 })?;
@@ -446,6 +673,7 @@ impl Database {
                         file_path: row.get(0)?,
                         folder_path: row.get(2)?,
                         file_modified_at: row.get(3)?,
+                        subfolder_path: row.get(4)?,
                     })
                 })
                 .map_err(|e| {
@@ -459,7 +687,7 @@ impl Database {
             }
         } else {
             let mut stmt = conn
-                .prepare("SELECT file_path, track_json, folder_path, file_modified_at FROM local_tracks ORDER BY file_path")
+                .prepare("SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks ORDER BY file_path")
                 .map_err(|e| {
                     PersistenceError::DatabaseError(format!("failed to prepare local_tracks query: {}", e))
                 })?;
@@ -479,6 +707,7 @@ impl Database {
                         file_path: row.get(0)?,
                         folder_path: row.get(2)?,
                         file_modified_at: row.get(3)?,
+                        subfolder_path: row.get(4)?,
                     })
                 })
                 .map_err(|e| {
@@ -540,7 +769,7 @@ impl Database {
         })?;
 
         let result = conn.query_row(
-            "SELECT file_path, track_json, folder_path, file_modified_at FROM local_tracks WHERE file_path = ?1",
+            "SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks WHERE file_path = ?1",
             params![file_path],
             |row| {
                 let track_json: String = row.get(1)?;
@@ -556,6 +785,7 @@ impl Database {
                     file_path: row.get(0)?,
                     folder_path: row.get(2)?,
                     file_modified_at: row.get(3)?,
+                    subfolder_path: row.get(4)?,
                 })
             },
         );
@@ -828,7 +1058,26 @@ impl Database {
     // ── User Playlists ─────────────────────────────────────────────────
 
     /// Create a new user playlist.
+    ///
+    /// `kind` defaults to `"manual"` for user-created playlists. Pass
+    /// `"folder"` for folder-derived playlists.
     pub fn create_playlist(&self, title: &str) -> Result<UserPlaylist, PersistenceError> {
+        self.create_playlist_with_kind(title, "manual")
+    }
+
+    /// Create a new user playlist with an explicit kind and optional source
+    /// folder + parent linkage.
+    ///
+    /// `kind` is `"manual"`, `"folder"` or `"generated_artist"`. For folder
+    /// playlists pass `source_folder_path = Some(watched_path)` and
+    /// `parent_playlist_id = Some(parent_id)` for child playlists.
+    pub fn create_folder_playlist(
+        &self,
+        title: &str,
+        kind: &str,
+        source_folder_path: Option<&str>,
+        parent_playlist_id: Option<&str>,
+    ) -> Result<UserPlaylist, PersistenceError> {
         let id = uuid::Uuid::new_v4().to_string();
 
         let conn = self.conn.lock().map_err(|e| {
@@ -836,8 +1085,9 @@ impl Database {
         })?;
 
         conn.execute(
-            "INSERT INTO user_playlists (id, title) VALUES (?1, ?2)",
-            params![id, title],
+            "INSERT INTO user_playlists (id, title, kind, source_folder_path, parent_playlist_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, title, kind, source_folder_path, parent_playlist_id],
         )
         .map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to create playlist: {}", e))
@@ -846,6 +1096,36 @@ impl Database {
         Ok(UserPlaylist {
             id,
             title: title.to_string(),
+            kind: kind.to_string(),
+            source_folder_path: source_folder_path.map(|s| s.to_string()),
+            parent_playlist_id: parent_playlist_id.map(|s| s.to_string()),
+            created_at: Self::now_iso(&conn),
+            updated_at: Self::now_iso(&conn),
+        })
+    }
+
+    /// Internal helper: create a manual playlist.
+    fn create_playlist_with_kind(&self, title: &str, kind: &str) -> Result<UserPlaylist, PersistenceError> {
+        let id = uuid::Uuid::new_v4().to_string();
+
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        conn.execute(
+            "INSERT INTO user_playlists (id, title, kind) VALUES (?1, ?2, ?3)",
+            params![id, title, kind],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to create playlist: {}", e))
+        })?;
+
+        Ok(UserPlaylist {
+            id,
+            title: title.to_string(),
+            kind: kind.to_string(),
+            source_folder_path: None,
+            parent_playlist_id: None,
             created_at: Self::now_iso(&conn),
             updated_at: Self::now_iso(&conn),
         })
@@ -909,7 +1189,10 @@ impl Database {
         })?;
 
         let mut stmt = conn
-            .prepare("SELECT id, title, created_at, updated_at FROM user_playlists ORDER BY updated_at DESC")
+            .prepare(&format!(
+                "SELECT {} FROM user_playlists ORDER BY updated_at DESC",
+                PLAYLIST_COLUMNS
+            ))
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!(
                     "failed to prepare playlists query: {}",
@@ -918,14 +1201,7 @@ impl Database {
             })?;
 
         let playlists = stmt
-            .query_map([], |row| {
-                Ok(UserPlaylist {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    created_at: row.get(2)?,
-                    updated_at: row.get(3)?,
-                })
-            })
+            .query_map([], row_to_playlist)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to query playlists: {}", e))
             })?
@@ -943,16 +1219,12 @@ impl Database {
         })?;
 
         conn.query_row(
-            "SELECT id, title, created_at, updated_at FROM user_playlists WHERE id = ?1",
+            &format!(
+                "SELECT {} FROM user_playlists WHERE id = ?1",
+                PLAYLIST_COLUMNS
+            ),
             params![id],
-            |row| {
-                Ok(UserPlaylist {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    created_at: row.get(2)?,
-                    updated_at: row.get(3)?,
-                })
-            },
+            row_to_playlist,
         )
         .map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to get playlist: {}", e))
@@ -969,7 +1241,10 @@ impl Database {
         })?;
 
         let mut stmt = conn
-            .prepare("SELECT id, title, created_at, updated_at FROM user_playlists ORDER BY updated_at DESC LIMIT ?1")
+            .prepare(&format!(
+                "SELECT {} FROM user_playlists ORDER BY updated_at DESC LIMIT ?1",
+                PLAYLIST_COLUMNS
+            ))
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!(
                     "failed to prepare recent playlists query: {}",
@@ -978,14 +1253,7 @@ impl Database {
             })?;
 
         let playlists = stmt
-            .query_map(params![limit], |row| {
-                Ok(UserPlaylist {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    created_at: row.get(2)?,
-                    updated_at: row.get(3)?,
-                })
-            })
+            .query_map(params![limit], row_to_playlist)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to query recent playlists: {}", e))
             })?
@@ -1003,7 +1271,10 @@ impl Database {
 
         let pattern = format!("%{}%", query);
         let mut stmt = conn
-            .prepare("SELECT id, title, created_at, updated_at FROM user_playlists WHERE title LIKE ?1 ORDER BY updated_at DESC")
+            .prepare(&format!(
+                "SELECT {} FROM user_playlists WHERE title LIKE ?1 ORDER BY updated_at DESC",
+                PLAYLIST_COLUMNS
+            ))
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!(
                     "failed to prepare search playlists query: {}",
@@ -1012,14 +1283,7 @@ impl Database {
             })?;
 
         let playlists = stmt
-            .query_map(params![pattern], |row| {
-                Ok(UserPlaylist {
-                    id: row.get(0)?,
-                    title: row.get(1)?,
-                    created_at: row.get(2)?,
-                    updated_at: row.get(3)?,
-                })
-            })
+            .query_map(params![pattern], row_to_playlist)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to search playlists: {}", e))
             })?
@@ -1027,6 +1291,111 @@ impl Database {
             .collect();
 
         Ok(playlists)
+    }
+
+    /// Get all playlists generated from a watched folder (parent + children).
+    ///
+    /// Used by folder-as-playlist generation to detect existing playlists
+    /// (idempotency) and by cascade delete to clean up on folder removal.
+    pub fn get_playlists_by_source_folder(
+        &self,
+        folder_path: &str,
+    ) -> Result<Vec<UserPlaylist>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT {} FROM user_playlists WHERE source_folder_path = ?1 ORDER BY COALESCE(parent_playlist_id, ''), title ASC",
+                PLAYLIST_COLUMNS
+            ))
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare playlists_by_source_folder query: {}",
+                    e
+                ))
+            })?;
+
+        let playlists = stmt
+            .query_map(params![folder_path], row_to_playlist)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to query playlists by source folder: {}",
+                    e
+                ))
+            })?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        Ok(playlists)
+    }
+
+    /// Get all child playlists of a given parent playlist.
+    ///
+    /// Returns playlists whose `parent_playlist_id` equals `parent_id`,
+    /// ordered by title. Used by the playlist detail view to render child
+    /// playlists under their parent.
+    pub fn get_child_playlists(
+        &self,
+        parent_id: &str,
+    ) -> Result<Vec<UserPlaylist>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let mut stmt = conn
+            .prepare(&format!(
+                "SELECT {} FROM user_playlists WHERE parent_playlist_id = ?1 ORDER BY title ASC",
+                PLAYLIST_COLUMNS
+            ))
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare child_playlists query: {}",
+                    e
+                ))
+            })?;
+
+        let playlists = stmt
+            .query_map(params![parent_id], row_to_playlist)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to query child playlists: {}",
+                    e
+                ))
+            })?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        Ok(playlists)
+    }
+
+    /// Delete all playlists generated from a watched folder.
+    ///
+    /// Called by the scanner when a watched folder is removed so that the
+    /// folder's parent and child playlists are cascade-deleted. Manual
+    /// playlists (no `source_folder_path`) are preserved.
+    pub fn delete_playlists_by_source_folder(
+        &self,
+        folder_path: &str,
+    ) -> Result<u64, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let rows = conn
+            .execute(
+                "DELETE FROM user_playlists WHERE source_folder_path = ?1",
+                params![folder_path],
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to delete playlists by source folder: {}",
+                    e
+                ))
+            })?;
+
+        Ok(rows as u64)
     }
 
     /// Add a track to the end of a playlist.
@@ -1075,6 +1444,31 @@ impl Database {
         )
         .map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to update playlist timestamp: {}", e))
+        })?;
+
+        Ok(())
+    }
+
+    /// Remove all tracks from a playlist, resetting it to empty.
+    ///
+    /// Used by folder-playlist regeneration to wipe stale `playlist_tracks`
+    /// rows before rebuilding from the current `local_tracks` state. Manual
+    /// playlists are never wiped by this helper — callers are responsible
+    /// for only invoking it on `kind = 'folder'` playlists.
+    pub fn clear_playlist_tracks(&self, playlist_id: &str) -> Result<(), PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        conn.execute(
+            "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
+            params![playlist_id],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!(
+                "failed to clear playlist tracks: {}",
+                e
+            ))
         })?;
 
         Ok(())
@@ -1249,19 +1643,28 @@ impl Database {
     // ── Artist Favorites ────────────────────────────────────────────────
 
     /// Add an artist to favorites.
+    ///
+    /// Uses `INSERT ... ON CONFLICT(artist_id, source) DO NOTHING` so the
+    /// first-seen `thumbnail` and `artist_name` are preserved when the same
+    /// `(artist_id, source)` is favorited again. Different sources (e.g.
+    /// `"local"` vs `"youtube"`) coexist as separate rows.
     pub fn add_artist_favorite(
         &self,
         artist_id: &str,
+        source: &str,
         artist_name: &str,
         thumbnail: Option<&str>,
+        source_artist_ref: Option<&str>,
     ) -> Result<(), PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
 
         conn.execute(
-            "INSERT OR REPLACE INTO artist_favorites (artist_id, artist_name, thumbnail) VALUES (?1, ?2, ?3)",
-            params![artist_id, artist_name, thumbnail],
+            "INSERT INTO artist_favorites (artist_id, source, artist_name, thumbnail, source_artist_ref)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(artist_id, source) DO NOTHING",
+            params![artist_id, source, artist_name, thumbnail, source_artist_ref],
         )
         .map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to add artist favorite: {}", e))
@@ -1271,15 +1674,32 @@ impl Database {
     }
 
     /// Remove an artist from favorites.
-    pub fn remove_artist_favorite(&self, artist_id: &str) -> Result<(), PersistenceError> {
+    ///
+    /// Defaults `source` to `"local"` when not provided so existing callers
+    /// that predate the source dimension keep working.
+    pub fn remove_artist_favorite(
+        &self,
+        artist_id: &str,
+        source: Option<&str>,
+    ) -> Result<(), PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
 
-        conn.execute(
-            "DELETE FROM artist_favorites WHERE artist_id = ?1",
-            params![artist_id],
-        )
+        match source {
+            Some(src) => {
+                conn.execute(
+                    "DELETE FROM artist_favorites WHERE artist_id = ?1 AND source = ?2",
+                    params![artist_id, src],
+                )
+            }
+            None => {
+                conn.execute(
+                    "DELETE FROM artist_favorites WHERE artist_id = ?1",
+                    params![artist_id],
+                )
+            }
+        }
         .map_err(|e| {
             PersistenceError::DatabaseError(format!(
                 "failed to remove artist favorite: {}",
@@ -1291,23 +1711,37 @@ impl Database {
     }
 
     /// Check if an artist is favorited.
-    pub fn is_artist_favorite(&self, artist_id: &str) -> Result<bool, PersistenceError> {
+    ///
+    /// When `source` is `None`, returns `true` if the artist is favorited in
+    /// any source. When `source` is provided, returns `true` only if that
+    /// exact `(artist_id, source)` pair exists.
+    pub fn is_artist_favorite(
+        &self,
+        artist_id: &str,
+        source: Option<&str>,
+    ) -> Result<bool, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
 
-        let count: u32 = conn
-            .query_row(
+        let count: u32 = match source {
+            Some(src) => conn.query_row(
+                "SELECT COUNT(*) FROM artist_favorites WHERE artist_id = ?1 AND source = ?2",
+                params![artist_id, src],
+                |row| row.get(0),
+            ),
+            None => conn.query_row(
                 "SELECT COUNT(*) FROM artist_favorites WHERE artist_id = ?1",
                 params![artist_id],
                 |row| row.get(0),
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to check artist favorite: {}",
-                    e
-                ))
-            })?;
+            ),
+        }
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!(
+                "failed to check artist favorite: {}",
+                e
+            ))
+        })?;
 
         Ok(count > 0)
     }
@@ -1319,7 +1753,7 @@ impl Database {
         })?;
 
         let mut stmt = conn
-            .prepare("SELECT artist_id, artist_name, thumbnail, added_at FROM artist_favorites ORDER BY added_at DESC")
+            .prepare("SELECT artist_id, source, artist_name, thumbnail, source_artist_ref, added_at FROM artist_favorites ORDER BY added_at DESC")
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!(
                     "failed to prepare artist favorites query: {}",
@@ -1331,9 +1765,11 @@ impl Database {
             .query_map([], |row| {
                 Ok(ArtistFavorite {
                     artist_id: row.get(0)?,
-                    artist_name: row.get(1)?,
-                    thumbnail: row.get(2)?,
-                    added_at: row.get(3)?,
+                    source: row.get(1)?,
+                    artist_name: row.get(2)?,
+                    thumbnail: row.get(3)?,
+                    source_artist_ref: row.get(4)?,
+                    added_at: row.get(5)?,
                 })
             })
             .map_err(|e| {
@@ -1682,7 +2118,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
         assert_eq!(db.get_local_tracks(Some("/music")).unwrap().len(), 1);
 
@@ -1725,7 +2161,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         let tracks = db.get_local_tracks(Some("/music")).unwrap();
@@ -1740,13 +2176,13 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         // Update the same track with different title
         let mut updated = track.clone();
         updated.title = "Updated Title".to_string();
-        db.upsert_local_track("/music/song.mp3", &updated, "/music", Some("1001"))
+        db.upsert_local_track("/music/song.mp3", &updated, "/music", Some("1001"), None)
             .unwrap();
 
         let tracks = db.get_local_tracks(Some("/music")).unwrap();
@@ -1759,7 +2195,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         let found = db.get_local_track_by_path("/music/song.mp3").unwrap();
@@ -1775,7 +2211,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         let entry = db
@@ -1795,7 +2231,7 @@ mod tests {
         db.insert_watched_folder("/music").unwrap();
 
         let track = sample_local_track("9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         let found = db
@@ -1816,7 +2252,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         let results = db.search_local_tracks("Song").unwrap();
@@ -1831,7 +2267,7 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
         let track = sample_local_track("t1", "/music/song.mp3");
-        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &track, "/music", Some("1000"), None)
             .unwrap();
 
         let deleted = db.delete_local_tracks_by_folder("/music").unwrap();
@@ -1845,9 +2281,9 @@ mod tests {
         db.insert_watched_folder("/music").unwrap();
         let t1 = sample_local_track("t1", "/music/song.mp3");
         let t2 = sample_local_track("t2", "/music/other.mp3");
-        db.upsert_local_track("/music/song.mp3", &t1, "/music", Some("1000"))
+        db.upsert_local_track("/music/song.mp3", &t1, "/music", Some("1000"), None)
             .unwrap();
-        db.upsert_local_track("/music/other.mp3", &t2, "/music", Some("1001"))
+        db.upsert_local_track("/music/other.mp3", &t2, "/music", Some("1001"), None)
             .unwrap();
 
         let deleted = db.delete_local_track_by_path("/music/song.mp3").unwrap();
@@ -1865,9 +2301,9 @@ mod tests {
         db.insert_watched_folder("/music2").unwrap();
         let t1 = sample_local_track("t1", "/music1/a.mp3");
         let t2 = sample_local_track("t2", "/music2/b.mp3");
-        db.upsert_local_track("/music1/a.mp3", &t1, "/music1", Some("1000"))
+        db.upsert_local_track("/music1/a.mp3", &t1, "/music1", Some("1000"), None)
             .unwrap();
-        db.upsert_local_track("/music2/b.mp3", &t2, "/music2", Some("1001"))
+        db.upsert_local_track("/music2/b.mp3", &t2, "/music2", Some("1001"), None)
             .unwrap();
 
         let all = db.get_local_tracks(None).unwrap();
@@ -1881,11 +2317,11 @@ mod tests {
         let t1 = sample_local_track("t1", "/music/a.mp3");
         let t2 = sample_local_track("t2", "/music/b.mp3");
         let t3 = sample_local_track("t3", "/music/c.mp3");
-        db.upsert_local_track("/music/a.mp3", &t1, "/music", Some("1000"))
+        db.upsert_local_track("/music/a.mp3", &t1, "/music", Some("1000"), None)
             .unwrap();
-        db.upsert_local_track("/music/b.mp3", &t2, "/music", Some("1001"))
+        db.upsert_local_track("/music/b.mp3", &t2, "/music", Some("1001"), None)
             .unwrap();
-        db.upsert_local_track("/music/c.mp3", &t3, "/music", Some("1002"))
+        db.upsert_local_track("/music/c.mp3", &t3, "/music", Some("1002"), None)
             .unwrap();
 
         let all = db.get_all_local_tracks().unwrap();

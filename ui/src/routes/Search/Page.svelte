@@ -11,7 +11,7 @@
     loadSuggestionCategories,
   } from '@features/search/stores/suggestions';
 
-  type SearchFilter = 'all' | 'videos' | 'artists';
+  type SearchFilter = 'all' | 'videos' | 'artists' | 'local';
 
   // Derive "has searched" from the persistent store — survives navigation
   $: hasSearched = $searchQuery.trim().length > 0;
@@ -23,19 +23,29 @@
 
   function handleSearch(e: CustomEvent<{ query: string }>) {
     searchQuery.set(e.detail.query);
-    searchGrouped(e.detail.query, currentFilter === 'all' ? undefined : currentFilter === 'videos' ? 'songs' : 'artists');
+    searchGrouped(e.detail.query, mapFilter(currentFilter));
   }
 
   function handleFilter(filter: SearchFilter) {
     currentFilter = filter;
     if ($searchQuery) {
-      searchGrouped($searchQuery, filter === 'all' ? undefined : filter === 'videos' ? 'songs' : 'artists');
+      searchGrouped($searchQuery, mapFilter(filter));
     }
   }
 
   function handleSuggestionClick(query: string) {
     searchQuery.set(query);
-    searchGrouped(query, currentFilter === 'all' ? undefined : currentFilter === 'videos' ? 'songs' : 'artists');
+    searchGrouped(query, mapFilter(currentFilter));
+  }
+
+  /** Map the UI filter to the store's SearchFilter type.
+   *  `all` → undefined (no filter), `videos` → 'songs', `artists` → 'artists',
+   *  `local` → 'local' (frontend-only filter). */
+  function mapFilter(filter: SearchFilter): 'songs' | 'artists' | 'albums' | 'local' | undefined {
+    if (filter === 'all') return undefined;
+    if (filter === 'videos') return 'songs';
+    if (filter === 'artists') return 'artists';
+    return 'local';
   }
 </script>
 

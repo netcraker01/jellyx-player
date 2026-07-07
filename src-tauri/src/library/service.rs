@@ -476,7 +476,7 @@ mod tests {
         svc.db.insert_watched_folder(_folder).unwrap();
         for t in tracks {
             let path = t.local_path.as_ref().unwrap();
-            svc.db.upsert_local_track(path, t, _folder, None).unwrap();
+            svc.db.upsert_local_track(path, t, _folder, None, None).unwrap();
         }
     }
 
@@ -785,6 +785,7 @@ mod tests {
                     &track,
                     "/music",
                     Some(&format!("100{}", i)),
+                    None,
                 )
                 .unwrap();
         }
@@ -823,10 +824,10 @@ mod tests {
             Some("Album X"),
         );
         svc.db
-            .upsert_local_track("/music/played.mp3", &played, "/music", Some("1000"))
+            .upsert_local_track("/music/played.mp3", &played, "/music", Some("1000"), None)
             .unwrap();
         svc.db
-            .upsert_local_track("/music/alt.mp3", &alternative, "/music", Some("1001"))
+            .upsert_local_track("/music/alt.mp3", &alternative, "/music", Some("1001"), None)
             .unwrap();
 
         insert_history_at(&svc, &played, 0);
@@ -859,6 +860,7 @@ mod tests {
                     &track,
                     "/music",
                     Some(&format!("100{}", i)),
+                    None,
                 )
                 .unwrap();
         }
@@ -895,6 +897,7 @@ mod tests {
                     &track,
                     "/music",
                     Some(&format!("100{}", i)),
+                    None,
                 )
                 .unwrap();
         }

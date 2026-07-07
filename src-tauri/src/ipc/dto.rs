@@ -88,8 +88,22 @@ pub struct AlbumDetail {
 pub struct UserPlaylist {
     pub id: String,
     pub title: String,
+    /// Playlist kind: `"manual"`, `"folder"`, or `"generated_artist"`.
+    #[serde(default = "default_playlist_kind_dto")]
+    pub kind: String,
+    /// For folder-derived playlists: the watched folder path this playlist
+    /// was generated from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_folder_path: Option<String>,
+    /// For child folder playlists: the parent playlist's id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_playlist_id: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+fn default_playlist_kind_dto() -> String {
+    "manual".to_string()
 }
 
 /// A track entry inside a user playlist (DTO for IPC).
@@ -107,26 +121,88 @@ pub struct PlaylistTrackEntry {
 #[serde(rename_all = "camelCase")]
 pub struct ArtistFavorite {
     pub artist_id: String,
+    /// Source dimension ("local", "youtube", "soundcloud", ...).
+    #[serde(default = "default_favorite_source_dto")]
+    pub source: String,
     pub artist_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
+    /// Optional source-specific artist id (e.g. Spotify/YouTube artist id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_artist_ref: Option<String>,
     pub added_at: String,
+}
+
+fn default_favorite_source_dto() -> String {
+    "local".to_string()
 }
 
 // ── ID normalization helpers ─────────────────────────────────────────
 
 /// Normalize a raw artist name into a stable artist ID.
 ///
-/// Format: `artist:{lowercase-trimmed-dashes}`
-/// Spaces and consecutive whitespace become single hyphens.
+/// Format: `artist:{lowercase-trimmed-dashes}`. Spaces and consecutive
+/// whitespace become single hyphens. When `source` is provided, the source
+/// is appended as a third dimension so the same artist name from different
+/// sources (e.g. `artist:daft-punk:local` vs `artist:daft-punk:youtube`)
+/// has distinct, non-colliding IDs.
 pub fn normalize_artist_id(name: &str) -> String {
+    normalize_artist_id_with_source(name, None)
+}
+
+/// Normalize a raw artist name into a stable artist ID, optionally tagged
+/// with a source dimension.
+///
+/// When `source` is `Some("local")` the ID becomes `artist:daft-punk:local`.
+/// When `source` is `None` the legacy format `artist:daft-punk` is returned
+/// (backward compatible with existing favorites).
+pub fn normalize_artist_id_with_source(name: &str, source: Option<&str>) -> String {
     let normalized = name
         .trim()
         .to_lowercase()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join("-");
-    format!("artist:{}", normalized)
+    match source {
+        Some(src) if !src.is_empty() => {
+            format!("artist:{}:{}", normalized, src.to_lowercase())
+        }
+        _ => format!("artist:{}", normalized),
+    }
+}
+
+/// Extract the artist name from an artist ID. Handles both the legacy
+/// `artist:{name}` and the source-tagged `artist:{name}:{source}` formats.
+///
+/// Returns `None` if the ID does not start with `artist:`.
+pub fn denormalize_artist_id(id: &str) -> Option<String> {
+    let rest = id.strip_prefix("artist:")?;
+    // Split off the trailing source dimension if present. The artist name
+    // portion always comes before the last `:` that is followed by a source
+    // tag. We split on the LAST colon; if the remainder has no colon, the
+    // whole string is the name (legacy format).
+    match rest.rsplit_once(':') {
+        // The source tag must be a single token (no spaces), otherwise the
+        // colon we found is part of the artist name itself (e.g. "ac/dc").
+        Some((name, src)) if !src.contains('-') || src.is_empty() => {
+            Some(name.split('-').collect::<Vec<_>>().join(" ").to_lowercase())
+        }
+        _ => Some(rest.split('-').collect::<Vec<_>>().join(" ").to_lowercase()),
+    }
+}
+
+/// Extract the source dimension from an artist ID, if present.
+///
+/// `artist:daft-punk:youtube` → `Some("youtube")`
+/// `artist:daft-punk`         → `None`
+pub fn artist_id_source(id: &str) -> Option<String> {
+    let rest = id.strip_prefix("artist:")?;
+    let (_, src) = rest.rsplit_once(':')?;
+    if src.is_empty() {
+        None
+    } else {
+        Some(src.to_string())
+    }
 }
 
 /// Normalize album title and artist into a stable album ID.
@@ -147,14 +223,6 @@ pub fn normalize_album_id(title: &str, artist: &str) -> String {
         .collect::<Vec<_>>()
         .join("-");
     format!("album:{}:{}", norm_title, norm_artist)
-}
-
-/// Extract the original artist name from an artist ID.
-///
-/// Returns `None` if the ID does not start with `artist:`.
-pub fn denormalize_artist_id(id: &str) -> Option<String> {
-    id.strip_prefix("artist:")
-        .map(|name| name.split('-').collect::<Vec<_>>().join(" ").to_lowercase())
 }
 
 /// Extract the original album title and artist name from an album ID.

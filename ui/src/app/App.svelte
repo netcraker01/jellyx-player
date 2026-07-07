@@ -9,6 +9,7 @@ import PlaylistsPage from '../routes/Playlists/Page.svelte';
 import PlaylistDetail from '../routes/Playlists/PlaylistDetail.svelte';
 import NowPlaying from '../routes/NowPlaying/Page.svelte';
 import Library from '../routes/Library/Page.svelte';
+import FolderDetail from '../routes/Library/FolderDetail.svelte';
 import Settings from '../routes/Settings/Page.svelte';
 import ArtistPage from '../routes/Artist/Page.svelte';
 import AlbumPage from '../routes/Album/Page.svelte';
@@ -43,6 +44,7 @@ import { frequencyData, cinematicMode, cinematicIntensity, modoCineActive } from
     | { name: 'playlist-detail'; id: string }
     | { name: 'now-playing' }
     | { name: 'library' }
+    | { name: 'folder-detail'; folderPath: string }
     | { name: 'settings' }
     | { name: 'artist'; id: string }
     | { name: 'album'; id: string };
@@ -53,6 +55,7 @@ import { frequencyData, cinematicMode, cinematicIntensity, modoCineActive } from
     if (path === '/now-playing') return { name: 'now-playing' };
     if (path === '/library') return { name: 'library' };
     if (path === '/settings') return { name: 'settings' };
+    if (path.startsWith('/library/folder/')) return { name: 'folder-detail', folderPath: decodeURIComponent(path.slice('/library/folder/'.length)) };
     if (path.startsWith('/playlists/')) return { name: 'playlist-detail', id: decodeURIComponent(path.slice('/playlists/'.length)) };
     if (path.startsWith('/artist/')) return { name: 'artist', id: decodeURIComponent(path.slice('/artist/'.length)) };
     if (path.startsWith('/album/')) return { name: 'album', id: decodeURIComponent(path.slice('/album/'.length)) };
@@ -92,6 +95,8 @@ import { frequencyData, cinematicMode, cinematicIntensity, modoCineActive } from
       <NowPlaying />
     {:else if route.name === 'library'}
       <Library />
+    {:else if route.name === 'folder-detail'}
+      <FolderDetail folderPath={route.folderPath} />
     {:else if route.name === 'settings'}
       <Settings />
     {:else if route.name === 'artist'}

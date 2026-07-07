@@ -3,7 +3,7 @@
   import { get } from 'svelte/store';
   import { navigate } from '@app/router/navigation';
   import { t } from '@i18n';
-  import { Plus, Music, Heart, Trash2, Play, Link } from 'lucide-svelte';
+  import { Plus, Music, Heart, Trash2, Play, Link, Folder } from 'lucide-svelte';
   import { playlists } from '@features/playlists/stores/playlists';
   import { artistFavorites } from '@features/artist-favorites/stores/artistFavorites';
   import { playTrack, addToQueueAction } from '@shared/utils/actions';
@@ -52,30 +52,51 @@
 
   async function loadTrackCounts() {
     const all = get(playlists);
-    for (const pl of all) {
+    await Promise.allSettled(all.map(async (pl) => {
       if (cancelled) return;
       try {
         const count = await countPlaylistTracks(pl.id);
         playlistTrackCounts.set(pl.id, count);
       } catch {
         playlistTrackCounts.set(pl.id, 0);
+      } finally {
+        playlistTrackCounts = new Map(playlistTrackCounts);
       }
-    }
-    playlistTrackCounts = new Map(playlistTrackCounts);
+    }));
   }
 
   async function loadThumbnails() {
     const all = get(playlists);
-    for (const pl of all) {
+    await Promise.allSettled(all.map(async (pl) => {
       if (cancelled) return;
       try {
-        const thumbs = await getPlaylistThumbnails(pl.id);
+        let thumbs = await getPlaylistThumbnails(pl.id);
+        // For parent playlists with no direct tracks, aggregate thumbnails
+        // from child playlists so the card shows cover art.
+        if (thumbs.length === 0 && pl.kind === 'folder') {
+          const children = all.filter((candidate) => candidate.parentPlaylistId === pl.id);
+          for (const child of children) {
+            if (thumbs.length >= 1) break;
+            try {
+              const childThumbs = await getPlaylistThumbnails(child.id);
+              for (const ct of childThumbs) {
+                if (!thumbs.includes(ct)) {
+                  thumbs.push(ct);
+                }
+                if (thumbs.length >= 1) break;
+              }
+            } catch {
+              // skip child
+            }
+          }
+        }
         playlistThumbnails.set(pl.id, thumbs);
       } catch {
         playlistThumbnails.set(pl.id, []);
+      } finally {
+        playlistThumbnails = new Map(playlistThumbnails);
       }
-    }
-    playlistThumbnails = new Map(playlistThumbnails);
+    }));
   }
 
   async function handleCreateList() {
@@ -161,6 +182,24 @@
       showImportDialog = false;
     }
   }
+
+  // Split playlists into top-level (no parent) and children (with parent).
+  // Children are grouped under their parent so the UI can render them nested.
+  $: topLevelPlaylists = $playlists.filter((p) => !p.parentPlaylistId);
+  $: childrenByParent = new Map<string, UserPlaylist[]>(
+    $playlists
+      .filter((p) => !!p.parentPlaylistId)
+      .reduce((acc, p) => {
+        const parentId = p.parentPlaylistId as string;
+        let entry = acc.find(([id]) => id === parentId);
+        if (!entry) {
+          entry = [parentId, []];
+          acc.push(entry);
+        }
+        entry[1].push(p);
+        return acc;
+      }, [] as [string, UserPlaylist[]][]),
+  );
 </script>
 
 <div class="page-playlists">
@@ -188,16 +227,19 @@
       <p class="empty-text">No favorite artists yet.</p>
     {:else}
       <div class="artist-favorites-grid">
-        {#each $artistFavorites as artist (artist.artistId)}
+        {#each $artistFavorites as artist (artist.artistId + '::' + (artist.source ?? 'local'))}
           <button class="artist-card" on:click={() => goToArtist(artist.artistId)} type="button">
             {#if albumArtUrl(artist.thumbnail)}
-              <img src={albumArtUrl(artist.thumbnail)} alt={artist.artistName} class="artist-thumb" />
+              <img src={albumArtUrl(artist.thumbnail)} alt={artist.artistName} class="artist-thumb" on:error={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             {:else}
               <div class="artist-thumb-placeholder">
                 <HelixLogo size={32} monochrome={true} />
               </div>
             {/if}
             <span class="artist-name">{artist.artistName}</span>
+            {#if artist.source && artist.source !== 'local'}
+              <span class="artist-source-badge">{artist.source}</span>
+            {/if}
           </button>
         {/each}
       </div>
@@ -210,54 +252,68 @@
       <Music size={16} />
       {$t('playlists.title')}
     </h2>
-    {#if $playlists.length === 0}
+    {#if topLevelPlaylists.length === 0}
       <div class="empty-state">
         <p>{$t('playlists.empty')}</p>
       </div>
     {:else}
       <div class="playlists-grid">
-        {#each $playlists as pl (pl.id)}
-          <div class="playlist-card" on:click={() => openPlaylist(pl.id)} on:keydown={(e) => e.key === 'Enter' && openPlaylist(pl.id)} role="button" tabindex="0">
-            {#if (playlistThumbnails.get(pl.id) ?? []).length >= 4}
-              {@const thumbs = (playlistThumbnails.get(pl.id) ?? []).slice(0, 4)}
-              <div class="playlist-cover grid-2x2">
-                {#each thumbs as thumb (thumb)}
+        {#each topLevelPlaylists as pl (pl.id)}
+          {@const cardThumbs = playlistThumbnails.get(pl.id) ?? []}
+          <div class="playlist-card-wrapper">
+            <div
+              class="playlist-card"
+              on:click={() => openPlaylist(pl.id)}
+              on:keydown={(e) => e.key === 'Enter' && openPlaylist(pl.id)}
+              role="button"
+              tabindex="0"
+            >
+              {#if cardThumbs.length >= 1}
+                {@const thumb = cardThumbs[0]}
+                <div class="playlist-cover single">
                   <img src={albumArtUrl(thumb)} alt="" class="cover-img" />
-                {/each}
+                </div>
+              {:else}
+                <div class="playlist-icon">
+                  <Music size={32} />
+                </div>
+              {/if}
+              <div class="playlist-info">
+                <span class="playlist-title">{pl.title}</span>
+                <span class="playlist-meta">
+                  {playlistTrackCounts.get(pl.id) ?? 0} {$t('playlists.tracks')}
+                </span>
               </div>
-            {:else if (playlistThumbnails.get(pl.id) ?? []).length === 1}
-              {@const thumb = (playlistThumbnails.get(pl.id) ?? [])[0]}
-              <div class="playlist-cover single">
-                <img src={albumArtUrl(thumb)} alt="" class="cover-img" />
-              </div>
-            {:else if (playlistThumbnails.get(pl.id) ?? []).length >= 2}
-              {@const thumbs = (playlistThumbnails.get(pl.id) ?? []).slice(0, 4)}
-              <!-- Pad to 4 for grid layout, show only the available ones -->
-              <div class="playlist-cover grid-2x2">
-                {#each thumbs as thumb (thumb)}
-                  <img src={albumArtUrl(thumb)} alt="" class="cover-img" />
+              {#if pl.kind === 'folder'}
+                <span class="folder-badge" title={$t('playlists.folder_badge')}>
+                  <Folder size={12} />
+                  {$t('playlists.from_folder')}
+                </span>
+              {/if}
+              <button class="card-play-btn" on:click|stopPropagation={() => handlePlayPlaylist(pl.id)} title="Play" type="button">
+                <Play size={14} fill="currentColor" />
+              </button>
+              <button class="card-delete-btn" on:click|stopPropagation={() => confirmDeletePlaylist(pl.id, pl.title)} title="Delete" type="button">
+                <Trash2 size={14} />
+              </button>
+            </div>
+
+            {#if (childrenByParent.get(pl.id) ?? []).length > 0}
+              <div class="child-playlists">
+                <div class="child-playlists-title">{$t('playlists.child_playlists')}</div>
+                {#each childrenByParent.get(pl.id) ?? [] as child (child.id)}
+                  <button
+                    class="child-playlist-row"
+                    on:click={() => openPlaylist(child.id)}
+                    type="button"
+                  >
+                    <Music size={12} />
+                    <span class="child-title">{child.title}</span>
+                    <span class="child-count">{playlistTrackCounts.get(child.id) ?? 0} {$t('playlists.tracks')}</span>
+                  </button>
                 {/each}
-                {#each { length: 4 - thumbs.length } as _}
-                  <div class="cover-placeholder"><Music size={16} /></div>
-                {/each}
-              </div>
-            {:else}
-              <div class="playlist-icon">
-                <Music size={32} />
               </div>
             {/if}
-            <div class="playlist-info">
-              <span class="playlist-title">{pl.title}</span>
-              <span class="playlist-meta">
-                {playlistTrackCounts.get(pl.id) ?? 0} {$t('playlists.tracks')}
-              </span>
-            </div>
-            <button class="card-play-btn" on:click|stopPropagation={() => handlePlayPlaylist(pl.id)} title="Play" type="button">
-              <Play size={14} fill="currentColor" />
-            </button>
-            <button class="card-delete-btn" on:click|stopPropagation={() => confirmDeletePlaylist(pl.id, pl.title)} title="Delete" type="button">
-              <Trash2 size={14} />
-            </button>
           </div>
         {/each}
       </div>
@@ -480,10 +536,26 @@
     max-width: 100%;
   }
 
+  .artist-source-badge {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-accent, #6366f1);
+    background: color-mix(in srgb, var(--color-accent, #6366f1) 15%, transparent);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
+
   .playlists-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 1rem;
+  }
+
+  .playlist-card-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
   }
 
   .playlist-card {
@@ -536,32 +608,12 @@
     object-fit: cover;
   }
 
-  .playlist-cover.grid-2x2 {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    grid-template-rows: 1fr 1fr;
-    gap: 2px;
-  }
-
-  .playlist-cover.grid-2x2 .cover-img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .cover-placeholder {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(99, 102, 241, 0.15);
-    color: var(--color-accent, #6366f1);
-  }
-
   .playlist-info {
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
     min-width: 0;
+    flex: 1;
   }
 
   .playlist-title {
@@ -576,6 +628,72 @@
   .playlist-meta {
     font-size: 0.8rem;
     color: var(--text-secondary, #9ca3af);
+  }
+
+  .folder-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--color-accent, #6366f1);
+    background: color-mix(in srgb, var(--color-accent, #6366f1) 12%, transparent);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-right: 1.5rem;
+  }
+
+  .child-playlists {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.4rem 0.75rem 0.5rem 1.75rem;
+    border-left: 2px solid color-mix(in srgb, var(--color-accent, #6366f1) 30%, transparent);
+    margin-left: 0.75rem;
+  }
+
+  .child-playlists-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-secondary, #9ca3af);
+    margin-bottom: 0.2rem;
+  }
+
+  .child-playlist-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.4rem;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.85rem;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+  }
+
+  .child-playlist-row:hover {
+    background: var(--bg-elevated, #1f2937);
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .child-title {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .child-count {
+    font-size: 0.75rem;
+    color: var(--text-secondary, #9ca3af);
+    flex-shrink: 0;
   }
 
   .dialog-overlay {

@@ -56,7 +56,10 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
                 library.clone(),
                 fft_channel.clone(),
             );
-            let scanner = ScannerService::new(db);
+            // ScannerService is wired with the PlaylistService so the
+            // folder-as-playlist generation runs automatically after each
+            // successful scan.
+            let scanner = ScannerService::new(db).with_playlist_service(playlist.clone());
 
             app.manage(AppState {
                 playback: Arc::new(playback),
@@ -128,6 +131,10 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::get_playlist_tracks,
             crate::ipc::commands::count_playlist_tracks,
             crate::ipc::commands::get_playlist_thumbnails,
+            crate::ipc::commands::generate_artist_playlists,
+            crate::ipc::commands::generate_folder_playlists,
+            crate::ipc::commands::get_playlists_by_source_folder,
+            crate::ipc::commands::get_child_playlists,
             // Source settings commands
             crate::ipc::commands::get_source_settings,
             crate::ipc::commands::set_source_enabled,

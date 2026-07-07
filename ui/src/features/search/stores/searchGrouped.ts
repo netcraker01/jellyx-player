@@ -8,7 +8,7 @@
 import { writable, type Writable } from 'svelte/store';
 import { searchGrouped as searchGroupedCommand } from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
-import type { GroupedSearchResult, SearchFilter } from '@shared/types/models';
+import type { GroupedSearchResult, SearchFilter, Track } from '@shared/types/models';
 
 const PAGE_SIZE = 50;
 
@@ -17,6 +17,33 @@ export interface GroupedSearchStore {
   search: (query: string, filter?: SearchFilter) => Promise<void>;
   loadMore: () => Promise<void>;
   clear: () => void;
+}
+
+/**
+ * The `local` filter is frontend-only: the backend does not understand it.
+ * When active, we request unfiltered results from the backend and then
+ * keep only tracks whose source is `Local` (and clear artists/albums since
+ * the local filter is song-centric).
+ */
+function isLocalFilter(filter: SearchFilter | undefined): boolean {
+  return filter === 'local';
+}
+
+/** Map a frontend SearchFilter to the backend filter string (or undefined). */
+function toBackendFilter(filter: SearchFilter | undefined): string | undefined {
+  if (!filter || isLocalFilter(filter)) return undefined;
+  return filter;
+}
+
+/** Apply the frontend-only `local` filter to a grouped result set. */
+function applyLocalFilter(result: GroupedSearchResult): GroupedSearchResult {
+  return {
+    ...result,
+    songs: (result?.songs ?? []).filter((t: Track) => t.source === 'Local'),
+    artists: [],
+    albums: [],
+    hasMoreSongs: false,
+  };
 }
 
 function createGroupedSearchStore(): GroupedSearchStore {
@@ -43,11 +70,11 @@ function createGroupedSearchStore(): GroupedSearchStore {
       try {
         const results = await searchGroupedCommand(
           query,
-          filter as string | undefined,
+          toBackendFilter(filter),
           0,
           PAGE_SIZE,
         );
-        set(results);
+        set(isLocalFilter(filter) ? applyLocalFilter(results) : results);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         groupedSearchError.set(msg);
@@ -62,6 +89,9 @@ function createGroupedSearchStore(): GroupedSearchStore {
     /** Load the next page of remote song results and append. */
     async loadMore() {
       if (isLoadingMore || !currentQuery) return;
+      // Pagination only applies to remote song results; the local filter
+      // has no remote results so there is nothing more to load.
+      if (isLocalFilter(currentFilter)) return;
       const current = get_current_value(subscribe);
       if (current && !current.hasMoreSongs) return;
 
@@ -71,7 +101,7 @@ function createGroupedSearchStore(): GroupedSearchStore {
       try {
         const more = await searchGroupedCommand(
           currentQuery,
-          currentFilter as string | undefined,
+          toBackendFilter(currentFilter),
           currentOffset,
           PAGE_SIZE,
         );

@@ -47,6 +47,19 @@ pub struct AppState {
     pub fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
 }
 
+/// Convert a persistence-layer `UserPlaylist` into its IPC DTO form.
+fn playlist_to_dto(pl: crate::persistence::models::UserPlaylist) -> UserPlaylistDto {
+    UserPlaylistDto {
+        id: pl.id,
+        title: pl.title,
+        kind: pl.kind,
+        source_folder_path: pl.source_folder_path,
+        parent_playlist_id: pl.parent_playlist_id,
+        created_at: pl.created_at,
+        updated_at: pl.updated_at,
+    }
+}
+
 // ── Synchronous commands (fast, in-memory or SQLite) ──────────────────
 
 #[tauri::command]
@@ -218,6 +231,9 @@ pub fn create_playlist(state: tauri::State<AppState>, title: String) -> Result<U
     Ok(UserPlaylistDto {
         id: pl.id,
         title: pl.title,
+        kind: pl.kind,
+        source_folder_path: pl.source_folder_path,
+        parent_playlist_id: pl.parent_playlist_id,
         created_at: pl.created_at,
         updated_at: pl.updated_at,
     })
@@ -236,34 +252,19 @@ pub fn delete_playlist(state: tauri::State<AppState>, id: String) -> Result<(), 
 #[tauri::command]
 pub fn get_all_playlists(state: tauri::State<AppState>) -> Result<Vec<UserPlaylistDto>, AppError> {
     let playlists = state.playlist.get_all_playlists()?;
-    Ok(playlists.into_iter().map(|pl| UserPlaylistDto {
-        id: pl.id,
-        title: pl.title,
-        created_at: pl.created_at,
-        updated_at: pl.updated_at,
-    }).collect())
+    Ok(playlists.into_iter().map(playlist_to_dto).collect())
 }
 
 #[tauri::command]
 pub fn get_recent_playlists(state: tauri::State<AppState>, limit: Option<u32>) -> Result<Vec<UserPlaylistDto>, AppError> {
     let playlists = state.playlist.get_recent_playlists(limit.unwrap_or(5))?;
-    Ok(playlists.into_iter().map(|pl| UserPlaylistDto {
-        id: pl.id,
-        title: pl.title,
-        created_at: pl.created_at,
-        updated_at: pl.updated_at,
-    }).collect())
+    Ok(playlists.into_iter().map(playlist_to_dto).collect())
 }
 
 #[tauri::command]
 pub fn search_user_playlists(state: tauri::State<AppState>, query: String) -> Result<Vec<UserPlaylistDto>, AppError> {
     let playlists = state.playlist.search_playlists(&query)?;
-    Ok(playlists.into_iter().map(|pl| UserPlaylistDto {
-        id: pl.id,
-        title: pl.title,
-        created_at: pl.created_at,
-        updated_at: pl.updated_at,
-    }).collect())
+    Ok(playlists.into_iter().map(playlist_to_dto).collect())
 }
 
 #[tauri::command]
@@ -313,26 +314,107 @@ pub fn get_playlist_thumbnails(state: tauri::State<AppState>, playlist_id: Strin
     state.playlist.get_playlist_thumbnails(&playlist_id)
 }
 
+/// Generate one playlist per artist from the local track catalog (idempotent).
+///
+/// Groups all local tracks by artist and creates or updates a playlist per
+/// artist. Returns the playlists that were created or had tracks added.
+#[tauri::command]
+pub fn generate_artist_playlists(state: tauri::State<AppState>) -> Result<Vec<UserPlaylistDto>, AppError> {
+    let playlists = state.playlist.generate_artist_playlists()?;
+    Ok(playlists.into_iter().map(playlist_to_dto).collect())
+}
+
+/// Generate folder-as-playlist hierarchy for a watched folder.
+///
+/// Creates a parent playlist named after the folder and a child playlist for
+/// each subfolder that contains audio files. Idempotent: re-running on an
+/// already-scanned folder reuses existing playlists and only appends new
+/// tracks. Returns all parent + child playlists touched or existing.
+#[tauri::command]
+pub fn generate_folder_playlists(
+    state: tauri::State<AppState>,
+    folder_path: String,
+) -> Result<Vec<UserPlaylistDto>, AppError> {
+    let playlists = state.playlist.generate_folder_playlists(&folder_path)?;
+    Ok(playlists.into_iter().map(playlist_to_dto).collect())
+}
+
+/// Get all playlists generated from a watched folder (parent + children).
+#[tauri::command]
+pub fn get_playlists_by_source_folder(
+    state: tauri::State<AppState>,
+    folder_path: String,
+) -> Result<Vec<UserPlaylistDto>, AppError> {
+    let playlists = state.playlist.get_playlists_by_source_folder(&folder_path)?;
+    Ok(playlists.into_iter().map(playlist_to_dto).collect())
+}
+
+/// Get child playlists of a parent playlist (folder-as-playlist children).
+#[tauri::command]
+pub fn get_child_playlists(
+    state: tauri::State<AppState>,
+    parent_id: String,
+) -> Result<Vec<UserPlaylistDto>, AppError> {
+    let playlists = state.playlist.get_child_playlists(&parent_id)?;
+    Ok(playlists.into_iter().map(playlist_to_dto).collect())
+}
+
 // ── Artist Favorite commands (fast SQLite) ──────────────────────────
 
+/// Add an artist to favorites.
+///
+/// Accepts an optional `source` so the same artist name from different
+/// sources (e.g. "local" vs "youtube") can coexist without overwriting each
+/// other. Defaults to `"local"` for backward compatibility.
 #[tauri::command]
 pub fn add_artist_favorite(
     state: tauri::State<AppState>,
     artist_id: String,
     artist_name: String,
     thumbnail: Option<String>,
+    source: Option<String>,
+    source_artist_ref: Option<String>,
 ) -> Result<(), AppError> {
-    state.playlist.add_artist_favorite(&artist_id, &artist_name, thumbnail.as_deref())
+    let src = source.as_deref().unwrap_or("local");
+    state
+        .playlist
+        .add_artist_favorite_with_source(
+            &artist_id,
+            src,
+            &artist_name,
+            thumbnail.as_deref(),
+            source_artist_ref.as_deref(),
+        )
 }
 
+/// Remove an artist from favorites.
+///
+/// Pass `source` to remove only a specific source favorite; omit it to
+/// remove every favorite for that artist across all sources.
 #[tauri::command]
-pub fn remove_artist_favorite(state: tauri::State<AppState>, artist_id: String) -> Result<(), AppError> {
-    state.playlist.remove_artist_favorite(&artist_id)
+pub fn remove_artist_favorite(
+    state: tauri::State<AppState>,
+    artist_id: String,
+    source: Option<String>,
+) -> Result<(), AppError> {
+    state
+        .playlist
+        .remove_artist_favorite(&artist_id, source.as_deref())
 }
 
+/// Check if an artist is favorited.
+///
+/// Pass `source` to check a specific source; omit it to check if any source
+/// has a favorite for that artist.
 #[tauri::command]
-pub fn is_artist_favorite(state: tauri::State<AppState>, artist_id: String) -> Result<bool, AppError> {
-    state.playlist.is_artist_favorite(&artist_id)
+pub fn is_artist_favorite(
+    state: tauri::State<AppState>,
+    artist_id: String,
+    source: Option<String>,
+) -> Result<bool, AppError> {
+    state
+        .playlist
+        .is_artist_favorite(&artist_id, source.as_deref())
 }
 
 #[tauri::command]
@@ -340,8 +422,10 @@ pub fn get_all_artist_favorites(state: tauri::State<AppState>) -> Result<Vec<Art
     let entries = state.playlist.get_all_artist_favorites()?;
     Ok(entries.into_iter().map(|e| ArtistFavoriteDto {
         artist_id: e.artist_id,
+        source: e.source,
         artist_name: e.artist_name,
         thumbnail: e.thumbnail,
+        source_artist_ref: e.source_artist_ref,
         added_at: e.added_at,
     }).collect())
 }
@@ -483,15 +567,24 @@ pub async fn search_grouped(
 
 /// Get full artist detail by artist ID.
 ///
-/// First tries the local library. If no local tracks are found,
-/// falls back to searching remote sources (YouTube, SoundCloud)
-/// for tracks by that artist name.
+/// Merges local library tracks with remote (YouTube, SoundCloud) tracks for
+/// the same artist. Local tracks always come first, remote tracks are
+/// appended after. This replaces the previous short-circuit behavior that
+/// hid remote content whenever local tracks existed.
 #[tauri::command]
 pub async fn get_artist_detail(
     state: tauri::State<'_, AppState>,
     id: String,
 ) -> Result<ArtistDetail, AppError> {
-    // Try local library first — if it returns NotFound or empty tracks, fall back to remote.
+    // Resolve the artist name from the ID. The ID may carry a source
+    // dimension (e.g. `artist:daft-punk:youtube`) but for the local lookup
+    // we only need the name portion.
+    let normalized_name = crate::ipc::dto::denormalize_artist_id(&id)
+        .ok_or_else(|| crate::errors::types::ValidationError::InvalidInput(
+            format!("Invalid artist ID: {}", id),
+        ))?;
+
+    // Query local library first.
     let library = state.library.clone();
     let id_for_local = id.clone();
     let local_result = tokio::task::spawn_blocking(move || library.get_artist_detail(&id_for_local))
@@ -501,21 +594,8 @@ pub async fn get_artist_detail(
             details: Some(format!("get_artist_detail task join error: {}", e)),
         })?;
 
-    // If local library found tracks, return immediately
-    if let Ok(detail) = local_result {
-        if !detail.top_tracks.is_empty() {
-            return Ok(detail);
-        }
-    }
-
-    // No local tracks — search remote sources by artist name
-    let normalized_name = crate::ipc::dto::denormalize_artist_id(&id)
-        .ok_or_else(|| crate::errors::types::ValidationError::InvalidInput(
-            format!("Invalid artist ID: {}", id),
-        ))?;
-
+    // Query remote sources (YouTube, SoundCloud) by artist name.
     let playback = state.playback.clone();
-    let artist_id = id.clone();
     let search_name = normalized_name.clone();
     let remote_tracks = tokio::task::spawn_blocking(move || playback.search_all_tracks(&search_name))
         .await
@@ -524,26 +604,46 @@ pub async fn get_artist_detail(
             details: Some(format!("remote artist search task join error: {}", e)),
         })?;
 
-    // Filter tracks that match the artist name (case-insensitive)
-    let matching: Vec<Track> = remote_tracks
+    // Filter remote tracks that match the artist name (case-insensitive).
+    let matching_remote: Vec<Track> = remote_tracks
         .into_iter()
         .filter(|t| t.artist.to_lowercase() == normalized_name.to_lowercase())
         .collect();
 
-    if matching.is_empty() {
-        return Err(crate::errors::types::LibraryError::NotFound(id).into());
+    // Merge: if we have a local result, use it as the base and append the
+    // remote tracks. If we don't, build the result from the remote tracks.
+    match local_result {
+        Ok(mut detail) => {
+            if !matching_remote.is_empty() {
+                // Avoid duplicates by track id.
+                let local_ids: std::collections::HashSet<String> =
+                    detail.top_tracks.iter().map(|t| t.id.clone()).collect();
+                for t in matching_remote {
+                    if !local_ids.contains(&t.id) {
+                        detail.top_tracks.push(t);
+                    }
+                }
+                if detail.thumbnail.is_none() {
+                    detail.thumbnail = detail.top_tracks.iter().find_map(|t| t.thumbnail.clone());
+                }
+            }
+            Ok(detail)
+        }
+        Err(_) => {
+            if matching_remote.is_empty() {
+                return Err(crate::errors::types::LibraryError::NotFound(id).into());
+            }
+            let thumbnail = matching_remote.iter().find_map(|t| t.thumbnail.clone());
+            let canonical_name = matching_remote[0].artist.clone();
+            Ok(ArtistDetail {
+                id: id.clone(),
+                name: canonical_name,
+                thumbnail,
+                top_tracks: matching_remote,
+                albums: Vec::new(),
+            })
+        }
     }
-
-    let thumbnail = matching.iter().find_map(|t| t.thumbnail.clone());
-    let canonical_name = matching[0].artist.clone();
-
-    Ok(ArtistDetail {
-        id: artist_id,
-        name: canonical_name,
-        thumbnail,
-        top_tracks: matching,
-        albums: Vec::new(),
-    })
 }
 
 /// Get full album detail by album ID.

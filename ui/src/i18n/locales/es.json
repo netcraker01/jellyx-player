@@ -33,7 +33,7 @@
     "tagline": "Escucha centrada en audio para sesiones largas de trabajo"
   },
   "search": {
-    "placeholder": "Buscar canciones, artistas, álbumes...",
+    "placeholder": "Buscar canciones, artistas, álbumes y archivos locales...",
     "loading": "Buscando...",
     "no_results": "No se encontraron resultados.",
     "add_to_queue": "Añadir a la cola",
@@ -43,6 +43,7 @@
     "songs": "Canciones",
     "videos": "Videos",
     "artists": "Artistas",
+    "local": "Local",
     "play_playlist": "Reproducir lista",
     "suggestions": "Sugerencias"
   },
@@ -57,7 +58,14 @@
     "lists": "Listas",
     "history": "Historial",
     "local_files": "Archivos locales",
-    "search": "Buscar en biblioteca..."
+    "search": "Buscar en biblioteca...",
+    "watched_folders": "Carpetas vigiladas",
+    "add_folder": "Añadir carpeta",
+    "scanning": "Escaneando...",
+    "folder_tracks": "canciones",
+    "open_folder": "Abrir carpeta",
+    "empty_folders": "Aún no hay carpetas. Haz clic en \"Añadir carpeta\" para escanear tu música.",
+    "empty_tracks": "No se encontraron canciones. Prueba a escanear una carpeta con archivos de audio."
   },
   "visualizer": {
     "spectrum": "Espectro",
@@ -131,7 +139,14 @@
     "import_url": "Importar desde URL",
     "import_url_desc": "Pegá una URL de lista de YouTube o SoundCloud para importar sus pistas.",
     "import": "Importar",
-    "importing": "Importando pistas"
+    "importing": "Importando pistas",
+    "generate_by_artist": "Generar listas por artista",
+    "generating": "Generando...",
+    "generated_count": "Se generaron {count} listas de tu biblioteca local",
+    "from_folder": "De carpeta",
+    "folder_badge": "Esta lista se generó a partir de una carpeta supervisada",
+    "child_playlists": "Listas anidadas",
+    "show_all_sources": "Mostrar todas las fuentes"
   },
   "routes": {
     "home": "Inicio",

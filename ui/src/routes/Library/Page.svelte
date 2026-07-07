@@ -1,19 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from '@i18n';
+  import { navigate } from '@app/router/navigation';
   import {
     watchedFolders,
     localTracks,
     isScanning,
     scanStatus,
     scanError,
+    tracksByFolder,
     loadWatchedFolders,
     loadLocalTracks,
     scanNewFolder,
     removeFolder,
   } from '@features/library/stores/library';
-  import type { WatchedFolder, LocalTrackEntry } from '@shared/types/models';
-
-  let selectedFolder: string | null = null;
+  import { Folder } from 'lucide-svelte';
 
   onMount(() => {
     loadWatchedFolders();
@@ -39,39 +40,25 @@
     }
   }
 
-  function selectFolder(path: string | null) {
-    selectedFolder = path;
-    if (path) {
-      loadLocalTracks(path);
-    } else {
-      loadLocalTracks();
-    }
-  }
-
   async function handleRemoveFolder(path: string) {
     await removeFolder(path);
-    if (selectedFolder === path) {
-      selectedFolder = null;
-      loadLocalTracks();
-    }
   }
 
-  function formatDuration(seconds: number | undefined): string {
-    if (!seconds) return '--:--';
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    return `${m}:${s.toString().padStart(2, '0')}`;
+  function openFolder(path: string) {
+    navigate(`/library/folder/${encodeURIComponent(path)}`);
   }
+
+  $: folderCount = (folderPath: string) => $tracksByFolder.get(folderPath)?.length ?? 0;
 </script>
 
 <div class="page-library">
   <header class="library-header">
-    <h1>Local Library</h1>
+    <h1>{$t('library.local_files')}</h1>
     <button class="btn-add-folder" on:click={openFolderPicker} disabled={$isScanning}>
       {#if $isScanning}
-        Scanning...
+        {$t('library.scanning')}
       {:else}
-        + Add Folder
+        + {$t('library.add_folder')}
       {/if}
     </button>
   </header>
@@ -89,63 +76,38 @@
   {/if}
 
   <section class="watched-folders">
-    <h2>Watched Folders</h2>
+    <h2>{$t('library.watched_folders')}</h2>
     {#if $watchedFolders.length === 0}
-      <p class="empty-state">No folders added yet. Click "Add Folder" to scan your music.</p>
+      <p class="empty-state">{$t('library.empty_folders')}</p>
     {:else}
-      <ul class="folder-list">
-        {#each $watchedFolders as folder}
-          <li class:active={selectedFolder === folder.path}>
-            <button class="folder-name" on:click={() => selectFolder(folder.path)}>
-              📁 {folder.path}
-            </button>
-            <button class="btn-remove" on:click={() => handleRemoveFolder(folder.path)} title="Remove folder">
+      <div class="folder-cards">
+        {#each $watchedFolders as folder (folder.path)}
+          <div
+            class="folder-card"
+            on:click={() => openFolder(folder.path)}
+            on:keydown={(e) => e.key === 'Enter' && openFolder(folder.path)}
+            role="button"
+            tabindex="0"
+            aria-label="{$t('library.open_folder')} {folder.path}"
+          >
+            <div class="folder-icon">
+              <Folder size={28} />
+            </div>
+            <div class="folder-info">
+              <span class="folder-path">{folder.path}</span>
+              <span class="folder-count">{folderCount(folder.path)} {$t('library.folder_tracks')}</span>
+            </div>
+            <button
+              class="btn-remove"
+              on:click|stopPropagation={() => handleRemoveFolder(folder.path)}
+              title="Remove folder"
+              aria-label="Remove folder {folder.path}"
+            >
               ✕
             </button>
-          </li>
+          </div>
         {/each}
-        {#if selectedFolder}
-          <li>
-            <button class="folder-name show-all" on:click={() => selectFolder(null)}>
-              Show all tracks
-            </button>
-          </li>
-        {/if}
-      </ul>
-    {/if}
-  </section>
-
-  <section class="local-tracks">
-    <h2>{selectedFolder ? 'Tracks in folder' : 'All Local Tracks'} ({$localTracks.length})</h2>
-    {#if $localTracks.length === 0}
-      <p class="empty-state">
-        {#if $watchedFolders.length === 0}
-          Add a folder to start scanning your music library.
-        {:else}
-          No tracks found. Try scanning a folder with audio files.
-        {/if}
-      </p>
-    {:else}
-      <table class="track-table">
-        <thead>
-          <tr>
-            <th>Title</th>
-            <th>Artist</th>
-            <th>Album</th>
-            <th>Duration</th>
-          </tr>
-        </thead>
-        <tbody>
-          {#each $localTracks as entry}
-            <tr>
-              <td>{entry.track.title}</td>
-              <td>{entry.track.artist}</td>
-              <td>{entry.track.album ?? '—'}</td>
-              <td>{formatDuration(entry.track.duration)}</td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
+      </div>
     {/if}
   </section>
 </div>
@@ -208,65 +170,10 @@
     font-size: 0.9rem;
   }
 
-  .watched-folders h2,
-  .local-tracks h2 {
+  .watched-folders h2 {
     font-size: 1.1rem;
     margin-bottom: 0.75rem;
     color: var(--text-secondary, #a0a0a0);
-  }
-
-  .folder-list {
-    list-style: none;
-    padding: 0;
-    margin: 0 0 1.5rem 0;
-  }
-
-  .folder-list li {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    margin-bottom: 2px;
-  }
-
-  .folder-list li.active {
-    background: rgba(99, 102, 241, 0.15);
-  }
-
-  .folder-name {
-    flex: 1;
-    background: none;
-    border: none;
-    color: var(--text-primary, #e0e0e0);
-    cursor: pointer;
-    text-align: left;
-    font-size: 0.9rem;
-    padding: 0;
-  }
-
-  .folder-name:hover {
-    text-decoration: underline;
-  }
-
-  .folder-name.show-all {
-    color: var(--accent, #6366f1);
-    font-style: italic;
-  }
-
-  .btn-remove {
-    background: none;
-    border: none;
-    color: var(--text-secondary, #a0a0a0);
-    cursor: pointer;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-size: 0.8rem;
-  }
-
-  .btn-remove:hover {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
   }
 
   .empty-state {
@@ -274,26 +181,87 @@
     font-style: italic;
   }
 
-  .track-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.9rem;
+  .folder-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 1rem;
   }
 
-  .track-table th {
+  .folder-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem;
+    background: var(--bg-elevated, #1f2937);
+    border: 1px solid var(--border-color, #1f2937);
+    border-radius: 12px;
+    cursor: pointer;
     text-align: left;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid var(--border, #333);
-    color: var(--text-secondary, #a0a0a0);
+    transition: background 0.2s, border-color 0.2s, transform 0.15s;
+  }
+
+  .folder-card:hover {
+    background: rgba(138, 92, 255, 0.1);
+    border-color: var(--color-accent, #6366f1);
+    transform: translateY(-2px);
+  }
+
+  .folder-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 10px;
+    background: rgba(99, 102, 241, 0.15);
+    color: var(--color-accent, #6366f1);
+    flex-shrink: 0;
+  }
+
+  .folder-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .folder-path {
+    font-size: 0.9rem;
     font-weight: 500;
+    color: var(--text-primary, #e0e0e0);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  .track-table td {
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+  .folder-count {
+    font-size: 0.8rem;
+    color: var(--text-secondary, #a0a0a0);
   }
 
-  .track-table tr:hover {
-    background: rgba(255, 255, 255, 0.03);
+  .btn-remove {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    background: none;
+    border: none;
+    color: var(--text-secondary, #a0a0a0);
+    cursor: pointer;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    opacity: 0;
+    transition: opacity 0.2s, color 0.2s, background 0.2s;
+  }
+
+  .folder-card:hover .btn-remove {
+    opacity: 1;
+  }
+
+  .btn-remove:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
   }
 </style>

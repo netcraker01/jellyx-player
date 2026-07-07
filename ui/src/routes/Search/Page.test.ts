@@ -56,6 +56,7 @@ vi.mock('@i18n', () => {
       'search.no_results': 'No results found.',
       'search.videos': 'Videos',
       'search.artists': 'Artists',
+      'search.local': 'Local',
     };
     return map[key] ?? key;
   };
@@ -115,7 +116,7 @@ describe('Search page', () => {
     expect(container.textContent).toContain('One More Time');
   });
 
-  it('shows filter tabs with All, Videos, and Artists', async () => {
+  it('shows filter tabs with All, Tracks, Artists, and Local', async () => {
     mocks.searchGroupedCmd.mockResolvedValueOnce({
       songs: [],
       artists: [],
@@ -131,8 +132,66 @@ describe('Search page', () => {
     await waitFor(() => expect(mocks.searchGroupedCmd).toHaveBeenCalledTimes(1));
 
     const tabs = container.querySelectorAll('.filter-tab');
-    expect(tabs.length).toBe(3);
-    expect(container.textContent).toContain('Videos');
+    expect(tabs.length).toBe(4);
+    expect(container.textContent).toContain('Tracks');
     expect(container.textContent).toContain('Artists');
+    expect(container.textContent).toContain('Local');
+  });
+
+  it('filters results to local source only when the Local filter is selected', async () => {
+    const mixedResults = {
+      songs: [
+        {
+          id: 'local-1',
+          source: Source.Local,
+          sourceId: 'local-1',
+          title: 'Local Song',
+          artist: 'Local Artist',
+          duration: 200,
+          metadata: {},
+        },
+        {
+          id: 'yt-1',
+          source: Source.YouTube,
+          sourceId: 'yt-1',
+          title: 'Remote Song',
+          artist: 'Remote Artist',
+          duration: 300,
+          metadata: {},
+        },
+      ],
+      artists: [],
+      albums: [],
+      hasMoreSongs: false,
+    };
+    // First search (no filter) and second search (local filter re-queries backend
+    // with undefined filter, then applies frontend local filtering).
+    mocks.searchGroupedCmd.mockResolvedValueOnce(mixedResults);
+    mocks.searchGroupedCmd.mockResolvedValueOnce(mixedResults);
+
+    const { container } = render(SearchPage);
+    const input = container.querySelector('input[type="text"]') as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: 'song' } });
+    await fireEvent.submit(container.querySelector('form')!);
+
+    await waitFor(() => expect(mocks.searchGroupedCmd).toHaveBeenCalledTimes(1));
+
+    // Click the Local filter tab.
+    const localTab = Array.from(container.querySelectorAll('.filter-tab')).find((tab) =>
+      tab.textContent?.includes('Local'),
+    ) as HTMLElement;
+    expect(localTab).toBeTruthy();
+    await fireEvent.click(localTab);
+
+    // The store re-queries the backend with undefined filter (local is frontend-only).
+    await waitFor(() => {
+      expect(mocks.searchGroupedCmd).toHaveBeenNthCalledWith(2, 'song', undefined, 0, 50);
+    });
+
+    // Only the local song should be rendered — the YouTube track must be gone.
+    await waitFor(() => {
+      expect(container.textContent).toContain('Local Song');
+      expect(container.textContent).not.toContain('Remote Song');
+    });
   });
 });

@@ -8,6 +8,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, fireEvent, waitFor } from '@testing-library/svelte';
 import type { ComponentProps } from 'svelte';
 
+const { readable } = await vi.hoisted(() => import('svelte/store'));
+
 const mocks = vi.hoisted(() => ({
   playPlaylist: vi.fn(),
   playStream: vi.fn(),
@@ -36,9 +38,17 @@ vi.mock('@features/favorites/stores/favorites', () => ({
   },
 }));
 
-vi.mock('@i18n', () => ({
-  t: vi.fn(() => () => 'translated'),
-}));
+vi.mock('@i18n', () => {
+  const translateFn = (key: string) => {
+    const map: Record<string, string> = {
+      'search.local': 'Local',
+      'search.videos': 'Videos',
+      'search.artists': 'Artists',
+    };
+    return map[key] ?? key;
+  };
+  return { t: readable(translateFn, () => {}) };
+});
 
 vi.mock('@app/router/navigation', () => ({
   navigate: vi.fn(),
@@ -120,13 +130,14 @@ describe('SearchResults', () => {
     expect(container.textContent).toContain('No results found.');
   });
 
-  it('renders filter tabs with All, Videos, Artists', () => {
+  it('renders filter tabs with All, Tracks, Artists, and Local', () => {
     const { container } = renderSearchResults();
 
     const tabs = container.querySelectorAll('.filter-tab');
-    expect(tabs.length).toBe(3);
-    expect(container.textContent).toContain('Videos');
+    expect(tabs.length).toBe(4);
+    expect(container.textContent).toContain('Tracks');
     expect(container.textContent).toContain('Artists');
+    expect(container.textContent).toContain('Local');
   });
 
   it('shows per-section empty state for videos filter with no songs', async () => {
@@ -139,7 +150,7 @@ describe('SearchResults', () => {
     await waitFor(() => {
       expect(container.querySelector('.section-videos')).toBeTruthy();
     });
-    expect(container.textContent).toContain('No videos found.');
+    expect(container.textContent).toContain('No tracks found.');
   });
 
   it('shows per-section empty state for artists filter with no artists', async () => {

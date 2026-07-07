@@ -140,8 +140,12 @@ export interface ScanResult {
 /**
  * Filter for grouped search: limit results to a single entity type.
  * Mirrors the Rust `SearchFilter` enum serialized as lowercase camelCase.
+ *
+ * NOTE: `'local'` is a frontend-only filter — it is NOT sent to the backend.
+ * The backend `search_grouped` command accepts `songs`, `artists`, or `albums`;
+ * the `local` filter is applied client-side on the already-returned results.
  */
-export type SearchFilter = 'songs' | 'artists' | 'albums';
+export type SearchFilter = 'songs' | 'artists' | 'albums' | 'local';
 
 /**
  * Grouped search result returned by `search_grouped`.
@@ -212,6 +216,12 @@ export interface AlbumDetail {
 export interface UserPlaylist {
   id: string;
   title: string;
+  /** Playlist kind: 'manual', 'folder', or 'generated_artist'. */
+  kind?: string;
+  /** For folder-derived playlists: the watched folder path it was generated from. */
+  sourceFolderPath?: string;
+  /** For child folder playlists: the parent playlist's id. */
+  parentPlaylistId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -233,8 +243,12 @@ export interface PlaylistTrackEntry {
  */
 export interface ArtistFavorite {
   artistId: string;
+  /** Source dimension ('local', 'youtube', 'soundcloud', ...). Defaults to 'local'. */
+  source?: string;
   artistName: string;
   thumbnail?: string;
+  /** Optional source-specific artist id (e.g. Spotify/YouTube artist id). */
+  sourceArtistRef?: string;
   addedAt: string;
 }
 

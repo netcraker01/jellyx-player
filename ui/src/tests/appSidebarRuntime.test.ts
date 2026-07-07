@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@features/library/stores/library', () => ({
   watchedFolders: { subscribe: (fn: any) => { fn([]); return () => {}; }, set: vi.fn() },
   localTracks: { subscribe: (fn: any) => { fn([]); return () => {}; }, set: vi.fn() },
+  tracksByFolder: { subscribe: (fn: any) => { fn(new Map()); return () => {}; } },
   isScanning: { subscribe: (fn: any) => { fn(false); return () => {}; }, set: vi.fn() },
   scanStatus: { subscribe: (fn: any) => { fn(null); return () => {}; }, set: vi.fn() },
   scanError: { subscribe: (fn: any) => { fn(null); return () => {}; }, set: vi.fn() },
@@ -39,7 +40,7 @@ describe('App sidebar runtime navigation', () => {
     const { getByText, container } = render(App);
     await fireEvent.click(getByText('Library'));
     expect(window.location.hash).toBe('#/library');
-    expect(container.textContent).toContain('Local Library');
+    expect(container.textContent).toContain('Local File');
   });
 
   it('navigates to Playlists from the real App sidebar', async () => {

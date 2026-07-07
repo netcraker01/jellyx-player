@@ -33,7 +33,7 @@
     "tagline": "Audio-first listening for long work sessions"
   },
   "search": {
-    "placeholder": "Search for songs, artists, albums...",
+    "placeholder": "Search songs, artists, albums and local files...",
     "loading": "Searching...",
     "no_results": "No results found.",
     "add_to_queue": "Add to Queue",
@@ -43,6 +43,7 @@
     "songs": "Songs",
     "videos": "Videos",
     "artists": "Artists",
+    "local": "Local",
     "play_playlist": "Play playlist",
     "suggestions": "Suggestions"
   },
@@ -57,7 +58,14 @@
     "lists": "Lists",
     "history": "History",
     "local_files": "Local Files",
-    "search": "Search library..."
+    "search": "Search library...",
+    "watched_folders": "Watched Folders",
+    "add_folder": "Add Folder",
+    "scanning": "Scanning...",
+    "folder_tracks": "tracks",
+    "open_folder": "Open folder",
+    "empty_folders": "No folders added yet. Click \"Add Folder\" to scan your music.",
+    "empty_tracks": "No tracks found. Try scanning a folder with audio files."
   },
   "visualizer": {
     "spectrum": "Spectrum",
@@ -131,7 +139,14 @@
     "import_url": "Import from URL",
     "import_url_desc": "Paste a YouTube or SoundCloud playlist URL to import its tracks.",
     "import": "Import",
-    "importing": "Importing tracks"
+    "importing": "Importing tracks",
+    "generate_by_artist": "Generate lists by artist",
+    "generating": "Generating...",
+    "generated_count": "Generated {count} lists from your local library",
+    "from_folder": "From folder",
+    "folder_badge": "This playlist was generated from a watched folder",
+    "child_playlists": "Child playlists",
+    "show_all_sources": "Show all sources"
   },
   "routes": {
     "home": "Home",

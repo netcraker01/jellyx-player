@@ -271,16 +271,56 @@ export function getPlaylistThumbnails(playlistId: string): Promise<string[]> {
   return invokeCommand<string[]>('get_playlist_thumbnails', { playlistId });
 }
 
+/** Generate one playlist per artist from the local track catalog (idempotent).
+ *  Returns the playlists that were created or had tracks added. */
+export function generateArtistPlaylists(): Promise<UserPlaylist[]> {
+  return invokeCommand<UserPlaylist[]>('generate_artist_playlists');
+}
+
+/** Generate folder-as-playlist hierarchy for a watched folder (idempotent).
+ *  Returns all parent + child playlists touched or existing. */
+export function generateFolderPlaylists(folderPath: string): Promise<UserPlaylist[]> {
+  return invokeCommand<UserPlaylist[]>('generate_folder_playlists', { folderPath });
+}
+
+/** Get all playlists generated from a watched folder (parent + children). */
+export function getPlaylistsBySourceFolder(folderPath: string): Promise<UserPlaylist[]> {
+  return invokeCommand<UserPlaylist[]>('get_playlists_by_source_folder', { folderPath });
+}
+
+/** Get child playlists of a parent playlist (folder-as-playlist children). */
+export function getChildPlaylists(parentId: string): Promise<UserPlaylist[]> {
+  return invokeCommand<UserPlaylist[]>('get_child_playlists', { parentId });
+}
+
 // ── Artist Favorite commands ─────────────────────────────────────
 
-export function addArtistFavorite(artistId: string, artistName: string, thumbnail?: string): Promise<void> {
-  return invokeCommand<void>('add_artist_favorite', { artistId, artistName, thumbnail: thumbnail ?? null });
+export function addArtistFavorite(
+  artistId: string,
+  artistName: string,
+  thumbnail?: string,
+  source?: string,
+  sourceArtistRef?: string,
+): Promise<void> {
+  return invokeCommand<void>('add_artist_favorite', {
+    artistId,
+    artistName,
+    thumbnail: thumbnail ?? null,
+    source: source ?? null,
+    sourceArtistRef: sourceArtistRef ?? null,
+  });
 }
-export function removeArtistFavorite(artistId: string): Promise<void> {
-  return invokeCommand<void>('remove_artist_favorite', { artistId });
+export function removeArtistFavorite(artistId: string, source?: string): Promise<void> {
+  return invokeCommand<void>('remove_artist_favorite', {
+    artistId,
+    source: source ?? null,
+  });
 }
-export function isArtistFavorite(artistId: string): Promise<boolean> {
-  return invokeCommand<boolean>('is_artist_favorite', { artistId });
+export function isArtistFavorite(artistId: string, source?: string): Promise<boolean> {
+  return invokeCommand<boolean>('is_artist_favorite', {
+    artistId,
+    source: source ?? null,
+  });
 }
 export function getAllArtistFavorites(): Promise<ArtistFavorite[]> {
   return invokeCommand<ArtistFavorite[]>('get_all_artist_favorites');

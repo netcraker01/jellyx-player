@@ -1,30 +1,32 @@
 <script lang="ts">
-  import { Disc, Users, Music } from 'lucide-svelte';
+  import { Disc, Users, Music, HardDrive } from 'lucide-svelte';
   import TrackRow from '@shared/components/TrackRow.svelte';
   import { navigate } from '@app/router/navigation';
+  import { t } from '@i18n';
   import type { GroupedSearchResult, ArtistSummary } from '@shared/types/models';
 
   export let result: GroupedSearchResult | null = null;
-  export let filter: 'all' | 'videos' | 'artists' = 'all';
+  export let filter: 'all' | 'videos' | 'artists' | 'local' = 'all';
   export let loading: boolean = false;
   export let error: string | null = null;
-  export let onFilter: (filter: 'all' | 'videos' | 'artists') => void = () => {};
+  export let onFilter: (filter: 'all' | 'videos' | 'artists' | 'local') => void = () => {};
   export let onLoadMore: () => void = () => {};
   export let hasMoreSongs: boolean = false;
   export let loadingMore: boolean = false;
 
-  const filters: { key: 'all' | 'videos' | 'artists'; label: string; icon: any }[] = [
+  const filters: { key: 'all' | 'videos' | 'artists' | 'local'; label: string; icon: any }[] = [
     { key: 'all', label: 'All', icon: Music },
     { key: 'videos', label: 'Tracks', icon: Disc },
     { key: 'artists', label: 'Artists', icon: Users },
+    { key: 'local', label: $t('search.local'), icon: HardDrive },
   ];
 
   $: songs = result?.songs ?? [];
   $: artists = result?.artists ?? [];
   $: hasAnyResults = songs.length > 0 || artists.length > 0;
-  $: showVideos = filter === 'all' || filter === 'videos';
+  $: showVideos = filter === 'all' || filter === 'videos' || filter === 'local';
   $: showArtists = filter === 'all' || filter === 'artists';
-  $: showGlobalEmpty = !loading && !hasAnyResults && filter === 'all';
+  $: showGlobalEmpty = !loading && !hasAnyResults && (filter === 'all' || filter === 'local');
 
   // Infinite scroll sentinel: trigger loadMore when the sentinel enters viewport.
   let sentinelEl: HTMLElement | null = null;
@@ -87,7 +89,7 @@
           {/if}
         {:else if loading}
           <p class="empty-section">Searching...</p>
-        {:else if filter === 'videos' || filter === 'all'}
+        {:else if filter === 'videos' || filter === 'all' || filter === 'local'}
           <p class="empty-section">No tracks found.</p>
         {/if}
       </section>
