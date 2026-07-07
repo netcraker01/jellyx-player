@@ -2,22 +2,48 @@
 //!
 //! `SymphoniaDecoder` opens local audio files, decodes PCM frames,
 //! and provides seeking and duration information.
-//! Supported codecs: MP3, FLAC, OGG/Vorbis, AAC (via symphonia bundles).
+//! Supported codecs: MP3, FLAC, OGG/Vorbis, Opus (via libopus), AAC
+//! (via symphonia bundles).
 
 use std::fs::File;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use symphonia::core::codecs::audio::AudioDecoderOptions;
+use symphonia::core::codecs::registry::CodecRegistry;
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::Time;
+use symphonia_adapter_libopus::OpusDecoder;
 use symphonia_core::codecs::audio::AudioDecoder;
 use symphonia_core::formats::TrackType;
 
 use super::AudioError;
+
+/// Returns a process-wide `CodecRegistry` pre-populated with Symphonia's
+/// default enabled codecs PLUS the libopus-backed `OpusDecoder`.
+///
+/// Symphonia's default `get_codecs()` registry only registers decoders for
+/// the features enabled on the `symphonia` crate. The `OpusDecoder` from
+/// `symphonia-adapter-libopus` is a separate crate that wraps the bundled
+/// libopus C library, so it is NOT auto-registered. We build a custom
+/// registry here, seed it with the default codecs (MP3, FLAC, Vorbis, AAC,
+/// etc.), then register `OpusDecoder` on top.
+///
+/// The registry is created once via `OnceLock` and reused for every decode
+/// call (`open()` and `open_stream()`).
+fn codec_registry() -> &'static CodecRegistry {
+    static REGISTRY: OnceLock<CodecRegistry> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        let mut registry = CodecRegistry::new();
+        symphonia::default::register_enabled_codecs(&mut registry);
+        registry.register_audio_decoder::<OpusDecoder>();
+        registry
+    })
+}
 
 /// Decodes audio files to interleaved f32 PCM frames using Symphonia.
 ///
@@ -35,6 +61,16 @@ pub struct SymphoniaDecoder {
     duration_secs: f64,
     /// Number of channels as u16 for PcmBus compatibility.
     channels_u16: u16,
+    /// Residual samples left over from a previously decoded packet that did
+    /// not fit into the caller's buffer. They are served first on the next
+    /// `decode_next` call before decoding another packet.
+    ///
+    /// This prevents the silent audio truncation that used to happen when a
+    /// decoded packet was larger than the caller's buffer: instead of
+    /// discarding the tail, we keep it here and hand it out on subsequent
+    /// calls. Works for every codec since the residual is stored as already
+    /// interleaved f32 samples.
+    pending_samples: Vec<f32>,
 }
 
 impl SymphoniaDecoder {
@@ -93,7 +129,7 @@ impl SymphoniaDecoder {
         let duration_secs = calculate_duration(track);
 
         let dec_opts: AudioDecoderOptions = Default::default();
-        let decoder = symphonia::default::get_codecs()
+        let decoder = codec_registry()
             .make_audio_decoder(audio_params, &dec_opts)
             .map_err(|e| AudioError::DecodeFailed(format!("codec init failed: {}", e)))?;
 
@@ -104,6 +140,7 @@ impl SymphoniaDecoder {
             sample_rate,
             duration_secs,
             channels_u16: channels as u16,
+            pending_samples: Vec::new(),
         })
     }
 
@@ -163,7 +200,7 @@ impl SymphoniaDecoder {
         let duration_secs = calculate_duration(track);
 
         let dec_opts: AudioDecoderOptions = Default::default();
-        let decoder = symphonia::default::get_codecs()
+        let decoder = codec_registry()
             .make_audio_decoder(audio_params, &dec_opts)
             .map_err(|e| AudioError::DecodeFailed(format!("codec init failed: {}", e)))?;
 
@@ -174,15 +211,32 @@ impl SymphoniaDecoder {
             sample_rate,
             duration_secs,
             channels_u16: channels as u16,
+            pending_samples: Vec::new(),
         })
     }
 
     /// Decode the next chunk of audio into the provided buffer as interleaved f32 samples.
     ///
-    /// The buffer should be large enough for at least one decode chunk.
-    /// Returns the number of f32 samples written to the buffer.
-    /// Returns 0 when the stream is exhausted (end of file).
+    /// The buffer may be any size. If a decoded packet produces more samples
+    /// than the buffer can hold, the surplus is retained in an internal
+    /// `pending_samples` buffer and served on subsequent calls — no audio is
+    /// ever silently dropped. Returns the number of f32 samples written to
+    /// the buffer. Returns 0 when the stream is exhausted (end of file) AND
+    /// there are no pending samples left to drain.
     pub fn decode_next(&mut self, buffer: &mut [f32]) -> Result<usize, AudioError> {
+        // 1. First, drain any leftover samples from a previously oversized
+        // packet. This guarantees no audio is lost even when the caller
+        // supplies a buffer smaller than a single decoded packet.
+        if !self.pending_samples.is_empty() {
+            let n = std::cmp::min(self.pending_samples.len(), buffer.len());
+            buffer[..n].copy_from_slice(&self.pending_samples[..n]);
+            // Drop the served samples. `drain` shifts the remaining ones to
+            // the front; for small residuals this is cheap. We avoid
+            // `rotate`/cursor schemes to keep the logic dead simple.
+            self.pending_samples.drain(..n);
+            return Ok(n);
+        }
+
         loop {
             let packet = match self.format_reader.next_packet() {
                 Ok(Some(packet)) => packet,
@@ -215,18 +269,24 @@ impl SymphoniaDecoder {
 
             match self.decoder.decode(&packet) {
                 Ok(decoded) => {
-                    // Convert decoded audio to interleaved f32
+                    // Convert decoded audio to interleaved f32.
                     let samples_needed = decoded.samples_interleaved();
                     if samples_needed == 0 {
                         continue;
                     }
 
-                    if buffer.len() < samples_needed {
-                        // Buffer too small — copy what we can
-                        let fit = buffer.len();
+                    if samples_needed > buffer.len() {
+                        // The decoded packet is larger than the caller's
+                        // buffer. Decode into a temp buffer that holds the
+                        // full packet, copy the head into the caller's
+                        // buffer, and stash the remainder in
+                        // `pending_samples` so the next `decode_next` call
+                        // serves it before decoding another packet.
                         let mut temp = vec![0.0f32; samples_needed];
                         decoded.copy_to_slice_interleaved(&mut temp);
+                        let fit = buffer.len();
                         buffer.copy_from_slice(&temp[..fit]);
+                        self.pending_samples = temp[fit..].to_vec();
                         return Ok(fit);
                     }
 
@@ -266,6 +326,9 @@ impl SymphoniaDecoder {
 
         // Reset the decoder after seeking to flush internal buffers
         self.decoder.reset();
+        // Discard any residual samples from a previously oversized packet:
+        // after a seek they no longer correspond to the new playback position.
+        self.pending_samples.clear();
 
         Ok(())
     }
@@ -384,5 +447,144 @@ mod tests {
         let err = AudioError::NoAudioDevice("no device".to_string());
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("no_audio_device"));
+    }
+
+    /// Generate a short mono FLAC file with `ffmpeg` and return its path.
+    ///
+    /// Skips the test (returns `None`) if `ffmpeg` is not installed so the
+    /// test suite stays green on environments without it. The file is a
+    /// 2-second 44.1 kHz sine wave, which is small (~100 KB) and decodes
+    /// into packets much larger than the tiny caller buffer used by the
+    /// residual-buffer regression test.
+    fn generate_test_flac(label: &str) -> Option<std::path::PathBuf> {
+        let out = std::env::temp_dir().join(format!(
+            "helix_decoder_test_{}_{}.flac",
+            label,
+            std::process::id()
+        ));
+        // If a leftover file from a previous run exists, remove it.
+        let _ = std::fs::remove_file(&out);
+
+        let status = std::process::Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=2:sample_rate=44100",
+                "-ac",
+                "1",
+                "-c:a",
+                "flac",
+                out.to_string_lossy().as_ref(),
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .ok()?;
+
+        if !status.success() || !out.exists() {
+            return None;
+        }
+        Some(out)
+    }
+
+    /// Regression test for the silent audio-truncation bug.
+    ///
+    /// Before the residual buffer, `decode_next()` would discard the tail of
+    /// any decoded packet larger than the caller's buffer. With a tiny
+    /// 64-sample buffer — far smaller than a typical FLAC packet — we would
+    /// lose almost all of the audio. After the fix, the total number of f32
+    /// samples decoded must match `duration × sample_rate × channels` (within
+    /// a small tolerance to account for encoder padding/rounding).
+    #[test]
+    fn decode_next_preserves_full_audio_with_small_buffer() {
+        let Some(path) = generate_test_flac("smallbuf") else {
+            eprintln!("skipping decode_next_preserves_full_audio_with_small_buffer: ffmpeg unavailable");
+            return;
+        };
+
+        let mut decoder = SymphoniaDecoder::open(path.to_string_lossy().as_ref()).unwrap();
+        let sr = decoder.sample_rate() as f64;
+        let ch = decoder.channels() as f64;
+        let duration = decoder.duration();
+
+        // ffmpeg-generated FLAC reliably reports duration via time_base +
+        // num_frames. If for some reason it doesn't, we fall back to the
+        // requested 2-second duration so the test still asserts something
+        // meaningful.
+        let expected_duration = if duration <= 0.0 { 2.0 } else { duration };
+        let expected_samples = (expected_duration * sr * ch).round() as i64;
+
+        // Tiny buffer: 64 interleaved f32 samples. FLAC packets for 44.1 kHz
+        // mono are typically thousands of samples, so this forces many
+        // residual-buffer drains.
+        let mut buf = [0.0f32; 64];
+        let mut total: i64 = 0;
+        loop {
+            let n = match decoder.decode_next(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) => panic!("decode error: {:?}", e),
+            };
+            total += n as i64;
+        }
+
+        // We must have recovered essentially every sample. Allow a 5%
+        // tolerance for encoder padding/rounding at the edges.
+        let lower = (expected_samples as f64 * 0.95).round() as i64;
+        assert!(
+            total >= lower,
+            "decoded {} samples, expected ~{} ({}s × {}Hz × {}ch); residual buffer is dropping audio",
+            total,
+            expected_samples,
+            expected_duration,
+            sr,
+            ch
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Two-pass decode must yield the same total sample count as a single
+    /// large-buffer decode. This guards against the residual buffer
+    /// duplicating or losing samples across packet boundaries.
+    #[test]
+    fn decode_next_small_buffer_matches_large_buffer_total() {
+        let Some(path) = generate_test_flac("match") else {
+            eprintln!("skipping decode_next_small_buffer_matches_large_buffer_total: ffmpeg unavailable");
+            return;
+        };
+
+        // Pass 1: large buffer — should rarely if ever trigger the residual path.
+        let mut big = SymphoniaDecoder::open(path.to_string_lossy().as_ref()).unwrap();
+        let mut buf_big = vec![0.0f32; 1 << 20];
+        let mut total_big: i64 = 0;
+        loop {
+            match big.decode_next(&mut buf_big) {
+                Ok(0) => break,
+                Ok(n) => total_big += n as i64,
+                Err(e) => panic!("decode error: {:?}", e),
+            }
+        }
+
+        // Pass 2: small buffer — exercises the residual buffer heavily.
+        let mut small = SymphoniaDecoder::open(path.to_string_lossy().as_ref()).unwrap();
+        let mut buf_small = [0.0f32; 32];
+        let mut total_small: i64 = 0;
+        loop {
+            match small.decode_next(&mut buf_small) {
+                Ok(0) => break,
+                Ok(n) => total_small += n as i64,
+                Err(e) => panic!("decode error: {:?}", e),
+            }
+        }
+
+        assert_eq!(
+            total_big, total_small,
+            "small-buffer decode must produce the same sample count as large-buffer decode"
+        );
+
+        let _ = std::fs::remove_file(&path);
     }
 }

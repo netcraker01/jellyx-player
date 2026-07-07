@@ -1,6 +1,6 @@
 [package]
 name = "helix"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 license = "AGPL-3.0"
 description = "A desktop background music player for people who work with music on."
@@ -17,13 +17,15 @@ tauri = { version = "2", features = ["devtools", "protocol-asset", "test"] }
 tauri-plugin-shell = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-symphonia = { version = "0.6", features = ["mp3", "isomp4", "aac"] }
+symphonia = { version = "0.6", features = ["mp3", "isomp4", "aac", "ogg", "vorbis", "flac", "wav", "pcm"] }
 symphonia-core = "0.6"
 symphonia-bundle-mp3 = "0.6"
 symphonia-bundle-flac = "0.6"
 symphonia-format-isomp4 = "0.6"
+symphonia-format-ogg = "0.6"
 symphonia-codec-vorbis = "0.6"
 symphonia-codec-aac = "0.6"
+symphonia-adapter-libopus = { version = "0.3", features = ["bundled"] }
 cpal = "0.15"
 crossbeam-channel = "0.5"
 rustfft = "6"
