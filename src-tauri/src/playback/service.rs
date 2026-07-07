@@ -142,25 +142,32 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     /// the path and delegates to `play_local_track`, which performs the real
     /// pipeline setup and preserves the provided track metadata.
     pub fn play_local(&self, path: &str) -> Result<(), AppError> {
-        let track_name = PathBuf::from(path)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("Unknown")
-            .to_string();
+        // Try to look up the full track from the local library so we
+        // preserve metadata (title, artist, album, thumbnail, duration).
+        // Fall back to a minimal track from the filename if not found.
+        let track = if let Ok(Some(full_track)) = self.db.get_local_track_by_path(path) {
+            full_track
+        } else {
+            let track_name = PathBuf::from(path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Unknown")
+                .to_string();
 
-        let track = Track {
-            id: format!("local-{}", path.len()),
-            source: crate::models::source::Source::Local,
-            source_id: path.to_string(),
-            title: track_name,
-            artist: String::new(),
-            album: None,
-            duration: None,
-            thumbnail: None,
-            stream_url: None,
-            local_path: Some(path.to_string()),
-            playlist_id: None,
-            metadata: std::collections::HashMap::new(),
+            Track {
+                id: format!("local-{}", path.len()),
+                source: crate::models::source::Source::Local,
+                source_id: path.to_string(),
+                title: track_name,
+                artist: String::new(),
+                album: None,
+                duration: None,
+                thumbnail: None,
+                stream_url: None,
+                local_path: Some(path.to_string()),
+                playlist_id: None,
+                metadata: std::collections::HashMap::new(),
+            }
         };
 
         // Seed a single-track queue so next/previous have coherent context.
