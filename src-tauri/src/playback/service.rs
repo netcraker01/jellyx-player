@@ -1582,7 +1582,11 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
         let _ = self.emitter.emit_queue_updated(&snapshot);
         let _ = self.emitter.emit_track_changed(&track);
-        let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+
+        // Do NOT emit 'Playing' here — play_local_track and play_stream
+        // manage the full state lifecycle (Stopped -> Buffering -> Playing).
+        // Emitting 'Playing' prematurely causes state oscillation when the
+        // playback method calls stop() first.
 
         if let Some(ref local_path) = track.local_path {
             return self.play_local(local_path);
@@ -1625,7 +1629,9 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
         let _ = self.emitter.emit_queue_updated(&snapshot);
         let _ = self.emitter.emit_track_changed(&track);
-        let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+
+        // Do NOT emit 'Playing' here — play_local_track and play_stream
+        // manage the full state lifecycle. See next() for rationale.
 
         if let Some(ref local_path) = track.local_path {
             return self.play_local(local_path);

@@ -221,6 +221,11 @@ let streamOffset = 0;
 /** Whether a seek is in progress — suppresses error handling for aborts. */
 let seeking = false;
 
+/** When true, suppresses 'error' events from the audio element that are
+ *  caused by intentionally clearing the source (stopRemote). Without this,
+ *  setting audio.src = '' fires a MEDIA_ERR_SRC_NOT_SUPPORTED that triggers
+ *  error notifications and skipToNext loops. */
+let intentionallyStopping = false;
 /** Whether audio was playing before the seek started — used to resume after seek. */
 let wasPlayingBeforeSeek = false;
 
@@ -297,12 +302,12 @@ function getAudio(): HTMLAudioElement {
       const target = e.target as HTMLAudioElement;
       const errorCode = target.error?.code;
 
-      // Suppress ALL errors during seek or source swap — the browser fires
-      // error events when we change audio.src, and calling skipToNext() would
-      // cause an infinite loop of errors.
-      if (seeking || swappingSource) {
-        return;
-      }
+    // Suppress ALL errors during seek, source swap, or intentional stop —
+    // the browser fires error events when we change audio.src or clear it,
+    // and calling skipToNext() would cause an infinite loop of errors.
+    if (seeking || swappingSource || intentionallyStopping) {
+      return;
+    }
 
       const translate = get(t);
       let message = translate('playback.error_title', { default: 'Remote playback failed' });
@@ -649,6 +654,9 @@ export function stopRemote(): void {
   // Stop the remote FFT rAF loop first so we don't keep publishing
   // stale frequency data after the element is torn down.
   stopRemoteFftLoop();
+  // Set flag to suppress the 'error' event that fires when we clear
+  // audio.src — this is intentional, not a real playback error.
+  intentionallyStopping = true;
   if (audioEl) {
     audioEl.pause();
     audioEl.src = '';
@@ -656,6 +664,8 @@ export function stopRemote(): void {
   }
   normalizationActive = false;
   remoteActive.set(false);
+  // Reset flag after the browser has processed the src change.
+  setTimeout(() => { intentionallyStopping = false; }, 100);
 }
 
 /** Get the current HTMLAudio element (for advanced use). */
