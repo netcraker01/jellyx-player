@@ -597,6 +597,12 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     ///
     /// Local tracks still use the existing `play_local_track()` Symphonia/cpal path.
     pub fn play_stream(&self, track: Track) -> Result<(), AppError> {
+        // Stop any currently playing audio first (local cpal stream or
+        // previous remote stream). Without this, a local file playing
+        // through cpal would continue sounding alongside the new remote
+        // stream loaded by the browser.
+        self.stop()?;
+
         // Resolve the stream URL for this track's source
         let source = track.source.clone();
         let source_id = track.source_id.clone();
