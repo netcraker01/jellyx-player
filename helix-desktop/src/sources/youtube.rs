@@ -13,9 +13,9 @@ use uuid::Uuid;
 use super::SourceResolver;
 use super::yt_dlp;
 use crate::errors::types::SourceError;
-use crate::models::playlist::Playlist;
-use crate::models::source::Source;
-use crate::models::track::Track;
+use helix_core::models::playlist::Playlist;
+use helix_core::models::source::Source;
+use helix_core::models::track::Track;
 
 /// Number of playlist search results to request from yt-dlp.
 const PLAYLIST_SEARCH_RESULT_COUNT: usize = 10;

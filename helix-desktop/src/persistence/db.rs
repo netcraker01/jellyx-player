@@ -14,7 +14,7 @@ use std::sync::Mutex;
 use rusqlite::{params, Connection};
 
 use crate::errors::types::PersistenceError;
-use crate::models::track::Track;
+use helix_core::models::track::Track;
 use crate::persistence::models::{ArtistFavorite, HistoryEntry, LocalTrackEntry, PlaylistTrackEntry, SourceSetting, UserPlaylist, WatchedFolder};
 use crate::updater::prefs::UpdatePrefs;
 
@@ -2062,7 +2062,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::source::Source;
+    use helix_core::models::source::Source;
     use std::collections::HashMap;
 
     fn sample_track(id: &str) -> Track {

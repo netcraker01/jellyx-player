@@ -23,11 +23,11 @@ use walkdir::WalkDir;
 
 use crate::errors::types::{AppError, LibraryError, ScannerError};
 use crate::library::PlaylistService;
-use crate::models::source::Source;
-use crate::models::track::Track;
+use helix_core::models::source::Source;
+use helix_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::persistence::models::{LocalTrackEntry, WatchedFolder};
-use crate::shared::utils::art_cache_dir;
+use helix_core::shared::utils::art_cache_dir;
 
 /// Supported audio file extensions for scanning.
 const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "flac", "ogg", "wav", "aac", "m4a", "opus"];
@@ -1073,7 +1073,7 @@ mod tests {
         std::fs::create_dir_all(&temp_dir).unwrap();
 
         // Ensure the directory exists.
-        let _ = crate::shared::utils::ensure_art_cache_dir();
+        let _ = helix_core::shared::utils::ensure_art_cache_dir();
 
         let data: &[u8] = b"test art data for cache";
         let media_type = Some("image/jpeg".to_string());
@@ -1094,7 +1094,7 @@ mod tests {
 
     #[test]
     fn cache_art_dedup_same_hash_skips_overwrite() {
-        let _ = crate::shared::utils::ensure_art_cache_dir();
+        let _ = helix_core::shared::utils::ensure_art_cache_dir();
 
         let data: &[u8] = b"dedup test data";
         let media_type = Some("image/png".to_string());

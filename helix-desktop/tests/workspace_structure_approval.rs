@@ -16,8 +16,10 @@ fn lib_crate_name_is_helix_lib() {
     // The lib name is declared in Cargo.toml as `[lib] name = "helix_lib"`.
     // We assert the public module surface is reachable under that name.
     // If this test fails to compile, the lib name changed during the rename.
-    let _ = std::any::type_name::<helix_lib::models::album::Album>();
-    let _ = std::any::type_name::<helix_lib::models::artist::Artist>();
+    // After PR 3, `models` moved to `helix-core`, so we reference `errors`
+    // which stays in the desktop crate.
+    let _ = std::any::type_name::<helix_lib::errors::types::SourceError>();
+    let _ = std::any::type_name::<helix_lib::errors::types::PlaybackError>();
 }
 
 /// The public module surface declared in `src/lib.rs` must remain intact.
@@ -63,14 +65,20 @@ fn workspace_members_include_all_four_crates() {
     );
 }
 
-/// `helix-core` MUST be a library crate that compiles and exposes a lib root
-/// (spec: core-boundary, workspace-structure). It must be reachable as a
-/// dependency from `helix-desktop`.
+/// `helix-core` MUST be a library crate that compiles and exposes real
+/// domain types (spec: core-boundary, workspace-structure). It must be
+/// reachable as a dependency from `helix-desktop`. After PR 3, the placeholder
+/// marker is replaced by the extracted `models` and `shared` modules.
 #[test]
 fn helix_core_is_a_buildable_library_crate() {
-    // If helix-core is not a workspace member with a lib target, this line
-    // fails to compile — that is the RED state we are asserting against.
-    let _ = std::any::type_name::<helix_core::LibPlaceholderMarker>();
+    // If helix-core is not a workspace member with a lib target, these lines
+    // fail to compile — that is the RED state we are asserting against.
+    // After PR 3, real public types exist in `helix_core::models`.
+    let _ = std::any::type_name::<helix_core::models::album::Album>();
+    let _ = std::any::type_name::<helix_core::models::artist::Artist>();
+    let _ = std::any::type_name::<helix_core::models::track::Track>();
+    let _ = std::any::type_name::<helix_core::models::source::Source>();
+    let _ = std::any::type_name::<helix_core::models::playlist::Playlist>();
     let core_manifest = std::fs::read_to_string("../helix-core/Cargo.toml")
         .expect("helix-core/Cargo.toml must exist");
     assert!(
@@ -80,6 +88,53 @@ fn helix_core_is_a_buildable_library_crate() {
     assert!(
         core_manifest.contains("serde"),
         "helix-core MUST declare serde (tasks 2.1 / 3.4)"
+    );
+    assert!(
+        core_manifest.contains("serde_json"),
+        "helix-core MUST declare serde_json (task 3.4)"
+    );
+}
+
+/// After PR 3, `helix-core` MUST expose the `models` and `shared` modules
+/// (spec: core-boundary — pure domain modules move to core).
+#[test]
+fn helix_core_extracts_models_and_shared_modules() {
+    // These references fail to compile if the modules are not public.
+    let _ = std::any::type_name::<helix_core::models::album::Album>();
+    // Assert the shared::utils module is reachable by calling a pure
+    // function and checking its return type.
+    let dir = helix_core::shared::utils::art_cache_dir();
+    assert!(
+        dir.ends_with("helix/art") || dir.ends_with("helix\\art"),
+        "helix_core::shared::utils::art_cache_dir MUST return the art cache path"
+    );
+}
+
+/// After PR 3, `helix-desktop` MUST NOT declare `pub mod models` or
+/// `pub mod shared` in its lib root — those modules moved to `helix-core`.
+#[test]
+fn helix_desktop_lib_no_longer_declares_models_or_shared() {
+    let lib_src = std::fs::read_to_string("src/lib.rs")
+        .expect("helix-desktop/src/lib.rs must exist (CWD is helix-desktop)");
+    assert!(
+        !lib_src.contains("pub mod models;"),
+        "helix-desktop/src/lib.rs MUST NOT declare pub mod models after PR 3"
+    );
+    assert!(
+        !lib_src.contains("pub mod shared;"),
+        "helix-desktop/src/lib.rs MUST NOT declare pub mod shared after PR 3"
+    );
+}
+
+/// After PR 3, `LibPlaceholderMarker` MUST be removed from `helix-core`
+/// — real public types now prove the lib root is reachable.
+#[test]
+fn helix_core_placeholder_marker_is_removed() {
+    let lib_src = std::fs::read_to_string("../helix-core/src/lib.rs")
+        .expect("helix-core/src/lib.rs must exist");
+    assert!(
+        !lib_src.contains("LibPlaceholderMarker"),
+        "helix-core LibPlaceholderMarker MUST be removed in PR 3"
     );
 }
 

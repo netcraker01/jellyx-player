@@ -4,7 +4,7 @@
 //! for emitting playback events to the frontend.
 
 use crate::errors::types::IPCError;
-use crate::models::track::Track;
+use helix_core::models::track::Track;
 use crate::playback::models::ProgressTick;
 use crate::playback::state::{PlaybackState, QueueState};
 use tauri::{AppHandle, Emitter, Runtime};

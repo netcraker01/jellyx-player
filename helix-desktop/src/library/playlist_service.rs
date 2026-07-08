@@ -9,7 +9,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::errors::types::AppError;
-use crate::models::track::Track;
+use helix_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::persistence::models::{PlaylistTrackEntry, UserPlaylist};
 
@@ -494,7 +494,7 @@ impl PlaylistService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::source::Source;
+    use helix_core::models::source::Source;
     use crate::persistence::db::Database;
     use std::collections::HashMap;
 

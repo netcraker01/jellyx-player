@@ -11,9 +11,9 @@ pub mod youtube;
 pub mod yt_dlp;
 
 use crate::errors::types::SourceError;
-use crate::models::playlist::Playlist;
-use crate::models::source::Source;
-use crate::models::track::Track;
+use helix_core::models::playlist::Playlist;
+use helix_core::models::source::Source;
+use helix_core::models::track::Track;
 
 /// Trait for stream resolvers.
 ///

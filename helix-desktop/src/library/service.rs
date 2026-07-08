@@ -22,7 +22,7 @@ use crate::ipc::dto::{
     normalize_album_id, normalize_artist_id, AlbumDetail, AlbumSummary, ArtistDetail,
     ArtistSummary, GroupedSearchResult, HomeSnapshot, RecommendationItem, SearchFilter,
 };
-use crate::models::track::Track;
+use helix_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::persistence::models::{HistoryEntry, LocalTrackEntry};
 /// Service providing library operations (favorites, history).
@@ -430,7 +430,7 @@ fn daily_seed() -> u64 {
 mod tests {
     use super::*;
     use crate::ipc::dto::SearchFilter;
-    use crate::models::source::Source;
+    use helix_core::models::source::Source;
     use std::collections::HashMap;
 
     fn sample_track(id: &str) -> Track {

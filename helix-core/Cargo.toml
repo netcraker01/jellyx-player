@@ -11,3 +11,5 @@ crate-type = ["lib"]
 
 [dependencies]
 serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = { workspace = true }

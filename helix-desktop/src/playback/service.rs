@@ -20,8 +20,8 @@ use crate::audio::pipeline::PcmBus;
 use crate::audio::{AudioBackend, PlaybackState};
 use crate::errors::types::{AppError, PlaybackError, ValidationError};
 use crate::library::LibraryService;
-use crate::models::source::Source;
-use crate::models::track::Track;
+use helix_core::models::source::Source;
+use helix_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::playback::events::PlaybackEventEmitter;
 use crate::playback::proxy::{proxied_url, start_proxy_server};
@@ -156,7 +156,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
             Track {
                 id: format!("local-{}", path.len()),
-                source: crate::models::source::Source::Local,
+                source: helix_core::models::source::Source::Local,
                 source_id: path.to_string(),
                 title: track_name,
                 artist: String::new(),
@@ -703,7 +703,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     pub fn cache_remote_stream(&self, cache_id: &str, remote_url: &str) -> Result<String, String> {
         use std::io::Write;
 
-        let cache_dir = crate::shared::utils::youtube_cache_dir();
+        let cache_dir = helix_core::shared::utils::youtube_cache_dir();
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| format!("failed to create cache dir: {}", e))?;
 
@@ -823,7 +823,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                 .arg("128k")
                 .arg(&norm_part);
             let ffmpeg_result =
-                crate::shared::utils::no_window(&mut ffmpeg_cmd).output();
+                helix_core::shared::utils::no_window(&mut ffmpeg_cmd).output();
 
             match ffmpeg_result {
                 Ok(out) if out.status.success() && is_valid_m4a(&norm_part) => {
@@ -1098,7 +1098,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         &self,
         query: &str,
         enabled_sources: &std::collections::HashSet<String>,
-    ) -> Vec<crate::models::playlist::Playlist> {
+    ) -> Vec<helix_core::models::playlist::Playlist> {
         self.sources.search_playlists_all_enabled(query, Some(enabled_sources))
     }
 
@@ -1109,7 +1109,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         &self,
         source: &Source,
         url: &str,
-    ) -> Result<crate::models::playlist::Playlist, crate::errors::types::SourceError> {
+    ) -> Result<helix_core::models::playlist::Playlist, crate::errors::types::SourceError> {
         self.sources.resolve_playlist(source, url)
     }
 
@@ -1770,7 +1770,7 @@ mod tests {
         let mut queue = QueueState::default();
         let track = Track {
             id: "t1".to_string(),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: "local-1".to_string(),
             title: "Song".to_string(),
             artist: "Artist".to_string(),
@@ -1992,7 +1992,7 @@ mod tests {
     fn sample_track_for_tests_with_id_prefix(id: &str, prefix: &str) -> Track {
         Track {
             id: format!("{}{}", prefix, id),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: format!("local-{}", id),
             title: format!("Song {}", id),
             artist: "Artist".to_string(),
@@ -2013,7 +2013,7 @@ mod tests {
     fn sample_remote_track_for_tests(id: &str) -> Track {
         Track {
             id: id.to_string(),
-            source: crate::models::source::Source::YouTube,
+            source: helix_core::models::source::Source::YouTube,
             source_id: format!("yt-{}", id),
             title: format!("Remote {}", id),
             artist: "Artist".to_string(),
@@ -2035,7 +2035,7 @@ mod tests {
 
         let local_track = Track {
             id: "9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123".to_string(),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: "/music/song.mp3".to_string(),
             title: "Song local".to_string(),
             artist: "Artist".to_string(),
@@ -2080,7 +2080,7 @@ mod tests {
         let current_track = sample_track_for_tests("current");
         let local_track = Track {
             id: "9f8f1f9e-17d6-4d3f-8a0d-c2f8a7cbe123".to_string(),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: "/music/song.mp3".to_string(),
             title: "Song local".to_string(),
             artist: "Artist".to_string(),
@@ -2135,7 +2135,7 @@ mod tests {
         let missing_path = temp_dir.join("missing.wav");
         let missing_track = Track {
             id: "missing-local".to_string(),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: missing_path.to_string_lossy().to_string(),
             title: "Missing local".to_string(),
             artist: "Artist".to_string(),
@@ -2238,7 +2238,7 @@ mod tests {
 
         let blocked_track = Track {
             id: "blocked-local".to_string(),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: blocked_path.to_string_lossy().to_string(),
             title: "Blocked local".to_string(),
             artist: "Artist".to_string(),
@@ -2317,7 +2317,7 @@ mod tests {
         let missing_path = temp_dir.join("missing.wav");
         let missing_track = Track {
             id: "missing-local".to_string(),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: missing_path.to_string_lossy().to_string(),
             title: "Missing local".to_string(),
             artist: "Artist".to_string(),
@@ -2386,7 +2386,7 @@ mod tests {
         std::fs::write(&blocked_path, b"not a real wav").expect("failed to write blocked file");
         let blocked_track = Track {
             id: "blocked-local".to_string(),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: blocked_path.to_string_lossy().to_string(),
             title: "Blocked local".to_string(),
             artist: "Artist".to_string(),
@@ -2828,7 +2828,7 @@ mod tests {
     ) -> Track {
         Track {
             id: id.to_string(),
-            source: crate::models::source::Source::Local,
+            source: helix_core::models::source::Source::Local,
             source_id: path.to_string_lossy().to_string(),
             title: title.to_string(),
             artist: artist.to_string(),
@@ -2963,7 +2963,7 @@ mod tests {
         // Normalization defaults to enabled, so the cache file uses the .n.m4a
         // suffix (the in-memory test DB has no audio_settings table, so
         // get_normalize_audio returns the default: true).
-        let cache_dir = crate::shared::utils::youtube_cache_dir();
+        let cache_dir = helix_core::shared::utils::youtube_cache_dir();
         let test_id = "cache_test_reuse_123";
         let cache_path = cache_dir.join(format!("{}.n.m4a", test_id));
 
@@ -3008,7 +3008,7 @@ mod tests {
         // Verify that special characters in the cache ID are stripped
         // but alphanumeric + dash + underscore are preserved.
         // Normalization defaults to enabled, so the cache file uses .n.m4a.
-        let cache_dir = crate::shared::utils::youtube_cache_dir();
+        let cache_dir = helix_core::shared::utils::youtube_cache_dir();
         let dirty_id = "abc-123_def";
         // Only alphanumeric + dash/underscore survive — this ID is already clean
         let expected_safe = "abc-123_def";

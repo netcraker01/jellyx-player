@@ -8,5 +8,6 @@
 fn main() {
     // Intentionally empty skeleton. Touching helix-core so the dependency
     // edge is exercised at compile time without committing to any behavior.
-    let _ = std::any::type_name::<helix_core::LibPlaceholderMarker>();
+    // After PR 3, real public types exist in helix_core::models.
+    let _ = std::any::type_name::<helix_core::models::source::Source>();
 }

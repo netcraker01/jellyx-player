@@ -24,8 +24,8 @@ use crate::ipc::dto::{
     ArtistFavorite as ArtistFavoriteDto,
 };
 use crate::library::{LibraryService, PlaylistService, SettingsService, SuggestionCategory};
-use crate::models::playlist::Playlist;
-use crate::models::track::Track;
+use helix_core::models::playlist::Playlist;
+use helix_core::models::track::Track;
 use crate::persistence::models::{HistoryEntry, LocalTrackEntry, WatchedFolder};
 use crate::playback::service::PlaybackService;
 use crate::sources::local::{ScanResult, ScannerService};
@@ -847,8 +847,8 @@ pub async fn resolve_playlist(
     source: String,
     url: String,
 ) -> Result<Playlist, AppError> {
-    let source_type: crate::models::source::Source =
-        serde_json::from_str(&format!("\"{}\"", source)).unwrap_or(crate::models::source::Source::YouTube);
+    let source_type: helix_core::models::source::Source =
+        serde_json::from_str(&format!("\"{}\"", source)).unwrap_or(helix_core::models::source::Source::YouTube);
     let playback = state.playback.clone();
     tokio::task::spawn_blocking(move || {
         playback
@@ -872,8 +872,8 @@ pub async fn play_playlist(
     source: String,
     url: String,
 ) -> Result<(), AppError> {
-    let source_type: crate::models::source::Source =
-        serde_json::from_str(&format!("\"{}\"", source)).unwrap_or(crate::models::source::Source::YouTube);
+    let source_type: helix_core::models::source::Source =
+        serde_json::from_str(&format!("\"{}\"", source)).unwrap_or(helix_core::models::source::Source::YouTube);
     let playback = state.playback.clone();
     tokio::task::spawn_blocking(move || playback.play_playlist(&source_type, &url))
         .await
@@ -892,8 +892,8 @@ pub async fn resolve_track(
     source: String,
     id: String,
 ) -> Result<Track, AppError> {
-    let source_type: crate::models::source::Source =
-        serde_json::from_str(&format!("\"{}\"", source)).unwrap_or(crate::models::source::Source::YouTube);
+    let source_type: helix_core::models::source::Source =
+        serde_json::from_str(&format!("\"{}\"", source)).unwrap_or(helix_core::models::source::Source::YouTube);
     let playback = state.playback.clone();
     tokio::task::spawn_blocking(move || {
         playback

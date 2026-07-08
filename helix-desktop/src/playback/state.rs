@@ -3,7 +3,7 @@
 //! `PlaybackState` represents the current playback status.
 //! `QueueState` holds the current queue and active track index.
 
-use crate::models::track::Track;
+use helix_core::models::track::Track;
 use serde::{Deserialize, Serialize};
 
 /// Current playback state.
@@ -66,7 +66,7 @@ impl Default for QueueState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::source::Source;
+    use helix_core::models::source::Source;
 
     #[test]
     fn playback_state_playing_serializes_to_pascal_case() {

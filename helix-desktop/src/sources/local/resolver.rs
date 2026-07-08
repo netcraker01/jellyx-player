@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use crate::errors::types::SourceError;
-use crate::models::source::Source;
-use crate::models::track::Track;
+use helix_core::models::source::Source;
+use helix_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::sources::SourceResolver;
 
@@ -54,7 +54,7 @@ impl SourceResolver for LocalResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::source::Source;
+    use helix_core::models::source::Source;
     use std::collections::HashMap;
 
     fn setup_resolver() -> LocalResolver {

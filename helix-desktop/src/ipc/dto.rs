@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::models::track::Track;
+use helix_core::models::track::Track;
 use crate::persistence::models::HistoryEntry;
 use crate::updater::checker::UpdateInfo;
 use crate::updater::prefs::UpdatePrefs;
@@ -297,7 +297,7 @@ pub type UpdaterPrefs = UpdatePrefs;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::source::Source;
+    use helix_core::models::source::Source;
     use std::collections::HashMap;
 
     fn sample_track(id: &str) -> Track {

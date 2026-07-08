@@ -12,7 +12,7 @@ use crate::ipc::commands::AppState;
 use crate::library::{LibraryService, PlaylistService, SettingsService};
 use crate::persistence::db::Database;
 use crate::playback::service::PlaybackService;
-use crate::shared::utils::ensure_art_cache_dir;
+use helix_core::shared::utils::ensure_art_cache_dir;
 use crate::sources::local::ScannerService;
 use crate::updater::service::{UpdateService, DEFAULT_CHECK_INTERVAL_SECS};
 
