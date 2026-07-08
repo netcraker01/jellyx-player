@@ -280,7 +280,7 @@ jobs:
           # Use the tag that v* tags sort before the current one.
           version="${{ steps.artifacts.outputs.version }}"
           current_tag="v${version}"
-          prev_tag="$(git tag --sort=-version:refname | grep -E '^v[0-9]' | grep -v "$current_tag" | head -1)"
+          prev_tag="$(git tag --sort=-version:refname | grep -E '^v[0-9]' | grep -v "$current_tag" | head -1 || true)"
           if [ -z "$prev_tag" ]; then
             prev_tag="$current_tag"
           fi
