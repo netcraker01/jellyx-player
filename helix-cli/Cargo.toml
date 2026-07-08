@@ -1,0 +1,13 @@
+[package]
+name = "helix-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Command-line interface skeleton for Helix (no user-facing features yet)."
+
+[[bin]]
+name = "helix-cli"
+path = "src/main.rs"
+
+[dependencies]
+helix-core = { path = "../helix-core" }

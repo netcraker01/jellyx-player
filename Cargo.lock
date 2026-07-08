@@ -1441,12 +1441,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
+name = "helix-cli"
+version = "0.1.0"
+dependencies = [
+ "helix-core",
+]
+
+[[package]]
+name = "helix-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "helix-desktop"
 version = "0.2.3"
 dependencies = [
  "cpal",
  "crossbeam-channel",
  "dirs 5.0.1",
+ "helix-core",
  "percent-encoding",
  "rand",
  "reqwest 0.12.28",
@@ -1472,6 +1487,13 @@ dependencies = [
  "tokio",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "helix-ffi"
+version = "0.1.0"
+dependencies = [
+ "helix-core",
 ]
 
 [[package]]

@@ -1,0 +1,13 @@
+[package]
+name = "helix-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Foreign Function Interface skeleton for Helix (no user-facing features yet)."
+
+[lib]
+name = "helix_ffi"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+helix-core = { path = "../helix-core" }

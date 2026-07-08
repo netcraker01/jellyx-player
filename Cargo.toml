@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["helix-desktop"]
+members = ["helix-desktop", "helix-core", "helix-cli", "helix-ffi"]
 
 [workspace.package]
 version = "0.1.0"

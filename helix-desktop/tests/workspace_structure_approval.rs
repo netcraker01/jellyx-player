@@ -29,3 +29,218 @@ fn public_module_surface_is_intact() {
     let _ = std::any::type_name::<helix_lib::errors::types::SourceError>();
     let _ = std::any::type_name::<helix_lib::errors::types::PlaybackError>();
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2: Core + Consumer Skeleton Crates approval tests.
+// These tests assert the workspace exposes `helix-core`, `helix-cli`, and
+// `helix-ffi` as buildable members with the expected crate types, and that
+// `helix-desktop` depends on the local `helix-core` crate. They reference
+// crates/structure that did NOT exist before PR 2 — they are written FIRST
+// per Strict TDD (RED) and drive the skeleton creation (GREEN).
+// ---------------------------------------------------------------------------
+
+/// The workspace MUST include `helix-core`, `helix-cli`, and `helix-ffi`
+/// as members alongside `helix-desktop` (spec: workspace-structure,
+/// consumer-scaffolding).
+#[test]
+fn workspace_members_include_all_four_crates() {
+    // Integration tests run with CWD = the `helix-desktop` package dir, so the
+    // root workspace manifest is one level up.
+    let manifest = std::fs::read_to_string("../Cargo.toml")
+        .expect("root Cargo.toml must be readable from test cwd");
+    assert!(
+        manifest.contains("members = [\"helix-desktop\", \"helix-core\", \"helix-cli\", \"helix-ffi\"]")
+            || manifest.contains("\"helix-core\""),
+        "workspace members MUST list helix-core, got:\n{manifest}"
+    );
+    assert!(
+        manifest.contains("\"helix-cli\""),
+        "workspace members MUST list helix-cli, got:\n{manifest}"
+    );
+    assert!(
+        manifest.contains("\"helix-ffi\""),
+        "workspace members MUST list helix-ffi, got:\n{manifest}"
+    );
+}
+
+/// `helix-core` MUST be a library crate that compiles and exposes a lib root
+/// (spec: core-boundary, workspace-structure). It must be reachable as a
+/// dependency from `helix-desktop`.
+#[test]
+fn helix_core_is_a_buildable_library_crate() {
+    // If helix-core is not a workspace member with a lib target, this line
+    // fails to compile — that is the RED state we are asserting against.
+    let _ = std::any::type_name::<helix_core::LibPlaceholderMarker>();
+    let core_manifest = std::fs::read_to_string("../helix-core/Cargo.toml")
+        .expect("helix-core/Cargo.toml must exist");
+    assert!(
+        core_manifest.contains("name = \"helix-core\""),
+        "helix-core package name MUST be helix-core"
+    );
+    assert!(
+        core_manifest.contains("serde"),
+        "helix-core MUST declare serde (tasks 2.1 / 3.4)"
+    );
+}
+
+/// `helix-cli` MUST be a binary crate skeleton with a `main` entry point
+/// (spec: consumer-scaffolding).
+#[test]
+fn helix_cli_is_a_binary_skeleton_crate() {
+    let cli_manifest = std::fs::read_to_string("../helix-cli/Cargo.toml")
+        .expect("helix-cli/Cargo.toml must exist");
+    assert!(
+        cli_manifest.contains("name = \"helix-cli\""),
+        "helix-cli package name MUST be helix-cli"
+    );
+    // The bin target is implied by src/main.rs; assert the source exists.
+    let main_src = std::fs::read_to_string("../helix-cli/src/main.rs")
+        .expect("helix-cli/src/main.rs must exist");
+    assert!(
+        main_src.contains("fn main"),
+        "helix-cli MUST define a main entry point"
+    );
+}
+
+/// `helix-ffi` MUST be a library crate that builds as `cdylib` and
+/// `staticlib` so it can be consumed from other languages (spec:
+/// consumer-scaffolding, design crate responsibilities).
+#[test]
+fn helix_ffi_is_a_cdylib_staticlib_crate() {
+    let ffi_manifest = std::fs::read_to_string("../helix-ffi/Cargo.toml")
+        .expect("helix-ffi/Cargo.toml must exist");
+    assert!(
+        ffi_manifest.contains("name = \"helix-ffi\""),
+        "helix-ffi package name MUST be helix-ffi"
+    );
+    assert!(
+        ffi_manifest.contains("cdylib") && ffi_manifest.contains("staticlib"),
+        "helix-ffi MUST declare crate-type = [\"cdylib\", \"staticlib\"]"
+    );
+    let lib_src = std::fs::read_to_string("../helix-ffi/src/lib.rs")
+        .expect("helix-ffi/src/lib.rs must exist");
+    // Empty/comment-only lib.rs is valid; assert it is at least present and
+    // does not declare user-facing features.
+    assert!(
+        !lib_src.contains("pub fn "),
+        "helix-ffi skeleton MUST NOT expose user-facing features (spec: consumer-scaffolding)"
+    );
+}
+
+/// `helix-desktop` MUST declare a local dependency on `helix-core` (task 2.8).
+#[test]
+fn helix_desktop_depends_on_local_helix_core() {
+    let desktop_manifest = std::fs::read_to_string("Cargo.toml")
+        .expect("helix-desktop/Cargo.toml must exist (CWD is helix-desktop)");
+    assert!(
+        desktop_manifest.contains("helix-core"),
+        "helix-desktop MUST depend on helix-core (path = \"../helix-core\")"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// TRIANGULATION — edge cases that force the assertions to exercise real
+// structure rather than trivially passing on empty strings / missing files.
+// ---------------------------------------------------------------------------
+
+/// The root workspace member list MUST list exactly four members in the
+/// canonical order (spec: workspace-structure). Catches accidental extras or
+/// reordering that the per-member checks above would miss.
+#[test]
+fn workspace_member_list_is_exactly_four_canonical_members() {
+    let manifest = std::fs::read_to_string("../Cargo.toml")
+        .expect("root Cargo.toml must be readable");
+    // Locate the members array line and assert its exact content.
+    let members_line = manifest
+        .lines()
+        .find(|l| l.trim_start().starts_with("members = ["))
+        .expect("root Cargo.toml MUST declare a workspace members array");
+    assert_eq!(
+        members_line.trim(),
+        "members = [\"helix-desktop\", \"helix-core\", \"helix-cli\", \"helix-ffi\"]",
+        "workspace members MUST be exactly the four canonical crates in order"
+    );
+}
+
+/// `helix-core` MUST NOT depend on Tauri — the core boundary (spec:
+/// core-boundary). This is the critical invariant that makes the split
+/// meaningful. Triangulates the `serde` presence check with a negative
+/// assertion. Checks the `[dependencies]` section specifically so prose in
+/// the package description (e.g. "Tauri-free") does not trigger a false
+/// positive.
+#[test]
+fn helix_core_has_no_tauri_dependency() {
+    let core_manifest = std::fs::read_to_string("../helix-core/Cargo.toml")
+        .expect("helix-core/Cargo.toml must exist");
+    // Extract the [dependencies] table so description prose mentioning
+    // "Tauri-free" does not produce a false positive.
+    let deps_section = extract_manifest_section(&core_manifest, "dependencies");
+    let lower = deps_section.to_lowercase();
+    assert!(
+        !lower.contains("tauri"),
+        "helix-core [dependencies] MUST NOT reference tauri (core boundary). deps:\n{deps_section}"
+    );
+}
+
+/// Extract the body of a `[section]` from a TOML manifest (naive, sufficient
+/// for test assertions). Returns the lines between the section header and the
+/// next top-level `[header]` (or end of file).
+fn extract_manifest_section(manifest: &str, section: &str) -> String {
+    let header = format!("[{section}]");
+    let mut out = String::new();
+    let mut in_section = false;
+    for line in manifest.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            if trimmed == header {
+                in_section = true;
+                continue;
+            } else if in_section {
+                // Next top-level section — stop.
+                break;
+            }
+        } else if in_section {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+/// `helix-cli` MUST depend on the local `helix-core` (task 2.3), proving the
+/// consumer wiring edge exists — not just that a binary target is present.
+#[test]
+fn helix_cli_depends_on_local_helix_core() {
+    let cli_manifest = std::fs::read_to_string("../helix-cli/Cargo.toml")
+        .expect("helix-cli/Cargo.toml must exist");
+    assert!(
+        cli_manifest.contains("helix-core") && cli_manifest.contains("../helix-core"),
+        "helix-cli MUST depend on helix-core via local path"
+    );
+}
+
+/// `helix-ffi` MUST depend on the local `helix-core` (task 2.5), proving the
+/// FFI consumer wiring edge exists alongside the crate-type declaration.
+#[test]
+fn helix_ffi_depends_on_local_helix_core() {
+    let ffi_manifest = std::fs::read_to_string("../helix-ffi/Cargo.toml")
+        .expect("helix-ffi/Cargo.toml must exist");
+    assert!(
+        ffi_manifest.contains("helix-core") && ffi_manifest.contains("../helix-core"),
+        "helix-ffi MUST depend on helix-core via local path"
+    );
+}
+
+/// The `helix-cli` binary skeleton MUST NOT expose user-facing functionality
+/// (spec: consumer-scaffolding — "Skeletons do not change product scope").
+/// Triangulates the `fn main` presence check with a negative behavioral
+/// assertion.
+#[test]
+fn helix_cli_skeleton_has_no_user_facing_features() {
+    let main_src = std::fs::read_to_string("../helix-cli/src/main.rs")
+        .expect("helix-cli/src/main.rs must exist");
+    assert!(
+        !main_src.contains("println!") && !main_src.contains("eprintln!"),
+        "helix-cli skeleton MUST NOT print or commit to user-facing output"
+    );
+}

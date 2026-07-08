@@ -20,6 +20,7 @@ integration = []
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+helix-core = { path = "../helix-core" }
 tauri = { version = "2", features = ["devtools", "protocol-asset", "test"] }
 tauri-plugin-shell = "2"
 serde = { workspace = true }
