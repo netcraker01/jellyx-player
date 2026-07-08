@@ -3,7 +3,7 @@ name = "helix-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Command-line interface skeleton for Helix (no user-facing features yet)."
+description = "Command-line interface skeleton for Helix (base banner + TUI foundation deps)."
 
 [[bin]]
 name = "helix-cli"
@@ -11,3 +11,8 @@ path = "src/main.rs"
 
 [dependencies]
 helix-core = { path = "../helix-core" }
+# Base TUI dependencies (original user acceptance criterion). No functional
+# TUI is wired in this slice — these are the foundational deps for the future
+# command-line interface.
+ratatui = "0.30"
+crossterm = "0.29"

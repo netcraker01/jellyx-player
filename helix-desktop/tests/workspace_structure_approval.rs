@@ -286,16 +286,147 @@ fn helix_ffi_depends_on_local_helix_core() {
     );
 }
 
-/// The `helix-cli` binary skeleton MUST NOT expose user-facing functionality
-/// (spec: consumer-scaffolding — "Skeletons do not change product scope").
-/// Triangulates the `fn main` presence check with a negative behavioral
-/// assertion.
+/// PR4 revision: the original informal user acceptance criteria for the CLI
+/// skeleton required it to import a `helix-core` type and print a base
+/// banner (`Helix CLI Base Lista`). The earlier workspace-core-split slice
+/// deferred this; the user explicitly reinstated the requirement. This test
+/// supersedes the prior `helix_cli_skeleton_has_no_user_facing_features`
+/// assertion and now asserts the INTENTIONAL base banner + core import exist.
+/// Still skeleton scaffolding — no real TUI/event-loop functionality.
 #[test]
-fn helix_cli_skeleton_has_no_user_facing_features() {
+fn helix_cli_skeleton_prints_base_banner_and_imports_core() {
     let main_src = std::fs::read_to_string("../helix-cli/src/main.rs")
         .expect("helix-cli/src/main.rs must exist");
     assert!(
-        !main_src.contains("println!") && !main_src.contains("eprintln!"),
-        "helix-cli skeleton MUST NOT print or commit to user-facing output"
+        main_src.contains("helix_core::"),
+        "helix-cli main.rs MUST import a helix-core structure (original acceptance criterion)"
+    );
+    assert!(
+        main_src.contains("Helix CLI Base Lista"),
+        "helix-cli main.rs MUST print the base banner 'Helix CLI Base Lista'"
+    );
+}
+
+/// `helix-cli` MUST declare the TUI base dependencies `ratatui` and
+/// `crossterm` (original user acceptance criterion — base deps only, no
+/// functional TUI yet). Triangulates the CLI skeleton structural checks with
+/// a dependency-surface assertion.
+#[test]
+fn helix_cli_declares_tui_base_dependencies() {
+    let cli_manifest = std::fs::read_to_string("../helix-cli/Cargo.toml")
+        .expect("helix-cli/Cargo.toml must exist");
+    assert!(
+        cli_manifest.contains("ratatui"),
+        "helix-cli Cargo.toml MUST declare ratatui base dependency (original acceptance criterion)"
+    );
+    assert!(
+        cli_manifest.contains("crossterm"),
+        "helix-cli Cargo.toml MUST declare crossterm base dependency (original acceptance criterion)"
+    );
+}
+
+/// `helix-ffi` MUST declare the `uniffi` dependency (original user acceptance
+/// criterion). Enables the `setup_scaffolding!()` proc-macro path.
+#[test]
+fn helix_ffi_declares_uniffi_dependency() {
+    let ffi_manifest = std::fs::read_to_string("../helix-ffi/Cargo.toml")
+        .expect("helix-ffi/Cargo.toml must exist");
+    assert!(
+        ffi_manifest.contains("uniffi"),
+        "helix-ffi Cargo.toml MUST declare uniffi dependency (original acceptance criterion)"
+    );
+}
+
+/// `helix-ffi/src/lib.rs` MUST initialize UniFFI scaffolding via
+/// `uniffi::setup_scaffolding!();` (original user acceptance criterion).
+/// Proc-macro-only path: no build.rs / UDL required for the macro to compile.
+#[test]
+fn helix_ffi_initializes_uniffi_scaffolding() {
+    let lib_src = std::fs::read_to_string("../helix-ffi/src/lib.rs")
+        .expect("helix-ffi/src/lib.rs must exist");
+    assert!(
+        lib_src.contains("uniffi::setup_scaffolding!"),
+        "helix-ffi lib.rs MUST call uniffi::setup_scaffolding!() (original acceptance criterion)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4: Architecture Documentation + Final Verification approval tests.
+// These tests assert the root `ARCHITECTURE.md` exists and reflects the
+// active workspace layout (spec: architecture-documentation), and that
+// `docs/ARCHITECTURE.md` §5.1 no longer references the old `src-tauri/`
+// path (task 4.2). These began as RED-phase assertions and now document the
+// expected final GREEN state.
+// ---------------------------------------------------------------------------
+
+/// The root `ARCHITECTURE.md` MUST exist as the top-level architecture entry
+/// point (spec: architecture-documentation, scenario "Root architecture doc
+/// exists"). A contributor opening the repository root must find it without
+/// navigating into `docs/`.
+#[test]
+fn root_architecture_doc_exists() {
+    let arch = std::fs::read_to_string("../ARCHITECTURE.md")
+        .expect("root ARCHITECTURE.md MUST exist at the repository root");
+    assert!(
+        !arch.trim().is_empty(),
+        "root ARCHITECTURE.md MUST NOT be empty"
+    );
+}
+
+/// The root `ARCHITECTURE.md` MUST describe the active workspace layout with
+/// the four canonical crates (spec: architecture-documentation, scenario
+/// "Architecture doc matches current split"). Asserts each crate name
+/// appears so a stale or partial doc is caught.
+#[test]
+fn root_architecture_doc_describes_workspace_layout() {
+    let arch = std::fs::read_to_string("../ARCHITECTURE.md")
+        .expect("root ARCHITECTURE.md MUST exist");
+    assert!(
+        arch.contains("helix-desktop"),
+        "root ARCHITECTURE.md MUST mention helix-desktop"
+    );
+    assert!(
+        arch.contains("helix-core"),
+        "root ARCHITECTURE.md MUST mention helix-core"
+    );
+    assert!(
+        arch.contains("helix-cli"),
+        "root ARCHITECTURE.md MUST mention helix-cli"
+    );
+    assert!(
+        arch.contains("helix-ffi"),
+        "root ARCHITECTURE.md MUST mention helix-ffi"
+    );
+}
+
+/// The root `ARCHITECTURE.md` MUST explain how to add new functionality to
+/// `helix-core` so all platforms can consume it (task 4.1). This is the
+/// contributor-facing guidance that the original requirement asked for.
+#[test]
+fn root_architecture_doc_explains_adding_core_functionality() {
+    let arch = std::fs::read_to_string("../ARCHITECTURE.md")
+        .expect("root ARCHITECTURE.md MUST exist");
+    let lower = arch.to_lowercase();
+    assert!(
+        lower.contains("helix-core") && (lower.contains("add") || lower.contains("extend") || lower.contains("new")),
+        "root ARCHITECTURE.md MUST explain how to add new functionality to helix-core"
+    );
+}
+
+/// `docs/ARCHITECTURE.md` §5.1 MUST NOT reference the old `src-tauri/` path
+/// after the workspace split (task 4.2). The backend section must use
+/// `helix-desktop/` instead. Catches stale documentation left over from the
+/// rename.
+#[test]
+fn docs_architecture_section_5_1_has_no_src_tauri_reference() {
+    let docs_arch = std::fs::read_to_string("../docs/ARCHITECTURE.md")
+        .expect("docs/ARCHITECTURE.md MUST exist");
+    assert!(
+        !docs_arch.contains("src-tauri"),
+        "docs/ARCHITECTURE.md MUST NOT reference src-tauri after the workspace split (task 4.2)"
+    );
+    assert!(
+        docs_arch.contains("helix-desktop"),
+        "docs/ARCHITECTURE.md MUST reference helix-desktop as the renamed backend crate"
     );
 }

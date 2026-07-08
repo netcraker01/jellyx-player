@@ -146,12 +146,16 @@ enum Source {
 
 ## 5. Estructura de Carpetas
 
-### 5.1 Backend (Rust / src-tauri/)
+### 5.1 Backend (Rust / helix-desktop/)
 
 Estructura **híbrida**: dominios principales arriba, submódulos técnicos dentro.
 
+> La lógica de dominio pura (`models/`, `shared/utils`) se extrajo a
+> `helix-core/` en el workspace split. Ver [`ARCHITECTURE.md`](../ARCHITECTURE.md)
+> raíz para el layout del workspace y el boundary del core.
+
 ```
-src-tauri/
+helix-desktop/
 ├── src/
 │   ├── app/                    # Inicialización y configuración de la app
 │   │   ├── mod.rs
@@ -194,25 +198,21 @@ src-tauri/
 │   │   ├── service.rs          # CRUD de favoritos, historial, playlists
 │   │   ├── state.rs
 │   │   └── models.rs
-│   ├── models/                 # Modelos globales compartidos
-│   │   ├── mod.rs
-│   │   ├── track.rs
-│   │   ├── artist.rs
-│   │   ├── album.rs
-│   │   └── source.rs
 │   ├── persistence/            # Almacenamiento persistente
 │   │   ├── mod.rs
 │   │   └── db.rs               # SQLite o similar
 │   ├── errors/                 # Tipos de error centralizados
 │   │   ├── mod.rs
 │   │   └── types.rs
-│   ├── shared/                 # Utilidades compartidas
-│   │   ├── mod.rs
-│   │   └── utils.rs
 │   └── main.rs                 # Entry point
 ├── Cargo.toml
 └── tauri.conf.json
 ```
+
+> **Nota:** `models/` y `shared/` se movieron a `helix-core/` en el workspace
+> split (PR 3). El árbol arriba refleja solo lo que permanece en
+> `helix-desktop`. Para los módulos extraídos, ver
+> [`helix-core/src/`](../helix-core/src/).
 
 ### 5.2 Frontend (Svelte / ui/)
 

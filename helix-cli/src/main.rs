@@ -1,13 +1,18 @@
 //! `helix-cli` — skeleton binary crate for a future command-line interface.
 //!
-//! This crate exists only to validate the workspace topology and the
-//! `helix-core` dependency wiring for non-desktop consumers. It MUST NOT
-//! introduce any user-facing functionality in this slice (spec:
-//! consumer-scaffolding). Real CLI behavior will be added in a future change.
+//! This crate exists to validate the workspace topology and the `helix-core`
+//! dependency wiring for non-desktop consumers. In this slice it prints a
+//! base banner and imports a `helix-core` type to exercise the dependency
+//! edge (original user acceptance criterion). Real TUI behavior — built on
+//! `ratatui` + `crossterm` — will be added in a future change.
 
 fn main() {
-    // Intentionally empty skeleton. Touching helix-core so the dependency
-    // edge is exercised at compile time without committing to any behavior.
+    // Exercise the helix-core dependency edge by referencing a public type.
     // After PR 3, real public types exist in helix_core::models.
     let _ = std::any::type_name::<helix_core::models::source::Source>();
+
+    // Base banner — confirms the CLI binary runs and produces output. No
+    // interactive TUI is wired in this slice; ratatui/crossterm are declared
+    // as foundational deps for the future command-line interface.
+    println!("Helix CLI Base Lista");
 }
