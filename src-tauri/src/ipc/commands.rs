@@ -50,8 +50,6 @@ pub struct AppState {
     pub fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
     /// Channel-aware updater service (Phase 1: notify-only / open-release-page).
     pub updater: Arc<UpdateService>,
-    /// Shared HTTP client for all async network requests.
-    pub http_client: reqwest::Client,
 }
 
 /// Convert a persistence-layer `UserPlaylist` into its IPC DTO form.

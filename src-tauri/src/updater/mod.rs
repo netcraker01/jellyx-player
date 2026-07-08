@@ -14,8 +14,3 @@ pub mod checker;
 pub mod manifest;
 pub mod prefs;
 pub mod service;
-
-pub use channel::{install_channel, InstallChannel, ChannelPolicy};
-pub use checker::UpdateInfo;
-pub use prefs::UpdatePrefs;
-pub use service::UpdateService;

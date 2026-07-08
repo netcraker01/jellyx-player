@@ -69,6 +69,7 @@ impl ScannerService {
     }
 
     /// Set or clear the playlist service after construction.
+    #[allow(dead_code)]
     pub fn set_playlist_service(&mut self, playlist: Option<Arc<PlaylistService>>) {
         self.playlist_service = playlist;
     }

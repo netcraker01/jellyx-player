@@ -155,6 +155,7 @@ impl PlaybackEventEmitter<tauri::test::MockRuntime> {
     ///
     /// Event emissions are swallowed by the mock runtime, so tests can focus
     /// on state mutations without needing a real Tauri app.
+    #[allow(dead_code)]
     pub fn test() -> Self {
         Self {
             app: tauri::test::mock_app().handle().clone(),

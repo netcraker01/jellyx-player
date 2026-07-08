@@ -86,7 +86,6 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
                 scanner: Arc::new(scanner),
                 fft_channel,
                 updater: updater.clone(),
-                http_client,
             });
 
             // Spawn the startup + periodic update check.

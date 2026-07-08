@@ -9,6 +9,9 @@ description = "A desktop background music player for people who work with music 
 name = "helix_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[features]
+integration = []
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

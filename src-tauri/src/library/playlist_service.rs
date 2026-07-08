@@ -66,6 +66,7 @@ impl PlaylistService {
     }
 
     /// Delete all playlists generated from a watched folder (cascade).
+    #[allow(dead_code)]
     pub fn delete_playlists_by_source_folder(
         &self,
         folder_path: &str,
@@ -411,6 +412,7 @@ impl PlaylistService {
     ///
     /// `source` defaults to `"local"` for backward compatibility with callers
     /// that predate the source dimension.
+    #[allow(dead_code)]
     pub fn add_artist_favorite(
         &self,
         artist_id: &str,

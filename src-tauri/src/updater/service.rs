@@ -50,6 +50,7 @@ impl UpdateService {
     }
 
     /// The detected install channel for this running binary.
+    #[allow(dead_code)]
     pub fn channel(&self) -> InstallChannel {
         self.channel
     }
@@ -102,6 +103,7 @@ impl UpdateService {
     }
 
     /// Run a check without applying suppression rules (async).
+    #[allow(dead_code)]
     pub async fn check_unsuppressed(&self) -> Result<Option<UpdateInfo>, String> {
         let latest = match fetch_latest(&self.http_client).await? {
             Some(l) => l,
