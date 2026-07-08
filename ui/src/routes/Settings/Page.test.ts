@@ -6,14 +6,22 @@
  * Spec: FR-012 — Settings page is reachable and renders.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render } from '@testing-library/svelte';
+import { fireEvent, render, screen } from '@testing-library/svelte';
 
 const mocks = vi.hoisted(() => ({
   getVersion: vi.fn(),
+  getSourceSettings: vi.fn(),
+  setSourceEnabled: vi.fn(),
+  getAudioSettings: vi.fn(),
 }));
 
 vi.mock('@services/commands', () => ({
   getVersion: mocks.getVersion,
+  getSourceSettings: mocks.getSourceSettings,
+  setSourceEnabled: mocks.setSourceEnabled,
+  getAudioSettings: mocks.getAudioSettings,
+  setPlaybackNormalizeAudio: vi.fn(),
+  setNormalizeAudio: vi.fn(),
 }));
 
 vi.mock('@i18n', () => {
@@ -41,11 +49,19 @@ vi.mock('@i18n', () => {
 });
 
 import { translations } from '@i18n';
+import { activateMiniPlayerSkin, selectedMiniPlayerSkinId } from '@features/mini-player/skins';
 import SettingsPage from './Page.svelte';
+import { get } from 'svelte/store';
 
 describe('Settings page', () => {
   beforeEach(() => {
     mocks.getVersion.mockReset();
+    mocks.getSourceSettings.mockReset();
+    mocks.setSourceEnabled.mockReset();
+    mocks.getAudioSettings.mockReset();
+    mocks.getSourceSettings.mockResolvedValue([]);
+    mocks.getAudioSettings.mockResolvedValue({ normalizeAudio: true });
+    activateMiniPlayerSkin('ipod-classic');
     translations.set({
       'app.title': 'Helix',
       'app.tagline': 'Background music for long work sessions',
@@ -58,6 +74,10 @@ describe('Settings page', () => {
       'settings.about_releases': 'Releases',
       'settings.about_issues': 'Report a bug',
       'settings.about_credits': 'Made with care by netcraker · © 2026 · Licensed under AGPL-3.0',
+      'settings.mini_player_skins': 'Mini player skins',
+      'settings.mini_player_skins_desc': 'Choose the declarative skin used by the mini player.',
+      'settings.skin_activate': 'Activate',
+      'settings.skin_active': 'Active',
       'common.loading': 'Loading...',
       'common.error': 'Error',
     });
@@ -79,6 +99,21 @@ describe('Settings page', () => {
     expect(container.textContent).toContain('Language');
     expect(container.textContent).toContain('About Helix');
     expect(container.textContent).toContain('Version');
+    expect(container.textContent).toContain('Mini player skins');
+  });
+
+  it('activates a different mini-player skin and updates active state', async () => {
+    mocks.getVersion.mockResolvedValueOnce('0.1.0');
+    const { container } = render(SettingsPage);
+
+    expect(get(selectedMiniPlayerSkinId)).toBe('ipod-classic');
+    const activateButton = screen.getByRole('button', { name: 'Activate' });
+
+    await fireEvent.click(activateButton);
+
+    expect(get(selectedMiniPlayerSkinId)).toBe('graphite-pocket');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Active' }).disabled).toBe(true);
+    expect(container.querySelector('.skin-card.active')?.textContent).toContain('Graphite Pocket');
   });
 
   it('renders expanded About Helix content with links and credits', () => {

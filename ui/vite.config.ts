@@ -21,6 +21,7 @@ export default defineConfig({
     },
   },
   test: {
+    forbidOnly: true,
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/tests/setupTests.ts'],

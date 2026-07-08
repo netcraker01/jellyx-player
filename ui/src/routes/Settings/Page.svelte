@@ -4,7 +4,8 @@
   import { getVersion, getSourceSettings, setSourceEnabled, getAudioSettings } from '@services/commands';
   import type { SourceSetting } from '@services/commands';
   import { normalizeAudio, toggleNormalizeAudio, cinematicMode, toggleCinematicMode, cinematicIntensity, setCinematicIntensity } from '@features/player/stores/player';
-  import { Library, Languages, Plug, Volume2, Monitor, Github, ExternalLink } from 'lucide-svelte';
+  import { Library, Languages, Plug, Volume2, Monitor, Github, ExternalLink, Palette } from 'lucide-svelte';
+  import { MINI_PLAYER_SKINS, activateMiniPlayerSkin, selectedMiniPlayerSkinId } from '@features/mini-player/skins';
 
   let version = '';
   let versionError: string | null = null;
@@ -90,6 +91,10 @@
     if (Number.isFinite(v)) setCinematicIntensity(v);
   }
 
+  function handleSkinActivate(id: string) {
+    activateMiniPlayerSkin(id);
+  }
+
   const SUPPORTED_LOCALES = [
     { code: 'en', label: 'English' },
     { code: 'es', label: 'Español' },
@@ -124,6 +129,41 @@
         />
         <span class="toggle-slider"></span>
       </label>
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <div class="section-header">
+      <Palette size={20} />
+      <h2>{$t('settings.mini_player_skins')}</h2>
+    </div>
+    <p class="section-desc">{$t('settings.mini_player_skins_desc')}</p>
+    <div class="skin-grid">
+      {#each MINI_PLAYER_SKINS as skin (skin.id)}
+        <article class="skin-card" class:active={$selectedMiniPlayerSkinId === skin.id}>
+          <div
+            class="skin-preview"
+            style="--skin-shell: {skin.theme.shell}; --skin-screen: {skin.theme.screen}; --skin-control-surface: {skin.theme.controlSurface};"
+            aria-hidden="true"
+          >
+            <div class="skin-preview-screen"></div>
+            <div class="skin-preview-wheel"></div>
+          </div>
+          <div class="skin-meta">
+            <h3>{skin.name}</h3>
+            <p>{skin.description}</p>
+            <span>{skin.window.width}×{skin.window.height}</span>
+          </div>
+          <button
+            class="activate-skin"
+            type="button"
+            disabled={$selectedMiniPlayerSkinId === skin.id}
+            on:click={() => handleSkinActivate(skin.id)}
+          >
+            {$selectedMiniPlayerSkinId === skin.id ? $t('settings.skin_active') : $t('settings.skin_activate')}
+          </button>
+        </article>
+      {/each}
     </div>
   </section>
 
@@ -315,6 +355,86 @@
 
   .setting-value.muted {
     color: var(--text-secondary, #9ca3af);
+  }
+
+  .skin-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+
+  .skin-card {
+    display: grid;
+    grid-template-columns: 72px 1fr;
+    gap: 0.75rem;
+    padding: 0.85rem;
+    border: 1px solid var(--border-color, #1f2937);
+    border-radius: 10px;
+    background: var(--bg-elevated, #1f2937);
+  }
+
+  .skin-card.active {
+    border-color: var(--color-accent, #6366f1);
+  }
+
+  .skin-preview {
+    width: 64px;
+    height: 96px;
+    border-radius: 14px;
+    background: var(--skin-shell);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 10px;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+  }
+
+  .skin-preview-screen {
+    width: 42px;
+    height: 30px;
+    border-radius: 4px;
+    background: var(--skin-screen);
+    border: 2px solid rgba(0, 0, 0, 0.55);
+  }
+
+  .skin-preview-wheel {
+    width: 40px;
+    height: 40px;
+    margin-top: 12px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--skin-shell) 0 32%, var(--skin-control-surface) 34% 100%);
+  }
+
+  .skin-meta h3 {
+    margin: 0 0 0.25rem;
+    font-size: 0.95rem;
+  }
+
+  .skin-meta p {
+    margin: 0 0 0.35rem;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.8rem;
+  }
+
+  .skin-meta span {
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.75rem;
+  }
+
+  .activate-skin {
+    grid-column: 1 / -1;
+    justify-self: end;
+    border: 1px solid var(--border-color, #1f2937);
+    border-radius: 999px;
+    background: var(--color-accent, #6366f1);
+    color: white;
+    padding: 0.35rem 0.75rem;
+    cursor: pointer;
+  }
+
+  .activate-skin:disabled {
+    cursor: default;
+    opacity: 0.65;
   }
 
   select {

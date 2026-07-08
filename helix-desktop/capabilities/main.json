@@ -7,6 +7,10 @@
   "permissions": [
     "core:default",
     "core:window:allow-set-decorations",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-min-size",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
     "dialog:default",
     "shell:allow-open"
   ]

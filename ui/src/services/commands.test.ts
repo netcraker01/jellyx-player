@@ -134,4 +134,22 @@ describe('Grouped search commands', () => {
       path: '/music/track.mp3',
     });
   });
+
+  it('openMiniPlayer invokes open_mini_player', async () => {
+    mocks.invokeCommand.mockResolvedValueOnce(undefined);
+
+    const { openMiniPlayer } = await import('@services/commands');
+    await openMiniPlayer();
+
+    expect(mocks.invokeCommand).toHaveBeenCalledWith('open_mini_player');
+  });
+
+  it('restoreFullPlayer invokes restore_full_player', async () => {
+    mocks.invokeCommand.mockResolvedValueOnce(undefined);
+
+    const { restoreFullPlayer } = await import('@services/commands');
+    await restoreFullPlayer();
+
+    expect(mocks.invokeCommand).toHaveBeenCalledWith('restore_full_player');
+  });
 });

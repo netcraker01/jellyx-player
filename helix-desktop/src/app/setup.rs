@@ -145,6 +145,8 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::play_next_with_track,
             crate::ipc::commands::get_queue,
             crate::ipc::commands::get_version,
+            crate::ipc::commands::open_mini_player,
+            crate::ipc::commands::restore_full_player,
             // Library commands
             crate::ipc::commands::get_history,
             crate::ipc::commands::clear_history,

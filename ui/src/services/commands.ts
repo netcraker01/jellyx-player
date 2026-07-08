@@ -132,6 +132,14 @@ export function getVersion(): Promise<string> {
   return invokeCommand<string>('get_version');
 }
 
+export function openMiniPlayer(): Promise<void> {
+  return invokeCommand<void>('open_mini_player');
+}
+
+export function restoreFullPlayer(): Promise<void> {
+  return invokeCommand<void>('restore_full_player');
+}
+
 /** Set shuffle mode on or off. */
 export function setShuffle(enabled: boolean): Promise<void> {
   return invokeCommand<void>('set_shuffle', { enabled });

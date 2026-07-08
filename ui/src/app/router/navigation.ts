@@ -10,6 +10,11 @@ hashHistory.listen(({ location }) => set(location.pathname));
 
 export const currentPath = { subscribe };
 
-export function navigate(to: string) {
-  hashHistory.navigate(to);
+type NavigateOptions = {
+  replace?: boolean;
+  preserveScroll?: boolean;
+};
+
+export function navigate(to: string, options?: NavigateOptions) {
+  hashHistory.navigate(to, options);
 }

@@ -21,6 +21,9 @@
     "add_to_list": "Add to list",
     "remove_from_list": "Remove from list"
   },
+  "mini_player": {
+    "open": "Open mini player"
+  },
   "home": {
     "recently_played": "Recently Played",
     "recommended": "Recommended for You",
@@ -104,7 +107,11 @@
     "cinematic_mode_desc": "Show a soft, music-reactive ambient background behind the app. Only active while audio is playing and the fullscreen visualizer is off.",
     "cinematic_intensity": "Cinematic intensity",
     "hide_title_bar": "Hide title bar",
-    "hide_title_bar_desc": "Remove the native window title bar for a cleaner look. Restart the app to restore the title bar."
+    "hide_title_bar_desc": "Remove the native window title bar for a cleaner look. Restart the app to restore the title bar.",
+    "mini_player_skins": "Mini player skins",
+    "mini_player_skins_desc": "Choose the declarative skin used by the mini player. Skins define layout, colors and window sizing without running scripts.",
+    "skin_activate": "Activate",
+    "skin_active": "Active"
   },
   "errors": {
     "NETWORK_TIMEOUT": "Connection timed out. Check your network.",

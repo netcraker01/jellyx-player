@@ -31,6 +31,7 @@ use crate::playback::service::PlaybackService;
 use crate::sources::local::{ScanResult, ScannerService};
 use crate::updater::prefs::{now_iso_utc, now_plus_seconds};
 use crate::updater::service::UpdateService;
+use tauri::Manager;
 
 /// Application state shared across Tauri commands.
 /// PlaybackService is the single authority for all playback operations.
@@ -127,6 +128,34 @@ pub fn get_queue(
 #[tauri::command]
 pub fn get_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
+pub fn open_mini_player(app: tauri::AppHandle) -> Result<(), AppError> {
+    if let Some(main_window) = app.get_webview_window("main") {
+        main_window.set_focus().map_err(|e| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some(e.to_string()),
+        })?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn restore_full_player(app: tauri::AppHandle) -> Result<(), AppError> {
+    if let Some(main_window) = app.get_webview_window("main") {
+        main_window.show().map_err(|e| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some(e.to_string()),
+        })?;
+        main_window.set_focus().map_err(|e| AppError {
+            code: "UNKNOWN_ERROR".into(),
+            details: Some(e.to_string()),
+        })?;
+    }
+
+    Ok(())
 }
 
 // ── Library commands (fast SQLite) ──────────────────────────────────

@@ -13,6 +13,7 @@ import FolderDetail from '../routes/Library/FolderDetail.svelte';
 import Settings from '../routes/Settings/Page.svelte';
 import ArtistPage from '../routes/Artist/Page.svelte';
 import AlbumPage from '../routes/Album/Page.svelte';
+import MiniPlayer from '@features/mini-player/MiniPlayer.svelte';
 import Visualizer from '@features/player/components/Visualizer.svelte';
 import { frequencyData, cinematicMode, cinematicIntensity, modoCineActive } from '@features/player/stores/player';
 import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte';
@@ -47,6 +48,7 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
     | { name: 'library' }
     | { name: 'folder-detail'; folderPath: string }
     | { name: 'settings' }
+    | { name: 'mini-player' }
     | { name: 'artist'; id: string }
     | { name: 'album'; id: string };
 
@@ -56,6 +58,7 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
     if (path === '/now-playing') return { name: 'now-playing' };
     if (path === '/library') return { name: 'library' };
     if (path === '/settings') return { name: 'settings' };
+    if (path === '/mini-player') return { name: 'mini-player' };
     if (path.startsWith('/library/folder/')) return { name: 'folder-detail', folderPath: decodeURIComponent(path.slice('/library/folder/'.length)) };
     if (path.startsWith('/playlists/')) return { name: 'playlist-detail', id: decodeURIComponent(path.slice('/playlists/'.length)) };
     if (path.startsWith('/artist/')) return { name: 'artist', id: decodeURIComponent(path.slice('/artist/'.length)) };
@@ -66,6 +69,9 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
   $: route = resolveRoute($currentPath);
 </script>
 
+{#if route.name === 'mini-player'}
+  <MiniPlayer />
+{:else}
 <div class="app-shell" class:cinematic-active={cineOn}>
   <!-- Cinematic ambient background: layered reactive gradients/glow that paint
        BEHIND app content (z-index: -1 within an isolated stacking context on
@@ -117,6 +123,7 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
     </div>
   {/if}
 </div>
+{/if}
 
 <style>
   .app-shell {

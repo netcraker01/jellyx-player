@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize, Minimize, Shuffle, Repeat, Repeat1 } from 'lucide-svelte';
+  import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize, Minimize, Shuffle, Repeat, Repeat1, Smartphone } from 'lucide-svelte';
   import { t } from '@i18n';
+  import { enterMiniPlayer } from '@features/mini-player/mode';
   import HelixLogo from '@shared/components/HelixLogo.svelte';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import {
@@ -55,6 +56,12 @@
   }
 
   let previousVolume = 80;
+
+  function handleOpenMiniPlayer(): void {
+    enterMiniPlayer().catch((err) => {
+      console.error('Failed to open mini player:', err);
+    });
+  }
 
   // ── Marquee detection ───────────────────────────────────────────────
   let titleEl: HTMLSpanElement | null = null;
@@ -155,6 +162,9 @@
       {:else}
         <Maximize size={16} />
       {/if}
+    </button>
+    <button class="control-btn mini-player-btn" aria-label={$t('mini_player.open')} on:click={handleOpenMiniPlayer}>
+      <Smartphone size={16} />
     </button>
     <button class="control-btn" on:click={toggleMute} aria-label="Mute">
       {#if $volume === 0}
@@ -393,6 +403,14 @@
   }
 
   .modo-cine-btn:hover {
+    opacity: 1;
+  }
+
+  .mini-player-btn {
+    opacity: 0.75;
+  }
+
+  .mini-player-btn:hover {
     opacity: 1;
   }
 </style>
