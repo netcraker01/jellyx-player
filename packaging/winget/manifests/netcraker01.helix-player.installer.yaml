@@ -10,7 +10,7 @@
 #   - REPLACE_WITH_WIX_UPGRADE_CODE    → UpgradeCode from MSI database (stable, do NOT change)
 #   - URLs                             → actual GitHub release download URLs
 #
-# The UpgradeCode is pinned in src-tauri/tauri.conf.json (bundle.windows.wix.upgradeCode).
+# The UpgradeCode is pinned in helix-desktop/tauri.conf.json (bundle.windows.wix.upgradeCode).
 # It must stay the same across ALL versions — changing it breaks upgrade detection.
 # =============================================================================
 PackageIdentifier: netcraker01.helix-player

@@ -60,7 +60,7 @@ Helix uses a single unified release workflow: `.github/workflows/release.yml`. I
 ### How to publish a release
 
 ```bash
-# 1. Bump the version in src-tauri/Cargo.toml, src-tauri/tauri.conf.json, and ui/package.json
+# 1. Bump the version in helix-desktop/Cargo.toml, helix-desktop/tauri.conf.json, and ui/package.json
 # 2. Commit and tag
 git tag v0.2.0
 git push origin v0.2.0

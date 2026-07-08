@@ -157,8 +157,8 @@ Before creating a release, verify ALL of the following:
 
 ### Version bump
 
-- [ ] `src-tauri/Cargo.toml` → `version = "X.Y.Z"`
-- [ ] `src-tauri/tauri.conf.json` → `"version": "X.Y.Z"`
+- [ ] `helix-desktop/Cargo.toml` → `version = "X.Y.Z"`
+- [ ] `helix-desktop/tauri.conf.json` → `"version": "X.Y.Z"`
 - [ ] `ui/package.json` → `"version": "X.Y.Z"`
 - [ ] All three versions match exactly
 

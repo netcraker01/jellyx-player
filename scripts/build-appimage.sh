@@ -64,7 +64,8 @@ fi
 
 # --- Step 2: Locate the AppDir ---
 # Tauri's bundler creates the AppDir under target/release/bundle/appimage/
-APPDIR_BASE="$PROJECT_ROOT/src-tauri/target/release/bundle/appimage"
+# In a Cargo workspace, build artifacts go to the workspace root target/.
+APPDIR_BASE="$PROJECT_ROOT/target/release/bundle/appimage"
 
 # Find the .AppDir directory (Tauri creates one named like com.helix.music.AppDir)
 APPDIR=$(find "$APPDIR_BASE" -maxdepth 1 -name "*.AppDir" -type d 2>/dev/null | head -1)
@@ -112,7 +113,7 @@ echo "==> No AppImage found after build. Creating manually with NO_STRIP=1..."
 LINUXDEPLOY="$(command -v linuxdeploy-x86_64.AppImage 2>/dev/null || echo "")"
 if [ -z "$LINUXDEPLOY" ]; then
   echo "==> Downloading linuxdeploy..."
-  LINUXDEPLOY="$PROJECT_ROOT/src-tauri/target/linuxdeploy-x86_64.AppImage"
+  LINUXDEPLOY="$PROJECT_ROOT/target/linuxdeploy-x86_64.AppImage"
   if [ ! -f "$LINUXDEPLOY" ]; then
     curl -sL "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage" \
       -o "$LINUXDEPLOY"

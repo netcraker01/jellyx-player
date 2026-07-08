@@ -66,7 +66,7 @@ build() {
 
   # Build the Tauri app
   # NO_STRIP=1 prevents linuxdeploy from stripping RELR-enabled binaries
-  NO_STRIP=1 cargo tauri build --release --manifest-path src-tauri/Cargo.toml
+  NO_STRIP=1 cargo tauri build --release --manifest-path helix-desktop/Cargo.toml
 
   # For AppImage specifically, use the dedicated script:
   # NO_STRIP=1 ./scripts/build-appimage.sh --skip-build
@@ -76,18 +76,18 @@ package() {
   cd "helix-${pkgver}"
 
   # Install the binary
-  install -Dm755 "src-tauri/target/release/helix" "${pkgdir}/usr/bin/helix"
+  install -Dm755 "target/release/helix" "${pkgdir}/usr/bin/helix"
 
   # Install desktop entry
   install -Dm644 "packaging/flatpak/com.helix.music.desktop" \
     "${pkgdir}/usr/share/applications/com.helix.music.desktop"
 
   # Install icons
-  install -Dm644 "src-tauri/icons/32x32.png" \
+  install -Dm644 "helix-desktop/icons/32x32.png" \
     "${pkgdir}/usr/share/icons/hicolor/32x32/apps/com.helix.music.png"
-  install -Dm644 "src-tauri/icons/128x128.png" \
+  install -Dm644 "helix-desktop/icons/128x128.png" \
     "${pkgdir}/usr/share/icons/hicolor/128x128/apps/com.helix.music.png"
-  install -Dm644 "src-tauri/icons/128x128@2x.png" \
+  install -Dm644 "helix-desktop/icons/128x128@2x.png" \
     "${pkgdir}/usr/share/icons/hicolor/256x256/apps/com.helix.music.png"
 
   # Install metainfo

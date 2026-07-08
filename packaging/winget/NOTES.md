@@ -73,7 +73,7 @@ Tauri's WiX bundler produces MSI files named:
 ```
 Helix_<version>_x64_en-US.msi
 ```
-where `<version>` comes from `src-tauri/Cargo.toml` → `package.version`.
+where `<version>` comes from `helix-desktop/Cargo.toml` → `package.version`.
 
 The `productName` in `tauri.conf.json` is `Helix` (not "Helix Player") — this is intentional.
 The visible display name ("Helix Player") is set via the WiX configuration in `tauri.conf.json`.

@@ -1,8 +1,8 @@
 # Rust
 # For applications, Cargo.lock SHOULD be committed for reproducible builds.
 # It is tracked in this repository; do not add it here.
+# In a Cargo workspace, all build artifacts go to the root target/ directory.
 target/
-src-tauri/target/
 
 # Node
 node_modules/
@@ -12,7 +12,7 @@ ui/.svelte-kit/
 
 # Bundled yt-dlp binaries (large, platform-specific — download separately for release)
 # These are placed next to the app executable at build time, not committed to git.
-src-tauri/binaries/yt-dlp-*
+helix-desktop/binaries/yt-dlp-*
 
 # OS
 .DS_Store

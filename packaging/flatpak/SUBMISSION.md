@@ -4,7 +4,7 @@
 #
 # 1. GENERATE CARGO SOURCES
 #    pip install flatpak-cargo-generator
-#    flatpak-cargo-generator src-tauri/Cargo.lock -o packaging/flatpak/cargo-sources.json
+#    flatpak-cargo-generator Cargo.lock -o packaging/flatpak/cargo-sources.json
 #    Then uncomment the cargo-sources.json line in com.helix.music.yml
 #
 # 2. ADD SCREENSHOTS

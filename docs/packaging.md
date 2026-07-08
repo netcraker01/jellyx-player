@@ -30,7 +30,7 @@ This document explains what accounts, credentials, and steps are needed to publi
 1. Generate cargo sources:
    ```bash
    pip install flatpak-cargo-generator
-   flatpak-cargo-generator src-tauri/Cargo.lock -o packaging/flatpak/cargo-sources.json
+   flatpak-cargo-generator Cargo.lock -o packaging/flatpak/cargo-sources.json
    ```
 
 2. Update `packaging/flatpak/com.helix.music.yml`:
@@ -260,7 +260,7 @@ Both are unsigned by default. See [Code Signing](#6-code-signing-windows) for ho
    - Open a PR against microsoft/winget-pkgs
 
 ### Important notes
-- The **UpgradeCode** is pinned in `src-tauri/tauri.conf.json` (`bundle.windows.wix.upgradeCode`). It must stay the same across ALL versions — changing it breaks upgrade detection.
+- The **UpgradeCode** is pinned in `helix-desktop/tauri.conf.json` (`bundle.windows.wix.upgradeCode`). It must stay the same across ALL versions — changing it breaks upgrade detection.
 - The MSI filename follows the pattern `Helix_<version>_x64_en-US.msi` (derived from `productName` in `tauri.conf.json`).
 - The NSIS filename follows the pattern `Helix_<version>_x64-setup.exe`.
 - winget manifests should reference the **MSI** installer type, not NSIS. The NSIS setup.exe is for direct user installs only.
