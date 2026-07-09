@@ -75,11 +75,11 @@ describe('mini player mode', () => {
   });
 
   it('uses the selected skin dimensions for native mini mode', async () => {
-    activateMiniPlayerSkin('winamp-classic');
+    activateMiniPlayerSkin('graphite-pocket');
 
     await enterMiniPlayer();
 
-    expect(enterNativeMiniWindow).toHaveBeenCalledWith({ width: 400, height: 100 });
+    expect(enterNativeMiniWindow).toHaveBeenCalledWith({ width: 300, height: 480 });
   });
 
   it('uses the persisted mini-player scale for native mini mode', async () => {

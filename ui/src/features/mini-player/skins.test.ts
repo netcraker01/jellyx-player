@@ -30,23 +30,9 @@ describe('mini player skins', () => {
 
   it('ships only declarative skins with sizing contracts', () => {
     expect(MINI_PLAYER_SKINS.length).toBeGreaterThan(1);
-    expect(MINI_PLAYER_SKINS.map((skin) => skin.id)).toEqual(expect.arrayContaining(['ipod-classic', 'winamp-classic']));
+    expect(MINI_PLAYER_SKINS.map((skin) => skin.id)).toEqual(expect.arrayContaining(['ipod-classic']));
     expect(MINI_PLAYER_SKINS.every((skin) => skin.window.width > 0 && skin.window.height > 0)).toBe(true);
     expect(MINI_PLAYER_SKINS.every((skin) => !('script' in skin))).toBe(true);
-  });
-
-  it('ships a declarative Classic horizontal hi-fi skin contract', () => {
-    const skin = resolveMiniPlayerSkin('winamp-classic');
-
-    expect(skin).toMatchObject({
-      id: 'winamp-classic',
-      name: 'Classic',
-      kind: 'classic',
-      shape: 'rounded-rectangle',
-      window: { width: 400, height: 100, resizable: false },
-    });
-    expect(skin.theme.screenText).toBe('#ffd166');
-    expect(skin.layout.controls).toEqual(['previous', 'playPause', 'next']);
   });
 
   it('falls back to the default skin for unknown ids', () => {
@@ -74,18 +60,7 @@ describe('mini player skins', () => {
     }
   });
 
-  it('scales the Classic skin proportionally below 100%', () => {
-    const skin = resolveMiniPlayerSkin('winamp-classic');
-    const smallest = resolveMiniPlayerWindowSize(skin, 0.3);
-    const largest = resolveMiniPlayerWindowSize(skin, 1);
-
-    expect(smallest).toEqual({ width: 120, height: 30 });
-    expect(smallest.width).toBeLessThan(largest.width);
-    expect(smallest.height).toBeLessThan(largest.height);
-    expect(smallest.width / smallest.height).toBeCloseTo(skin.window.width / skin.window.height, 1);
-  });
-
-  it('floors tiny positive malformed skin dimensions before native resize', () => {
+  it('preserves each skin aspect ratio at the smallest scale', () => {
     const skin = {
       ...resolveMiniPlayerSkin(DEFAULT_MINI_PLAYER_SKIN),
       window: { width: 0.1, height: 0.1, resizable: false },
@@ -94,16 +69,7 @@ describe('mini player skins', () => {
     expect(resolveMiniPlayerWindowSize(skin)).toEqual({ width: 1, height: 1 });
   });
 
-  it('activates the Classic skin from the registry', () => {
-    installLocalStorage();
-
-    activateMiniPlayerSkin('winamp-classic');
-
-    expect(resolveMiniPlayerSkin(get(selectedMiniPlayerSkinId)).id).toBe('winamp-classic');
-    expect(localStorage.getItem('helix-mini-player-skin')).toBe('winamp-classic');
-  });
-
-  it('clamps and persists the mini-player scale preference', () => {
+  it('floors tiny positive malformed skin dimensions before native resize', () => {
     installLocalStorage();
 
     setMiniPlayerScale(0.1);

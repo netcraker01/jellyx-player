@@ -96,29 +96,6 @@ export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
       controlText: '#111827',
     },
   },
-  {
-    id: 'winamp-classic',
-    name: 'Classic',
-    description: 'A compact horizontal hi-fi skin with dark hardware, amber display, and tactile transport controls.',
-    author: 'Helix',
-    kind: 'classic',
-    shape: 'rounded-rectangle',
-    window: { width: 400, height: 100, resizable: false },
-    layout: {
-      artwork: 'screen',
-      controls: ['previous', 'playPause', 'next'],
-      progress: 'screen-bar',
-    },
-    theme: {
-      shell: '#171b22',
-      shellEdge: '#05070a',
-      screen: '#120c06',
-      screenText: '#ffd166',
-      accent: '#ff9f1c',
-      controlSurface: '#303743',
-      controlText: '#f8fafc',
-    },
-  },
 ] as const;
 
 export type MiniPlayerSkinId = (typeof MINI_PLAYER_SKINS)[number]['id'];

@@ -40,25 +40,25 @@ describe('MiniPlayer', () => {
   });
 
   it('renders the selected skin contract, sizing, and theme', () => {
-    activateMiniPlayerSkin('winamp-classic');
+    activateMiniPlayerSkin('graphite-pocket');
     setMiniPlayerScale(0.3);
 
     const { container } = render(MiniPlayer);
     const shell = screen.getByLabelText('Mini player');
     const device = container.querySelector<HTMLElement>('.device');
 
-    expect(device?.dataset.skin).toBe('winamp-classic');
-    expect(device?.dataset.kind).toBe('classic');
+    expect(device?.dataset.skin).toBe('graphite-pocket');
+    expect(device?.dataset.kind).toBe('ipod');
     expect(device?.dataset.shape).toBe('rounded-rectangle');
-    expect(screen.getByLabelText('Classic')).toBeTruthy();
-    expect(shell.getAttribute('style')).toContain('--skin-card-width: 400px');
-    expect(shell.getAttribute('style')).toContain('--skin-card-height: 100px');
-    expect(shell.getAttribute('style')).toContain('--skin-window-width: 120px');
-    expect(shell.getAttribute('style')).toContain('--skin-window-height: 30px');
+    expect(screen.getByLabelText('Graphite Pocket')).toBeTruthy();
+    expect(shell.getAttribute('style')).toContain('--skin-card-width: 300px');
+    expect(shell.getAttribute('style')).toContain('--skin-card-height: 480px');
+    expect(shell.getAttribute('style')).toContain('--skin-window-width: 90px');
+    expect(shell.getAttribute('style')).toContain('--skin-window-height: 144px');
     expect(shell.getAttribute('style')).toContain('--skin-scale: 0.3');
-    expect(shell.getAttribute('style')).toContain('--skin-shell: #171b22');
-    expect(shell.getAttribute('style')).toContain('--skin-screen-text: #ffd166');
-    expect(shell.getAttribute('style')).toContain('--skin-accent: #ff9f1c');
+    expect(shell.getAttribute('style')).toContain('--skin-shell: #2f343d');
+    expect(shell.getAttribute('style')).toContain('--skin-screen-text: #111827');
+    expect(shell.getAttribute('style')).toContain('--skin-accent: #93c5fd');
   });
 
   it('uses a proportional compact skin instead of independent width or height squeezing', () => {

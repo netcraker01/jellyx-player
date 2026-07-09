@@ -110,20 +110,20 @@ describe('Settings page', () => {
     expect(container.textContent).toContain('Mini player skins');
   });
 
-  it('activates the Classic mini-player skin and updates active state', async () => {
+  it('activates the Graphite Pocket mini-player skin and updates active state', async () => {
     mocks.getVersion.mockResolvedValueOnce('0.1.0');
     render(SettingsPage);
 
     expect(get(selectedMiniPlayerSkinId)).toBe('ipod-classic');
-    expect(screen.getByText('Classic')).toBeTruthy();
-    expect(screen.getByText('A compact horizontal hi-fi skin with dark hardware, amber display, and tactile transport controls.')).toBeTruthy();
-    const activateButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Activate Classic' });
+    expect(screen.getByText('Graphite Pocket')).toBeTruthy();
+    expect(screen.getByText('A smaller graphite skin for compact desktop placement.')).toBeTruthy();
+    const activateButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Activate Graphite Pocket' });
 
     expect(activateButton.textContent).toBe('Activate');
     await fireEvent.click(activateButton);
 
-    expect(get(selectedMiniPlayerSkinId)).toBe('winamp-classic');
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Active Classic' }).disabled).toBe(true);
+    expect(get(selectedMiniPlayerSkinId)).toBe('graphite-pocket');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Active Graphite Pocket' }).disabled).toBe(true);
   });
 
   it('updates the persisted mini-player size scale from the slider', async () => {

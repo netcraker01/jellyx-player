@@ -433,44 +433,6 @@
     background: radial-gradient(circle, var(--skin-shell) 0 32%, var(--skin-control-surface) 34% 100%);
   }
 
-  .skin-preview[data-kind='classic'] {
-    width: 116px;
-    height: 42px;
-    align-self: center;
-    border-radius: 8px;
-    flex-direction: row;
-    align-items: center;
-    gap: 7px;
-    padding: 6px;
-    border: 2px solid #05070a;
-    background:
-      radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.2), transparent 34%),
-      linear-gradient(180deg, #303844, var(--skin-shell) 42%, #080a0d);
-  }
-
-  .skin-preview[data-kind='classic'] .skin-preview-screen {
-    width: 64px;
-    height: 24px;
-    border-radius: 5px;
-    background:
-      repeating-linear-gradient(90deg, rgba(255, 209, 102, 0.28) 0 2px, transparent 2px 6px),
-      var(--skin-screen);
-    border-color: #060402;
-    box-shadow: inset 0 0 8px rgba(255, 159, 28, 0.24), 0 0 6px rgba(255, 159, 28, 0.1);
-  }
-
-  .skin-preview[data-kind='classic'] .skin-preview-wheel {
-    width: 32px;
-    height: 24px;
-    margin-top: 0;
-    border-radius: 7px;
-    background:
-      radial-gradient(circle at 50% 50%, #ff9f1c 0 26%, transparent 28%),
-      repeating-linear-gradient(90deg, #4f5b6c 0 7px, #11151b 7px 10px);
-    border: 1px solid #05070a;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(0, 0, 0, 0.7);
-  }
-
   .skin-meta h3 {
     margin: 0 0 0.25rem;
     font-size: 0.95rem;
