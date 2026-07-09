@@ -110,6 +110,7 @@
     "hide_title_bar_desc": "Eliminá la barra de título nativa para un aspecto más limpio. Reiniciá la app para restaurarla.",
     "mini_player_skins": "Skins del mini reproductor",
     "mini_player_skins_desc": "Elegí el skin declarativo del mini reproductor. Los skins definen layout, colores y tamaño de ventana sin ejecutar scripts.",
+    "mini_player_size": "Tamaño del mini reproductor",
     "skin_activate": "Activar",
     "skin_active": "Activo"
   },

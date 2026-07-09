@@ -110,6 +110,7 @@
     "hide_title_bar_desc": "Remove the native window title bar for a cleaner look. Restart the app to restore the title bar.",
     "mini_player_skins": "Mini player skins",
     "mini_player_skins_desc": "Choose the declarative skin used by the mini player. Skins define layout, colors and window sizing without running scripts.",
+    "mini_player_size": "Mini player size",
     "skin_activate": "Activate",
     "skin_active": "Active"
   },

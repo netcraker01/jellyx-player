@@ -11,6 +11,9 @@
     "core:window:allow-set-min-size",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
+    "core:window:allow-is-decorated",
+    "core:window:allow-minimize",
+    "core:window:allow-close",
     "dialog:default",
     "shell:allow-open"
   ]

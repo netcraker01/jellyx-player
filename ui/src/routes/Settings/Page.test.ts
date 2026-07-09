@@ -49,12 +49,17 @@ vi.mock('@i18n', () => {
 });
 
 import { translations } from '@i18n';
-import { activateMiniPlayerSkin, selectedMiniPlayerSkinId } from '@features/mini-player/skins';
+import { activateMiniPlayerSkin, miniPlayerScale, selectedMiniPlayerSkinId, setMiniPlayerScale } from '@features/mini-player/skins';
 import SettingsPage from './Page.svelte';
 import { get } from 'svelte/store';
 
 describe('Settings page', () => {
   beforeEach(() => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
     mocks.getVersion.mockReset();
     mocks.getSourceSettings.mockReset();
     mocks.setSourceEnabled.mockReset();
@@ -62,6 +67,7 @@ describe('Settings page', () => {
     mocks.getSourceSettings.mockResolvedValue([]);
     mocks.getAudioSettings.mockResolvedValue({ normalizeAudio: true });
     activateMiniPlayerSkin('ipod-classic');
+    setMiniPlayerScale(1);
     translations.set({
       'app.title': 'Helix',
       'app.tagline': 'Background music for long work sessions',
@@ -76,6 +82,7 @@ describe('Settings page', () => {
       'settings.about_credits': 'Made with care by netcraker · © 2026 · Licensed under AGPL-3.0',
       'settings.mini_player_skins': 'Mini player skins',
       'settings.mini_player_skins_desc': 'Choose the declarative skin used by the mini player.',
+      'settings.mini_player_size': 'Mini player size',
       'settings.skin_activate': 'Activate',
       'settings.skin_active': 'Active',
       'common.loading': 'Loading...',
@@ -85,6 +92,7 @@ describe('Settings page', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('mounts safely and renders the settings heading', () => {
@@ -102,18 +110,35 @@ describe('Settings page', () => {
     expect(container.textContent).toContain('Mini player skins');
   });
 
-  it('activates a different mini-player skin and updates active state', async () => {
+  it('activates the Classic mini-player skin and updates active state', async () => {
     mocks.getVersion.mockResolvedValueOnce('0.1.0');
-    const { container } = render(SettingsPage);
+    render(SettingsPage);
 
     expect(get(selectedMiniPlayerSkinId)).toBe('ipod-classic');
-    const activateButton = screen.getByRole('button', { name: 'Activate' });
+    expect(screen.getByText('Classic')).toBeTruthy();
+    expect(screen.getByText('A compact horizontal hi-fi skin with dark hardware, amber display, and tactile transport controls.')).toBeTruthy();
+    const activateButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Activate Classic' });
 
+    expect(activateButton.textContent).toBe('Activate');
     await fireEvent.click(activateButton);
 
-    expect(get(selectedMiniPlayerSkinId)).toBe('graphite-pocket');
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Active' }).disabled).toBe(true);
-    expect(container.querySelector('.skin-card.active')?.textContent).toContain('Graphite Pocket');
+    expect(get(selectedMiniPlayerSkinId)).toBe('winamp-classic');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Active Classic' }).disabled).toBe(true);
+  });
+
+  it('updates the persisted mini-player size scale from the slider', async () => {
+    mocks.getVersion.mockResolvedValueOnce('0.1.0');
+    render(SettingsPage);
+
+    const slider = screen.getByRole<HTMLInputElement>('slider', { name: 'Mini player size' });
+    expect(slider.min).toBe('0.3');
+    expect(slider.max).toBe('1');
+    expect(screen.getByText('30%–100%')).toBeTruthy();
+
+    await fireEvent.input(slider, { target: { value: '0.35' } });
+
+    expect(get(miniPlayerScale)).toBe(0.35);
+    expect(localStorage.getItem('helix-mini-player-scale')).toBe('0.35');
   });
 
   it('renders expanded About Helix content with links and credits', () => {

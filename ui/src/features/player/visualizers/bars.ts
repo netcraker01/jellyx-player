@@ -29,16 +29,29 @@ export function renderBars(
   data: FrequencyData | null,
   theme: VisualizerTheme
 ): void {
-  if (!data || !data.bins.length) return;
+  const barGap = theme.barGap;
+  const barMinHeight = theme.barMinHeight;
+  ctx.fillStyle = theme.accentColor;
+
+  // Idle / no-data fallback: draw a small static bar pattern so the canvas
+  // never looks completely empty.
+  if (!data || !data.bins.length) {
+    const maxBars = Math.max(1, Math.floor(width / 3));
+    const barWidth = Math.max(1, (width - barGap * (maxBars - 1)) / maxBars);
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < maxBars; i++) {
+      const h = Math.max(barMinHeight, Math.min(2, height * 0.12));
+      const x = i * (barWidth + barGap);
+      ctx.fillRect(x, height - h, barWidth, h);
+    }
+    ctx.globalAlpha = 1;
+    return;
+  }
 
   const { bins, peak } = data;
   const maxBars = Math.min(bins.length, Math.max(1, Math.floor(width / 4)));
   const groupSize = Math.ceil(bins.length / maxBars);
-  const barGap = theme.barGap;
-  const barMinHeight = theme.barMinHeight;
   const barWidth = Math.max(1, (width - barGap * (maxBars - 1)) / maxBars);
-
-  ctx.fillStyle = theme.accentColor;
 
   for (let i = 0; i < maxBars; i++) {
     let sum = 0;

@@ -1,8 +1,8 @@
 import { get } from 'svelte/store';
 import { navigate, currentPath } from '@app/router/navigation';
 import { openMiniPlayer, restoreFullPlayer } from '@services/commands';
-import { enterNativeMiniWindow, restoreNativeFullWindow, type SavedNativeWindowState } from './nativeWindow';
-import { resolveMiniPlayerSkin, resolveMiniPlayerWindowSize, selectedMiniPlayerSkinId } from './skins';
+import { closeNativeWindow, enterNativeMiniWindow, minimizeNativeWindow, restoreNativeFullWindow, type SavedNativeWindowState } from './nativeWindow';
+import { miniPlayerScale, resolveMiniPlayerSkin, resolveMiniPlayerWindowSize, selectedMiniPlayerSkinId } from './skins';
 
 const MINI_PLAYER_PATH = '/mini-player';
 let previousFullPath = '/';
@@ -15,9 +15,17 @@ export async function enterMiniPlayer(): Promise<void> {
   previousFullPath = path;
 
   const skin = resolveMiniPlayerSkin(get(selectedMiniPlayerSkinId));
-  savedWindowState = await enterNativeMiniWindow(resolveMiniPlayerWindowSize(skin));
-  await openMiniPlayer();
-  navigate(MINI_PLAYER_PATH);
+  const nativeWindowState = await enterNativeMiniWindow(resolveMiniPlayerWindowSize(skin, get(miniPlayerScale)));
+
+  try {
+    await openMiniPlayer();
+    navigate(MINI_PLAYER_PATH);
+    savedWindowState = nativeWindowState;
+  } catch (error) {
+    savedWindowState = null;
+    await restoreNativeFullWindow(nativeWindowState);
+    throw error;
+  }
 }
 
 export async function exitMiniPlayer(): Promise<void> {
@@ -25,4 +33,12 @@ export async function exitMiniPlayer(): Promise<void> {
   savedWindowState = null;
   await restoreFullPlayer();
   navigate(previousFullPath === MINI_PLAYER_PATH ? '/' : previousFullPath, { replace: true });
+}
+
+export async function minimizeMiniPlayer(): Promise<void> {
+  await minimizeNativeWindow();
+}
+
+export async function quitFromMiniPlayer(): Promise<void> {
+  await closeNativeWindow();
 }

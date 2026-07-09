@@ -7,6 +7,7 @@ export interface MiniPlayerSkin {
   name: string;
   description: string;
   author: string;
+  kind: 'ipod' | 'classic';
   shape: 'rounded-rectangle';
   window: {
     width: number;
@@ -35,10 +36,17 @@ export interface MiniPlayerWindowSize {
 }
 
 export const MINI_PLAYER_WINDOW_BOUNDS = {
-  minWidth: 240,
-  minHeight: 240,
+  minWidth: 1,
+  minHeight: 1,
   maxWidth: 640,
   maxHeight: 720,
+} as const;
+
+export const MINI_PLAYER_SCALE_BOUNDS = {
+  min: 0.3,
+  max: 1,
+  step: 0.05,
+  default: 1,
 } as const;
 
 export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
@@ -47,6 +55,7 @@ export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
     name: 'iPod Classic',
     description: 'A compact click-wheel inspired skin for the first Helix mini player.',
     author: 'Helix',
+    kind: 'ipod',
     shape: 'rounded-rectangle',
     window: { width: 320, height: 480, resizable: false },
     layout: {
@@ -69,6 +78,7 @@ export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
     name: 'Graphite Pocket',
     description: 'A smaller graphite skin for compact desktop placement.',
     author: 'Helix',
+    kind: 'ipod',
     shape: 'rounded-rectangle',
     window: { width: 300, height: 480, resizable: false },
     layout: {
@@ -86,6 +96,29 @@ export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
       controlText: '#111827',
     },
   },
+  {
+    id: 'winamp-classic',
+    name: 'Classic',
+    description: 'A compact horizontal hi-fi skin with dark hardware, amber display, and tactile transport controls.',
+    author: 'Helix',
+    kind: 'classic',
+    shape: 'rounded-rectangle',
+    window: { width: 400, height: 100, resizable: false },
+    layout: {
+      artwork: 'screen',
+      controls: ['previous', 'playPause', 'next'],
+      progress: 'screen-bar',
+    },
+    theme: {
+      shell: '#171b22',
+      shellEdge: '#05070a',
+      screen: '#120c06',
+      screenText: '#ffd166',
+      accent: '#ff9f1c',
+      controlSurface: '#303743',
+      controlText: '#f8fafc',
+    },
+  },
 ] as const;
 
 export type MiniPlayerSkinId = (typeof MINI_PLAYER_SKINS)[number]['id'];
@@ -93,21 +126,63 @@ export type MiniPlayerSkinId = (typeof MINI_PLAYER_SKINS)[number]['id'];
 export const DEFAULT_MINI_PLAYER_SKIN: MiniPlayerSkinId = 'ipod-classic';
 
 const MINI_PLAYER_SKIN_KEY = 'helix-mini-player-skin';
+const MINI_PLAYER_SCALE_KEY = 'helix-mini-player-scale';
 
 export function resolveMiniPlayerSkin(id: string | null | undefined): MiniPlayerSkin {
   return MINI_PLAYER_SKINS.find((skin) => skin.id === id) ?? MINI_PLAYER_SKINS[0];
 }
 
-function clampSkinDimension(value: number, min: number, max: number): number {
-  if (!Number.isFinite(value)) return min;
-  return Math.min(max, Math.max(min, Math.round(value)));
+function resolveBaseSkinDimensions(skin: MiniPlayerSkin): MiniPlayerWindowSize {
+  const fallback = resolveMiniPlayerSkin(DEFAULT_MINI_PLAYER_SKIN).window;
+  if (
+    !Number.isFinite(skin.window.width) ||
+    skin.window.width <= 0 ||
+    !Number.isFinite(skin.window.height) ||
+    skin.window.height <= 0
+  ) {
+    return { width: fallback.width, height: fallback.height };
+  }
+
+  return {
+    width: skin.window.width,
+    height: skin.window.height,
+  };
 }
 
-export function resolveMiniPlayerWindowSize(skin: MiniPlayerSkin): MiniPlayerWindowSize {
+export function clampMiniPlayerScale(value: number): number {
+  if (!Number.isFinite(value)) return MINI_PLAYER_SCALE_BOUNDS.default;
+  const stepped = Math.round(value / MINI_PLAYER_SCALE_BOUNDS.step) * MINI_PLAYER_SCALE_BOUNDS.step;
+  return Math.min(MINI_PLAYER_SCALE_BOUNDS.max, Math.max(MINI_PLAYER_SCALE_BOUNDS.min, Number(stepped.toFixed(2))));
+}
+
+export function resolveMiniPlayerWindowSize(skin: MiniPlayerSkin, scale: number = MINI_PLAYER_SCALE_BOUNDS.default): MiniPlayerWindowSize {
+  const base = resolveBaseSkinDimensions(skin);
+  const clampedScale = clampMiniPlayerScale(scale);
+  const boundsScale = Math.min(
+    MINI_PLAYER_WINDOW_BOUNDS.maxWidth / base.width,
+    MINI_PLAYER_WINDOW_BOUNDS.maxHeight / base.height,
+  );
+  const proportionalScale = Math.min(clampedScale, boundsScale);
+  const scaledWidth = base.width * proportionalScale;
+  const scaledHeight = base.height * proportionalScale;
+
+  if (scaledWidth < MINI_PLAYER_WINDOW_BOUNDS.minWidth || scaledHeight < MINI_PLAYER_WINDOW_BOUNDS.minHeight) {
+    return {
+      width: Math.max(MINI_PLAYER_WINDOW_BOUNDS.minWidth, Math.round(scaledWidth)),
+      height: Math.max(MINI_PLAYER_WINDOW_BOUNDS.minHeight, Math.round(scaledHeight)),
+    };
+  }
+
+  const height = Math.round(scaledHeight);
+
   return {
-    width: clampSkinDimension(skin.window.width, MINI_PLAYER_WINDOW_BOUNDS.minWidth, MINI_PLAYER_WINDOW_BOUNDS.maxWidth),
-    height: clampSkinDimension(skin.window.height, MINI_PLAYER_WINDOW_BOUNDS.minHeight, MINI_PLAYER_WINDOW_BOUNDS.maxHeight),
+    width: Math.round(height * (base.width / base.height)),
+    height,
   };
+}
+
+export function resolveMiniPlayerSkinScale(skin: MiniPlayerSkin, scale: number = MINI_PLAYER_SCALE_BOUNDS.default): number {
+  return resolveMiniPlayerWindowSize(skin, scale).width / resolveBaseSkinDimensions(skin).width;
 }
 
 function readPersistedSkin(): MiniPlayerSkinId {
@@ -119,7 +194,17 @@ function readPersistedSkin(): MiniPlayerSkinId {
   }
 }
 
+function readPersistedScale(): number {
+  try {
+    const raw = localStorage.getItem(MINI_PLAYER_SCALE_KEY);
+    return raw === null ? MINI_PLAYER_SCALE_BOUNDS.default : clampMiniPlayerScale(Number(raw));
+  } catch {
+    return MINI_PLAYER_SCALE_BOUNDS.default;
+  }
+}
+
 export const selectedMiniPlayerSkinId = writable<MiniPlayerSkinId>(readPersistedSkin());
+export const miniPlayerScale = writable<number>(readPersistedScale());
 
 selectedMiniPlayerSkinId.subscribe((id) => {
   try {
@@ -129,6 +214,18 @@ selectedMiniPlayerSkinId.subscribe((id) => {
   }
 });
 
+miniPlayerScale.subscribe((scale) => {
+  try {
+    localStorage.setItem(MINI_PLAYER_SCALE_KEY, String(clampMiniPlayerScale(scale)));
+  } catch {
+    // localStorage unavailable — keep the selected scale in memory for this session.
+  }
+});
+
 export function activateMiniPlayerSkin(id: string): void {
   selectedMiniPlayerSkinId.set(resolveMiniPlayerSkin(id).id as MiniPlayerSkinId);
+}
+
+export function setMiniPlayerScale(scale: number): void {
+  miniPlayerScale.set(clampMiniPlayerScale(scale));
 }

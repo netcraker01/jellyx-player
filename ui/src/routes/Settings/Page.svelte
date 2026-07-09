@@ -5,7 +5,7 @@
   import type { SourceSetting } from '@services/commands';
   import { normalizeAudio, toggleNormalizeAudio, cinematicMode, toggleCinematicMode, cinematicIntensity, setCinematicIntensity } from '@features/player/stores/player';
   import { Library, Languages, Plug, Volume2, Monitor, Github, ExternalLink, Palette } from 'lucide-svelte';
-  import { MINI_PLAYER_SKINS, activateMiniPlayerSkin, selectedMiniPlayerSkinId } from '@features/mini-player/skins';
+  import { MINI_PLAYER_SCALE_BOUNDS, MINI_PLAYER_SKINS, activateMiniPlayerSkin, miniPlayerScale, selectedMiniPlayerSkinId, setMiniPlayerScale } from '@features/mini-player/skins';
 
   let version = '';
   let versionError: string | null = null;
@@ -95,6 +95,11 @@
     activateMiniPlayerSkin(id);
   }
 
+  function handleMiniPlayerScale(e: Event) {
+    const input = e.target as HTMLInputElement;
+    setMiniPlayerScale(Number(input.value));
+  }
+
   const SUPPORTED_LOCALES = [
     { code: 'en', label: 'English' },
     { code: 'es', label: 'Español' },
@@ -138,12 +143,28 @@
       <h2>{$t('settings.mini_player_skins')}</h2>
     </div>
     <p class="section-desc">{$t('settings.mini_player_skins_desc')}</p>
+    <div class="setting-row">
+      <span class="setting-label">{$t('settings.mini_player_size')}</span>
+      <input
+        class="slider"
+        type="range"
+        min={MINI_PLAYER_SCALE_BOUNDS.min}
+        max={MINI_PLAYER_SCALE_BOUNDS.max}
+        step={MINI_PLAYER_SCALE_BOUNDS.step}
+        value={$miniPlayerScale}
+        on:input={handleMiniPlayerScale}
+        aria-label={$t('settings.mini_player_size')}
+      />
+      <span class="slider-range" aria-hidden="true">{Math.round(MINI_PLAYER_SCALE_BOUNDS.min * 100)}%–{Math.round(MINI_PLAYER_SCALE_BOUNDS.max * 100)}%</span>
+      <span class="setting-value">{Math.round($miniPlayerScale * 100)}%</span>
+    </div>
     <div class="skin-grid">
       {#each MINI_PLAYER_SKINS as skin (skin.id)}
         <article class="skin-card" class:active={$selectedMiniPlayerSkinId === skin.id}>
           <div
             class="skin-preview"
-            style="--skin-shell: {skin.theme.shell}; --skin-screen: {skin.theme.screen}; --skin-control-surface: {skin.theme.controlSurface};"
+            data-kind={skin.kind}
+            style="--skin-shell: {skin.theme.shell}; --skin-screen: {skin.theme.screen}; --skin-screen-text: {skin.theme.screenText}; --skin-control-surface: {skin.theme.controlSurface};"
             aria-hidden="true"
           >
             <div class="skin-preview-screen"></div>
@@ -158,6 +179,7 @@
             class="activate-skin"
             type="button"
             disabled={$selectedMiniPlayerSkinId === skin.id}
+            aria-label="{$selectedMiniPlayerSkinId === skin.id ? $t('settings.skin_active') : $t('settings.skin_activate')} {skin.name}"
             on:click={() => handleSkinActivate(skin.id)}
           >
             {$selectedMiniPlayerSkinId === skin.id ? $t('settings.skin_active') : $t('settings.skin_activate')}
@@ -349,6 +371,12 @@
     font-variant-numeric: tabular-nums;
   }
 
+  .slider-range {
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
   .setting-value.error {
     color: var(--color-error, #ef4444);
   }
@@ -403,6 +431,44 @@
     margin-top: 12px;
     border-radius: 50%;
     background: radial-gradient(circle, var(--skin-shell) 0 32%, var(--skin-control-surface) 34% 100%);
+  }
+
+  .skin-preview[data-kind='classic'] {
+    width: 116px;
+    height: 42px;
+    align-self: center;
+    border-radius: 8px;
+    flex-direction: row;
+    align-items: center;
+    gap: 7px;
+    padding: 6px;
+    border: 2px solid #05070a;
+    background:
+      radial-gradient(circle at 18% 0%, rgba(255, 255, 255, 0.2), transparent 34%),
+      linear-gradient(180deg, #303844, var(--skin-shell) 42%, #080a0d);
+  }
+
+  .skin-preview[data-kind='classic'] .skin-preview-screen {
+    width: 64px;
+    height: 24px;
+    border-radius: 5px;
+    background:
+      repeating-linear-gradient(90deg, rgba(255, 209, 102, 0.28) 0 2px, transparent 2px 6px),
+      var(--skin-screen);
+    border-color: #060402;
+    box-shadow: inset 0 0 8px rgba(255, 159, 28, 0.24), 0 0 6px rgba(255, 159, 28, 0.1);
+  }
+
+  .skin-preview[data-kind='classic'] .skin-preview-wheel {
+    width: 32px;
+    height: 24px;
+    margin-top: 0;
+    border-radius: 7px;
+    background:
+      radial-gradient(circle at 50% 50%, #ff9f1c 0 26%, transparent 28%),
+      repeating-linear-gradient(90deg, #4f5b6c 0 7px, #11151b 7px 10px);
+    border: 1px solid #05070a;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(0, 0, 0, 0.7);
   }
 
   .skin-meta h3 {
