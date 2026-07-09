@@ -88,6 +88,22 @@ jobs:
       - name: Install tauri-cli
         run: cargo install tauri-cli --locked
 
+      - name: Clean stale Windows bundle outputs
+        shell: pwsh
+        run: |
+          $bundleDirs = @(
+            "target/release/bundle/msi",
+            "target/release/bundle/nsis",
+            "helix-desktop/target/release/bundle/msi",
+            "helix-desktop/target/release/bundle/nsis"
+          )
+          foreach ($dir in $bundleDirs) {
+            if (Test-Path $dir) {
+              Remove-Item -Path $dir -Recurse -Force
+              Write-Host "Removed stale bundle output: $dir"
+            }
+          }
+
       # ---- Build both MSI and NSIS in one pass ----
       # Tauri's bundler can produce both formats in a single invocation.
       # Using --bundles msi,nsis builds the app once and packages it twice.
@@ -131,6 +147,14 @@ jobs:
         id: msi
         shell: pwsh
         run: |
+          # Extract expected version from tag or Cargo.toml before selecting artifacts.
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ($version -match '^\d+\.\d+\.\d+') {
+            $version = $Matches[0]
+          } else {
+            $version = (Select-String -Path "helix-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          }
+
           $searchDirs = @(
             "target/release/bundle/msi",
             "helix-desktop/target/release/bundle/msi"
@@ -139,7 +163,9 @@ jobs:
           $msiFile = $null
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
-              $candidate = Get-ChildItem -Path $dir -Filter "*.msi" | Select-Object -First 1
+              $candidate = Get-ChildItem -Path $dir -Filter "*.msi" |
+                Where-Object { $_.Name -like "Helix_${version}_*.msi" } |
+                Select-Object -First 1
               if ($candidate) {
                 $msiFile = $candidate
                 break
@@ -148,7 +174,17 @@ jobs:
           }
 
           if (-not $msiFile) {
-            Write-Error "No MSI file found in expected directories: $($searchDirs -join ', ')"
+            Write-Error "No MSI file for version $version found in expected directories: $($searchDirs -join ', ')"
+            foreach ($dir in $searchDirs) {
+              if (Test-Path $dir) {
+                Get-ChildItem -Path $dir -Filter "*.msi" | ForEach-Object { Write-Error "Found non-matching MSI: $($_.FullName)" }
+              }
+            }
+            exit 1
+          }
+
+          if ($msiFile.Name -notlike "*$version*") {
+            Write-Error "Selected MSI '$($msiFile.Name)' does not contain expected version '$version'"
             exit 1
           }
 
@@ -158,14 +194,6 @@ jobs:
           $hash = (Get-FileHash -Path $msiFile.FullName -Algorithm SHA256).Hash
           $hashFile = "$($msiFile.FullName).sha256"
           "$hash  $($msiFile.Name)" | Out-File -FilePath $hashFile -Encoding utf8 -NoNewline
-
-          # Extract version from tag or Cargo.toml
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          if ($version -match '^\d+\.\d+\.\d+') {
-            $version = $Matches[0]
-          } else {
-            $version = (Select-String -Path "helix-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
-          }
 
           echo "msi_path=$($msiFile.FullName)" >> $env:GITHUB_OUTPUT
           echo "msi_name=$($msiFile.Name)" >> $env:GITHUB_OUTPUT
@@ -181,6 +209,14 @@ jobs:
         id: nsis
         shell: pwsh
         run: |
+          # Extract expected version from tag or Cargo.toml before selecting artifacts.
+          $version = "${{ github.ref_name }}" -replace '^v', ''
+          if ($version -match '^\d+\.\d+\.\d+') {
+            $version = $Matches[0]
+          } else {
+            $version = (Select-String -Path "helix-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+          }
+
           $searchDirs = @(
             "target/release/bundle/nsis",
             "helix-desktop/target/release/bundle/nsis"
@@ -190,10 +226,14 @@ jobs:
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
               # NSIS produces a setup .exe file
-              $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" | Select-Object -First 1
+              $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" |
+                Where-Object { $_.Name -like "Helix_${version}_*setup*.exe" } |
+                Select-Object -First 1
               if (-not $candidate) {
                 # Fallback: any .exe in the nsis bundle dir (excluding the app executable)
-                $candidate = Get-ChildItem -Path $dir -Filter "*.exe" | Select-Object -First 1
+                $candidate = Get-ChildItem -Path $dir -Filter "*.exe" |
+                  Where-Object { $_.Name -like "Helix_${version}_*.exe" } |
+                  Select-Object -First 1
               }
               if ($candidate) {
                 $nsisFile = $candidate
@@ -203,7 +243,17 @@ jobs:
           }
 
           if (-not $nsisFile) {
-            Write-Error "No NSIS setup.exe found in expected directories: $($searchDirs -join ', ')"
+            Write-Error "No NSIS setup.exe for version $version found in expected directories: $($searchDirs -join ', ')"
+            foreach ($dir in $searchDirs) {
+              if (Test-Path $dir) {
+                Get-ChildItem -Path $dir -Filter "*.exe" | ForEach-Object { Write-Error "Found non-matching NSIS candidate: $($_.FullName)" }
+              }
+            }
+            exit 1
+          }
+
+          if ($nsisFile.Name -notlike "*$version*") {
+            Write-Error "Selected NSIS '$($nsisFile.Name)' does not contain expected version '$version'"
             exit 1
           }
 
