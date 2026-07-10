@@ -1,17 +1,17 @@
-# PRD — Helix Player
+# PRD — Jellyx Player
 
-Helix es un reproductor de música de fondo para escritorio pensado para personas que trabajan con música puesta. Este PRD es un documento vivo: consolida las decisiones ya tomadas y deja visibles los puntos que siguen abiertos.
+Jellyx es un reproductor de música de fondo para escritorio pensado para personas que trabajan con música puesta. Este PRD es un documento vivo: consolida las decisiones ya tomadas y deja visibles los puntos que siguen abiertos.
 
 ## Estado
 
 - **Estado**: borrador consolidado
-- **Fuente base verificada**: README del repositorio oficial `netcraker01/helix`
+- **Fuente base verificada**: README del repositorio oficial `netcraker01/jellyx-player`
 - **Inspiración de referencia**: Nuclear
-- **Dirección acordada**: Helix no se comunica como clon de otra app ni como plataforma total; se comunica como herramienta práctica para escuchar música de fondo en escritorio
+- **Dirección acordada**: Jellyx no se comunica como clon de otra app ni como plataforma total; se comunica como herramienta práctica para escuchar música de fondo en escritorio
 
 ## Resumen ejecutivo
 
-Helix busca cubrir un hueco claro: una aplicación de escritorio para escuchar música de fondo durante horas, especialmente cuando la fuente habitual es YouTube o SoundCloud pero la necesidad real es solo audio.
+Jellyx busca cubrir un hueco claro: una aplicación de escritorio para escuchar música de fondo durante horas, especialmente cuando la fuente habitual es YouTube o SoundCloud pero la necesidad real es solo audio.
 
 Para `v0.1`, el foco NO será ganar por plugins ni por ambición funcional, sino por una **experiencia base de escucha más simple, estable y tranquila**. El MVP debe validar que existe demanda para una app que combine:
 
@@ -49,11 +49,11 @@ Construir una aplicación de escritorio centrada en audio que permita:
 
 ## Propuesta de valor
 
-Helix quiere ser una forma simple y honesta de escuchar música de fondo en escritorio, sin cuentas obligatorias, sin suscripción y sin arrastrar vídeo innecesario.
+Jellyx quiere ser una forma simple y honesta de escuchar música de fondo en escritorio, sin cuentas obligatorias, sin suscripción y sin arrastrar vídeo innecesario.
 
 ### Posicionamiento del producto
 
-Helix se posiciona como una **herramienta de escritorio audio-first** centrada en:
+Jellyx se posiciona como una **herramienta de escritorio audio-first** centrada en:
 
 - trabajo con música de fondo,
 - experiencia de escucha tranquila,
@@ -64,7 +64,7 @@ No debe comunicarse como reemplazo universal ni como una startup inflada. La nar
 
 ### Definición operativa de “sin publicidad”
 
-En Helix, “sin publicidad” significa:
+En Jellyx, “sin publicidad” significa:
 
 - la app no mostrará anuncios propios,
 - no habrá banners ni formatos promocionales internos,
@@ -72,7 +72,7 @@ En Helix, “sin publicidad” significa:
 
 ## Benchmark e identidad frente a Nuclear
 
-Nuclear es la referencia principal de inspiración, pero Helix quiere mejorarla en:
+Nuclear es la referencia principal de inspiración, pero Jellyx quiere mejorarla en:
 
 - experiencia base de escucha,
 - claridad de interfaz,
@@ -138,7 +138,7 @@ Quedan fuera del MVP:
 
 ### Prioridad principal
 
-Helix debe ganar primero por:
+Jellyx debe ganar primero por:
 
 - **experiencia base de escucha simple, rápida, estable y poco distractora**.
 
@@ -173,7 +173,7 @@ Quedan fuera del primer nivel:
 
 ### Happy path principal
 
-1. El usuario abre Helix.
+1. El usuario abre Jellyx.
 2. Ve inmediatamente qué está sonando.
 3. Busca una canción, artista o álbum sin fricción.
 4. Entiende los resultados con claridad.
@@ -280,7 +280,7 @@ El soporte local tendrá un alcance **medio**:
 
 ### Modelo de indexación local
 
-El usuario seleccionará explícitamente las carpetas que Helix debe escanear.
+El usuario seleccionará explícitamente las carpetas que Jellyx debe escanear.
 
 Esto evita:
 
@@ -335,7 +335,7 @@ Las métricas prioritarias para evaluar `v0.1` serán:
 
 ### Criterio de eficiencia
 
-Helix priorizará un **equilibrio entre rendimiento y visualización**. No debe vaciar la experiencia visual para ahorrar recursos, pero tampoco degradar la escucha de fondo por efectos demasiado costosos.
+Jellyx priorizará un **equilibrio entre rendimiento y visualización**. No debe vaciar la experiencia visual para ahorrar recursos, pero tampoco degradar la escucha de fondo por efectos demasiado costosos.
 
 ## Arquitectura de referencia
 
@@ -360,7 +360,7 @@ Helix priorizará un **equilibrio entre rendimiento y visualización**. No debe 
 
 ### Diferenciador técnico principal
 
-Helix quiere evitar depender del navegador para el pipeline de audio. Eso habilita:
+Jellyx quiere evitar depender del navegador para el pipeline de audio. Eso habilita:
 
 - FFT real para visualizaciones,
 - menor latencia,
@@ -388,7 +388,7 @@ Helix quiere evitar depender del navegador para el pipeline de audio. Eso habili
 
 ### Riesgo detallado: fuentes externas
 
-Helix asume desde el inicio que las fuentes externas representan un riesgo **mixto: técnico y legal**.
+Jellyx asume desde el inicio que las fuentes externas representan un riesgo **mixto: técnico y legal**.
 
 #### Riesgo técnico
 
@@ -404,7 +404,7 @@ Helix asume desde el inicio que las fuentes externas representan un riesgo **mix
 
 ### Postura de producto frente al riesgo de fuentes externas
 
-Helix adoptará una **postura equilibrada**.
+Jellyx adoptará una **postura equilibrada**.
 
 Esto implica:
 
@@ -415,7 +415,7 @@ Esto implica:
 
 ### Mitigaciones iniciales para fuentes externas
 
-Helix debe reflejar al menos estas mitigaciones iniciales:
+Jellyx debe reflejar al menos estas mitigaciones iniciales:
 
 1. **Diseñar conectores/fuentes desacoplados**
 2. **Registrar y monitorizar fallos por fuente**
@@ -425,11 +425,11 @@ Estas mitigaciones reducen el riesgo operativo del MVP y mejoran la resiliencia 
 
 ### Redacción base de límites del producto
 
-Helix debe comunicar estos límites con un tono **claro para usuario final**.
+Jellyx debe comunicar estos límites con un tono **claro para usuario final**.
 
 Mensaje base recomendado para producto/documentación:
 
-> Helix te ofrece una forma práctica de escuchar música de fondo desde distintas fuentes, pero algunas funciones pueden depender de servicios externos que pueden cambiar, fallar o dejar de estar disponibles con el tiempo.
+> Jellyx te ofrece una forma práctica de escuchar música de fondo desde distintas fuentes, pero algunas funciones pueden depender de servicios externos que pueden cambiar, fallar o dejar de estar disponibles con el tiempo.
 
 Esta línea mantiene honestidad con el usuario sin convertir la comunicación del producto en un texto legalista o defensivo.
 
@@ -452,7 +452,7 @@ Quedan abiertas para próximas iteraciones:
 
 ### Enfoque inicial de monetización
 
-Helix se orientará inicialmente a un modelo **open-source + donaciones/patrocinios**.
+Jellyx se orientará inicialmente a un modelo **open-source + donaciones/patrocinios**.
 
 Esto implica que, en esta fase:
 
@@ -462,7 +462,7 @@ Esto implica que, en esta fase:
 
 ### Principio de producto asociado
 
-La monetización no debe contaminar la propuesta central de Helix:
+La monetización no debe contaminar la propuesta central de Jellyx:
 
 - sin publicidad propia,
 - sin romper privacidad,
@@ -470,7 +470,7 @@ La monetización no debe contaminar la propuesta central de Helix:
 
 ### Postura de licenciamiento en el PRD
 
-El PRD debe presentar a Helix como un proyecto **open-source** y, al mismo tiempo, dejar claro que la sostenibilidad futura puede apoyarse en vías compatibles con esa identidad.
+El PRD debe presentar a Jellyx como un proyecto **open-source** y, al mismo tiempo, dejar claro que la sostenibilidad futura puede apoyarse en vías compatibles con esa identidad.
 
 Esto implica:
 
@@ -536,7 +536,7 @@ Se considerará aceptado si:
 Se considerará aceptado si:
 
 1. el usuario puede seleccionar carpetas a escanear,
-2. Helix indexa solo las carpetas elegidas,
+2. Jellyx indexa solo las carpetas elegidas,
 3. la librería local se organiza por artista y álbum,
 4. los archivos locales aparecen integrados con la experiencia general.
 
@@ -568,6 +568,6 @@ Se considerará aceptado si:
 
 ## Referencias
 
-- Repositorio oficial: `https://github.com/netcraker01/helix`
+- Repositorio oficial: `https://github.com/netcraker01/jellyx-player`
 - README público del repositorio
 - Benchmark conceptual: Nuclear

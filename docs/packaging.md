@@ -1,8 +1,8 @@
-# Helix Packaging Guide
+# Jellyx Packaging Guide
 
-> Maintainer reference for publishing Helix to native package registries.
+> Maintainer reference for publishing Jellyx to native package registries.
 
-This document explains what accounts, credentials, and steps are needed to publish Helix through each distribution channel. The packaging scaffolds live in `packaging/` — these are templates that compile correctly but contain placeholders for release-specific values (checksums, URLs, version numbers).
+This document explains what accounts, credentials, and steps are needed to publish Jellyx through each distribution channel. The packaging scaffolds live in `packaging/` — these are templates that compile correctly but contain placeholders for release-specific values (checksums, URLs, version numbers).
 
 ---
 
@@ -12,7 +12,7 @@ This document explains what accounts, credentials, and steps are needed to publi
 |---------|-----------|---------------|-------------------|
 | Flatpak / Flathub | `packaging/flatpak/` | GitHub + Flathub account | PR to flathub/flathub |
 | AUR | `packaging/aur/` | AUR SSH key | `git push` to aur.archlinux.org |
-| Homebrew Cask | `packaging/homebrew/` | GitHub account | Create `homebrew-helix` tap repo |
+| Homebrew Cask | `packaging/homebrew/` | GitHub account | Create `homebrew-jellyx` tap repo |
 | winget | `packaging/winget/` | GitHub account | PR to microsoft/winget-pkgs |
 | Windows NSIS | (Tauri build) | — | GitHub Releases (CI) |
 | Windows MSI | (Tauri build) | — | GitHub Releases (CI) + winget |
@@ -33,32 +33,32 @@ This document explains what accounts, credentials, and steps are needed to publi
    flatpak-cargo-generator Cargo.lock -o packaging/flatpak/cargo-sources.json
    ```
 
-2. Update `packaging/flatpak/com.helix.music.yml`:
+2. Update `packaging/flatpak/com.jellyx.music.yml`:
    - Replace `type: dir` source with `type: archive` pointing to the release tarball
    - Add `sha256` checksum
    - Uncomment the `cargo-sources.json` source line
 
-3. Add screenshots to `com.helix.music.metainfo.xml`
+3. Add screenshots to `com.jellyx.music.metainfo.xml`
 
 4. Test locally:
    ```bash
-   flatpak-builder --repo=repo --force-clean build-dir packaging/flatpak/com.helix.music.yml
-   flatpak --user remote-add --no-gpg-check helix-repo repo
-   flatpak --user install helix-repo com.helix.music
-   flatpak run com.helix.music
+   flatpak-builder --repo=repo --force-clean build-dir packaging/flatpak/com.jellyx.music.yml
+   flatpak --user remote-add --no-gpg-check jellyx-repo repo
+   flatpak --user install jellyx-repo com.jellyx.music
+   flatpak run com.jellyx.music
    ```
 
 5. Submit:
    - Fork https://github.com/flathub/flathub
-   - Add `com.helix.music.yml` and `cargo-sources.json` (if generated)
-   - Open a PR with title: "New app: com.helix.music"
+   - Add `com.jellyx.music.yml` and `cargo-sources.json` (if generated)
+   - Open a PR with title: "New app: com.jellyx.music"
    - Flathub maintainers will review
 
 6. Post-approval: automated updates via [flatpak-external-data-checker](https://github.com/flathub/flatpak-external-data-checker)
 
 ### Notes
-- App ID is `com.helix.music` (matches `tauri.conf.json` identifier)
-- yt-dlp is NOT bundled — Helix auto-downloads it at runtime. The `--share=network` permission is already in the manifest.
+- App ID is `com.jellyx.music` (matches `tauri.conf.json` identifier)
+- yt-dlp is NOT bundled — Jellyx auto-downloads it at runtime. The `--share=network` permission is already in the manifest.
 - WebKitGTK is used via Tauri v2 — no Electron runtime needed.
 
 ---
@@ -75,7 +75,7 @@ This document explains what accounts, credentials, and steps are needed to publi
    cd packaging/aur/
    # Update sha256sums with the release tarball checksum
    updpkgsums  # from pacman-contrib
-   # OR manually: sha256sum helix-0.1.0.tar.gz
+   # OR manually: sha256sum jellyx-0.1.0.tar.gz
    ```
 
 2. Test build in a clean chroot:
@@ -86,7 +86,7 @@ This document explains what accounts, credentials, and steps are needed to publi
 3. Validate:
    ```bash
    namcap PKGBUILD
-   namcap helix-player-*.pkg.tar.zst
+   namcap jellyx-player-*.pkg.tar.zst
    ```
 
 4. Generate .SRCINFO:
@@ -96,20 +96,20 @@ This document explains what accounts, credentials, and steps are needed to publi
 
 5. Publish:
    ```bash
-   git clone ssh://aur@aur.archlinux.org/helix-player.git aur-helix-player
-   cd aur-helix-player
+   git clone ssh://aur@aur.archlinux.org/jellyx-player.git aur-jellyx-player
+   cd aur-jellyx-player
    cp ../packaging/aur/PKGBUILD .
-   cp ../packaging/aur/helix-player.install .
+   cp ../packaging/aur/jellyx-player.install .
    makepkg --printsrcinfo > .SRCINFO
-   git add PKGBUILD .SRCINFO helix-player.install
-   git commit -m "Initial upload: helix-player 0.1.0"
+   git add PKGBUILD .SRCINFO jellyx-player.install
+   git commit -m "Initial upload: jellyx-player 0.1.0"
    git push
    ```
 
 6. Update on each release: bump `pkgver`, `pkgrel`, update `sha256sums`, regenerate `.SRCINFO`, push.
 
 ### Notes
-- Package name: `helix-player` (avoiding collision with the `helix` text editor in AUR)
+- Package name: `jellyx-player` (avoiding collision with the `helix` text editor in AUR)
 - `NO_STRIP=1` is set in the PKGBUILD build() function to prevent stripping RELR-enabled binaries
 - AGPL-3.0 is an OSI-approved license — accepted by AUR
 
@@ -122,7 +122,7 @@ This document explains what accounts, credentials, and steps are needed to publi
 
 ### Prerequisites
 - At least one macOS DMG must exist on a GitHub Release. The Release workflow (`.github/workflows/release.yml`) builds both Apple Silicon (`aarch64`) and Intel (`x64`) DMGs on every `v*` tag push.
-- The cask file at `packaging/homebrew/Casks/helix-player.rb` contains placeholder checksums that must be replaced with real values from the release artifacts.
+- The cask file at `packaging/homebrew/Casks/jellyx-player.rb` contains placeholder checksums that must be replaced with real values from the release artifacts.
 
 ### Steps
 1. **Trigger a DMG release** (if not done already):
@@ -134,47 +134,47 @@ This document explains what accounts, credentials, and steps are needed to publi
 
 2. **Get the SHA256 checksums** from the release:
    ```bash
-   shasum -a 256 Helix_0.1.0_aarch64.dmg
-   shasum -a 256 Helix_0.1.0_x64.dmg
+   shasum -a 256 Jellyx_0.1.0_aarch64.dmg
+   shasum -a 256 Jellyx_0.1.0_x64.dmg
    ```
    Or download the `.sha256` files attached to the release.
 
-3. **Update the cask file** (`packaging/homebrew/Casks/helix-player.rb`):
+3. **Update the cask file** (`packaging/homebrew/Casks/jellyx-player.rb`):
    - Replace `REPLACE_WITH_AARCH64_SHA256` with the actual aarch64 checksum
    - Replace `REPLACE_WITH_X64_SHA256` with the actual x64 checksum
    - Confirm `version` matches the release tag (without `v` prefix)
 
 4. Create a Homebrew tap repository:
-   - Name it `homebrew-helix` under your GitHub org/user
-   - URL: `https://github.com/netcraker01/homebrew-helix`
+   - Name it `homebrew-jellyx` under your GitHub org/user
+   - URL: `https://github.com/netcraker01/homebrew-jellyx`
 
 5. Push to the tap:
    ```bash
-   git clone https://github.com/netcraker01/homebrew-helix.git
-   cd homebrew-helix
+   git clone https://github.com/netcraker01/homebrew-jellyx.git
+   cd homebrew-jellyx
    mkdir -p Casks
-   cp ../packaging/homebrew/Casks/helix-player.rb Casks/
-   git add Casks/helix-player.rb
-   git commit -m "Add helix-player cask v0.1.0"
+   cp ../packaging/homebrew/Casks/jellyx-player.rb Casks/
+   git add Casks/jellyx-player.rb
+   git commit -m "Add jellyx-player cask v0.1.0"
    git push
    ```
 
 6. **Test locally**:
    ```bash
-   brew tap netcraker01/helix
-   brew install --cask helix-player
+   brew tap netcraker01/jellyx-player
+   brew install --cask jellyx-player
    ```
 
 7. **Verify with Homebrew audit**:
    ```bash
-   brew audit --cask helix-player
-   brew style --cask Casks/helix-player.rb
+   brew audit --cask jellyx-player
+   brew style --cask Casks/jellyx-player.rb
    ```
 
 8. Users install via:
    ```bash
-   brew tap netcraker01/helix
-   brew install --cask helix-player
+   brew tap netcraker01/jellyx-player
+   brew install --cask jellyx-player
    ```
 
 9. On each release: update version, sha256, URL in the cask file, commit and push to both repos.
@@ -185,13 +185,13 @@ The CI workflow builds DMGs for two architectures:
 
 | Runner | Target | DMG filename |
 |--------|--------|-------------|
-| `macos-14` (M1) | `aarch64-apple-darwin` | `Helix_<version>_aarch64.dmg` |
-| `macos-13` (Intel) | `x86_64-apple-darwin` | `Helix_<version>_x64.dmg` |
+| `macos-14` (M1) | `aarch64-apple-darwin` | `Jellyx_<version>_aarch64.dmg` |
+| `macos-13` (Intel) | `x86_64-apple-darwin` | `Jellyx_<version>_x64.dmg` |
 
 The cask uses `on_arm` / `on_intel` blocks so Homebrew automatically selects the correct DMG.
 
 ### Future: Official Homebrew Cask
-If Helix gains enough traction, consider submitting to the official homebrew/cask repo for `brew install --cask helix-player` without a custom tap. See: https://docs.brew.sh/Adding-Software-to-Homebrew#casks
+If Jellyx gains enough traction, consider submitting to the official homebrew/cask repo for `brew install --cask jellyx-player` without a custom tap. See: https://docs.brew.sh/Adding-Software-to-Homebrew#casks
 
 ---
 
@@ -212,8 +212,8 @@ The **Release** GitHub Actions workflow (`.github/workflows/release.yml`) builds
 
 | Artifact | Format | Purpose |
 |----------|--------|---------|
-| `Helix_<version>_x64_en-US.msi` | MSI | winget and managed installs |
-| `Helix_<version>_x64-setup.exe` | NSIS | Direct user installs (recommended) |
+| `Jellyx_<version>_x64_en-US.msi` | MSI | winget and managed installs |
+| `Jellyx_<version>_x64-setup.exe` | NSIS | Direct user installs (recommended) |
 
 Both artifacts include a `.sha256` checksum file.
 
@@ -236,18 +236,18 @@ Both are unsigned by default. See [Code Signing](#6-code-signing-windows) for ho
 2. **Extract metadata** from the MSI:
    ```powershell
    # Automated extraction (outputs SHA256, ProductCode, UpgradeCode):
-   .\scripts\inspect-msi.ps1 -MsiPath .\Helix_0.1.0_x64_en-US.msi
+   .\scripts\inspect-msi.ps1 -MsiPath .\Jellyx_0.1.0_x64_en-US.msi
 
    # Manual alternatives:
-   Get-FileHash .\Helix_0.1.0_x64_en-US.msi -Algorithm SHA256
+   Get-FileHash .\Jellyx_0.1.0_x64_en-US.msi -Algorithm SHA256
    cargo tauri inspect wix-upgrade-code
    ```
 
 3. **Update manifest files** in `packaging/winget/manifests/`:
-   - `netcraker01.helix-player.installer.yaml` — set InstallerUrl, InstallerSha256, ProductCode, UpgradeCode
-   - `netcraker01.helix-player.locale.en-US.yaml` — set version and release notes
-   - `netcraker01.helix-player.version.yaml` — set version
-   - `netcraker01.helix-player.yaml` — set version
+   - `netcraker01.jellyx-player.installer.yaml` — set InstallerUrl, InstallerSha256, ProductCode, UpgradeCode
+   - `netcraker01.jellyx-player.locale.en-US.yaml` — set version and release notes
+   - `netcraker01.jellyx-player.version.yaml` — set version
+   - `netcraker01.jellyx-player.yaml` — set version
 
 4. **Validate locally**:
    ```powershell
@@ -256,13 +256,13 @@ Both are unsigned by default. See [Code Signing](#6-code-signing-windows) for ho
 
 5. **Submit**:
    - Fork https://github.com/microsoft/winget-pkgs
-   - Create `manifests/n/netcraker01/helix-player/<version>/` with all YAML files
+   - Create `manifests/n/netcraker01/jellyx-player/<version>/` with all YAML files
    - Open a PR against microsoft/winget-pkgs
 
 ### Important notes
-- The **UpgradeCode** is pinned in `helix-desktop/tauri.conf.json` (`bundle.windows.wix.upgradeCode`). It must stay the same across ALL versions — changing it breaks upgrade detection.
-- The MSI filename follows the pattern `Helix_<version>_x64_en-US.msi` (derived from `productName` in `tauri.conf.json`).
-- The NSIS filename follows the pattern `Helix_<version>_x64-setup.exe`.
+- The **UpgradeCode** is pinned in `jellyx-desktop/tauri.conf.json` (`bundle.windows.wix.upgradeCode`). It must stay the same across ALL versions — changing it breaks upgrade detection.
+- The MSI filename follows the pattern `Jellyx_<version>_x64_en-US.msi` (derived from `productName` in `tauri.conf.json`).
+- The NSIS filename follows the pattern `Jellyx_<version>_x64-setup.exe`.
 - winget manifests should reference the **MSI** installer type, not NSIS. The NSIS setup.exe is for direct user installs only.
 - See `packaging/winget/NOTES.md` for the full reference.
 
@@ -332,10 +332,10 @@ If using a traditional code signing certificate (EV or standard):
 ```powershell
 # Sign with signtool (Windows SDK)
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  /a "path\to\Helix_0.1.0_x64_en-US.msi"
+  /a "path\to\Jellyx_0.1.0_x64_en-US.msi"
 
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
-  /a "path\to\Helix_0.1.0_x64-setup.exe"
+  /a "path\to\Jellyx_0.1.0_x64-setup.exe"
 ```
 
 For EV certificates on hardware tokens, signing must be done on a machine with the token attached — use a self-hosted GitHub Actions runner or sign locally before release.
@@ -386,7 +386,7 @@ NO_STRIP=1 cargo tauri build --bundles appimage
 |----------|----------|--------|---------|
 | **Windows MSI** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
 | **Windows NSIS setup.exe** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
-| **Windows portable helix.exe** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
+| **Windows portable jellyx.exe** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
 | **macOS DMG (Apple Silicon)** | `.github/workflows/release.yml` | `macos-14` (M1) | `v*` tag push (release) |
 | **macOS DMG (Intel)** | `.github/workflows/release.yml` | `macos-13` | `v*` tag push (release) |
 | **Linux AppImage** | `.github/workflows/release.yml` | `ubuntu-22.04` | `v*` tag push (release) |
@@ -407,9 +407,9 @@ All release workflows:
 When cutting a new release, update these placeholders:
 
 - [ ] `packaging/aur/PKGBUILD` — `pkgver`, `sha256sums`
-- [ ] `packaging/flatpak/com.helix.music.yml` — source URL and SHA256
-- [ ] `packaging/flatpak/com.helix.music.metainfo.xml` — `<release>` entry
-- [ ] `packaging/homebrew/Casks/helix-player.rb` — `version`, `sha256` (both aarch64 and x64), `url`
+- [ ] `packaging/flatpak/com.jellyx.music.yml` — source URL and SHA256
+- [ ] `packaging/flatpak/com.jellyx.music.metainfo.xml` — `<release>` entry
+- [ ] `packaging/homebrew/Casks/jellyx-player.rb` — `version`, `sha256` (both aarch64 and x64), `url`
 - [ ] `packaging/winget/manifests/*.yaml` — `PackageVersion`, `InstallerSha256`, `InstallerUrl`, `ProductCode`
 - [ ] Download `.sha256` files from the macOS DMG CI artifacts for both architectures
 - [ ] Run `scripts/inspect-msi.ps1` on the built MSI to extract ProductCode and UpgradeCode

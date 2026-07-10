@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicogarciaZ/tauri-v2-schema/main/tauri.conf.json",
-  "productName": "Helix",
+  "productName": "Jellyx Player",
   "version": "0.3.3",
-  "identifier": "com.helix.music",
+  "identifier": "com.jellyx.music",
   "build": {
     "frontendDist": "../ui/dist",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Helix",
+        "title": "Jellyx",
         "width": 1200,
         "height": 800,
         "minWidth": 900,
@@ -26,7 +26,7 @@
         "enable": true,
         "scope": [
           "$APPDATA/art/**/*",
-          "$HOME/.local/share/helix/art/**/*"
+          "$HOME/.local/share/jellyx/art/**/*"
         ]
       },
       "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:*; media-src 'self' http://127.0.0.1:*; img-src 'self' asset: http://asset.localhost https://*"

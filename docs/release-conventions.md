@@ -1,12 +1,12 @@
 # Release Conventions
 
-This document defines the style, naming, and structure conventions for every Helix release. It MUST be followed for all releases to maintain consistency across versions, platforms, and distribution channels.
+This document defines the style, naming, and structure conventions for every Jellyx release. It MUST be followed for all releases to maintain consistency across versions, platforms, and distribution channels.
 
 ---
 
 ## 1. Versioning
 
-Helix follows [Semantic Versioning](https://semver.org/):
+Jellyx follows [Semantic Versioning](https://semver.org/):
 
 | Part | When to bump | Example |
 |------|-------------|---------|
@@ -42,16 +42,16 @@ v0.3.0-beta.1
 
 ## 3. Release title format
 
-**Always**: `Helix {VERSION}`
+**Always**: `Jellyx {VERSION}`
 
 ```
-Helix 0.1.0
-Helix 0.2.0
-Helix 0.3.0-beta.1
+Jellyx 0.1.0
+Jellyx 0.2.0
+Jellyx 0.3.0-beta.1
 ```
 
-- Capital `H`
-- Space between `Helix` and the version
+- Capital `J`
+- Space between `Jellyx` and the version
 - No `v` prefix in the title
 - No extra words like "Release", "Version", etc.
 
@@ -74,16 +74,16 @@ Every release MUST use this exact structure:
 
 | Platform | File | Type |
 |----------|------|------|
-| Linux | `Helix_{version}_amd64.AppImage` | AppImage |
-| Linux | `Helix_{version}_amd64.deb` | Debian package |
-| Linux | `Helix_{version}_amd64.tar.gz` | Portable tarball |
-| Linux | `Helix-0.2.0-1.x86_64.rpm` | RPM package |
-| Linux | `Helix_{version}_amd64.tar.gz` | Portable tarball |
-| Windows | `Helix_{version}_x64-setup.exe` | NSIS installer (recommended) |
-| Windows | `Helix_{version}_x64_en-US.msi` | MSI installer |
-| Windows | `helix.exe` | Portable executable |
-| macOS (Apple Silicon) | `Helix_{version}_aarch64.dmg` | DMG |
-| macOS (Intel) | `Helix_{version}_x64.dmg` | DMG |
+| Linux | `Jellyx_{version}_amd64.AppImage` | AppImage |
+| Linux | `Jellyx_{version}_amd64.deb` | Debian package |
+| Linux | `Jellyx_{version}_amd64.tar.gz` | Portable tarball |
+| Linux | `Jellyx-0.2.0-1.x86_64.rpm` | RPM package |
+| Linux | `Jellyx_{version}_amd64.tar.gz` | Portable tarball |
+| Windows | `Jellyx_{version}_x64-setup.exe` | NSIS installer (recommended) |
+| Windows | `Jellyx_{version}_x64_en-US.msi` | MSI installer |
+| Windows | `jellyx.exe` | Portable executable |
+| macOS (Apple Silicon) | `Jellyx_{version}_aarch64.dmg` | DMG |
+| macOS (Intel) | `Jellyx_{version}_x64.dmg` | DMG |
 
 > ⚠️ Windows builds are unsigned. See the [README](../README.md#windows) for SmartScreen workaround.
 
@@ -92,12 +92,12 @@ Every release MUST use this exact structure:
 Every binary has a corresponding `.sha256` file. Verify downloads:
 
 \`\`\`bash
-sha256sum -c Helix_0.2.0_amd64.AppImage.sha256
+sha256sum -c Jellyx_0.2.0_amd64.AppImage.sha256
 \`\`\`
 
 ---
 
-**Full Changelog**: https://github.com/netcraker01/helix/compare/v{PREV}...v{VERSION}
+**Full Changelog**: https://github.com/netcraker01/jellyx-player/compare/v{PREV}...v{VERSION}
 ```
 
 ### Rules for the body
@@ -118,35 +118,35 @@ All release artifacts MUST follow these patterns:
 
 | Artifact | Pattern | Example |
 |----------|---------|---------|
-| AppImage | `Helix_{version}_amd64.AppImage` | `Helix_0.2.0_amd64.AppImage` |
-| Debian | `Helix_{version}_amd64.deb` | `Helix_0.2.0_amd64.deb` |
-| RPM | `Helix-{version}-1.x86_64.rpm` | `Helix-0.2.0-1.x86_64.rpm` |
-| Portable tarball | `Helix_{version}_amd64.tar.gz` | `Helix_0.2.0_amd64.tar.gz` |
+| AppImage | `Jellyx_{version}_amd64.AppImage` | `Jellyx_0.2.0_amd64.AppImage` |
+| Debian | `Jellyx_{version}_amd64.deb` | `Jellyx_0.2.0_amd64.deb` |
+| RPM | `Jellyx-{version}-1.x86_64.rpm` | `Jellyx-0.2.0-1.x86_64.rpm` |
+| Portable tarball | `Jellyx_{version}_amd64.tar.gz` | `Jellyx_0.2.0_amd64.tar.gz` |
 
 ### Windows
 
 | Artifact | Pattern | Example |
 |----------|---------|---------|
-| NSIS | `Helix_{version}_x64-setup.exe` | `Helix_0.2.0_x64-setup.exe` |
-| MSI | `Helix_{version}_x64_en-US.msi` | `Helix_0.2.0_x64_en-US.msi` |
-| Portable | `helix.exe` | `helix.exe` |
+| NSIS | `Jellyx_{version}_x64-setup.exe` | `Jellyx_0.2.0_x64-setup.exe` |
+| MSI | `Jellyx_{version}_x64_en-US.msi` | `Jellyx_0.2.0_x64_en-US.msi` |
+| Portable | `jellyx.exe` | `jellyx.exe` |
 
 ### macOS
 
 | Artifact | Pattern | Example |
 |----------|---------|---------|
-| DMG (ARM) | `Helix_{version}_aarch64.dmg` | `Helix_0.2.0_aarch64.dmg` |
-| DMG (Intel) | `Helix_{version}_x64.dmg` | `Helix_0.2.0_x64.dmg` |
+| DMG (ARM) | `Jellyx_{version}_aarch64.dmg` | `Jellyx_0.2.0_aarch64.dmg` |
+| DMG (Intel) | `Jellyx_{version}_x64.dmg` | `Jellyx_0.2.0_x64.dmg` |
 
 ### Checksums
 
 Every binary MUST have a `.sha256` file with the same base name:
 
 ```
-Helix_0.2.0_amd64.AppImage
-Helix_0.2.0_amd64.AppImage.sha256
-helix.exe
-helix.exe.sha256
+Jellyx_0.2.0_amd64.AppImage
+Jellyx_0.2.0_amd64.AppImage.sha256
+jellyx.exe
+jellyx.exe.sha256
 ```
 
 ---
@@ -157,8 +157,8 @@ Before creating a release, verify ALL of the following:
 
 ### Version bump
 
-- [ ] `helix-desktop/Cargo.toml` → `version = "X.Y.Z"`
-- [ ] `helix-desktop/tauri.conf.json` → `"version": "X.Y.Z"`
+- [ ] `jellyx-desktop/Cargo.toml` → `version = "X.Y.Z"`
+- [ ] `jellyx-desktop/tauri.conf.json` → `"version": "X.Y.Z"`
 - [ ] `ui/package.json` → `"version": "X.Y.Z"`
 - [ ] All three versions match exactly
 
@@ -180,7 +180,7 @@ Before creating a release, verify ALL of the following:
 - [ ] GitHub Actions `release.yml` triggered successfully
 - [ ] GitHub Actions `verify-release` job passed (title + asset naming validation)
 - [ ] All expected artifacts are attached to the release
-- [ ] Release title matches: `Helix X.Y.Z`
+- [ ] Release title matches: `Jellyx X.Y.Z`
 - [ ] Release body follows the template in section 4
 - [ ] Every binary has a `.sha256` checksum file
 - [ ] No missing platforms (Linux, Windows, macOS — unless intentionally skipped)
@@ -239,7 +239,7 @@ Before creating a release, verify ALL of the following:
 For alpha, beta, or release candidates:
 
 - Tag: `v0.3.0-beta.1`
-- Title: `Helix 0.3.0-beta.1`
+- Title: `Jellyx 0.3.0-beta.1`
 - Mark as **pre-release** on GitHub (checkbox in release settings)
 - Body is the same template, but add a warning at the top:
 
@@ -251,7 +251,7 @@ For alpha, beta, or release candidates:
 
 ## 9. What NOT to do
 
-- ❌ Do not use inconsistent titles ("v0.1.0" vs "Helix 0.1.0")
+- ❌ Do not use inconsistent titles ("v0.1.0" vs "Jellyx 0.1.0")
 - ❌ Do not leave release body empty or auto-generated only
 - ❌ Do not skip the downloads table
 - ❌ Do not attach artifacts without `.sha256` checksums
@@ -265,7 +265,7 @@ For alpha, beta, or release candidates:
 
 The release pipeline is expected to enforce the convention automatically:
 
-- `softprops/action-gh-release` sets the public release title to `Helix {VERSION}`
+- `softprops/action-gh-release` sets the public release title to `Jellyx {VERSION}`
 - `scripts/validate-release.sh` validates the final title and required asset names
 - A release that drifts from the naming rules should fail CI rather than relying on manual cleanup afterward
 
@@ -275,20 +275,20 @@ The release pipeline is expected to enforce the convention automatically:
 
 ```
 Tag:    vX.Y.Z
-Title:  Helix X.Y.Z
-Body:   ## ✨ What's New
-        ## 🐛 Bug Fixes
-        ## 📦 Downloads
-        ## 🔑 Checksums
+Title:  Jellyx X.Y.Z
+Body:   ## What's New
+        ## Bug Fixes
+        ## Downloads
+        ## Checksums
         ---
         **Full Changelog**: compare link
-Files:  Helix_{ver}_amd64.AppImage + .sha256
-        Helix_{ver}_amd64.deb
-        Helix_{ver}_amd64.tar.gz + .sha256
-        Helix-{ver}-1.x86_64.rpm
-        Helix_{ver}_x64-setup.exe + .sha256
-        Helix_{ver}_x64_en-US.msi + .sha256
-        helix.exe + .sha256
-        Helix_{ver}_aarch64.dmg + .sha256
-        Helix_{ver}_x64.dmg + .sha256
+Files:  Jellyx_{ver}_amd64.AppImage + .sha256
+        Jellyx_{ver}_amd64.deb
+        Jellyx_{ver}_amd64.tar.gz + .sha256
+        Jellyx-{ver}-1.x86_64.rpm
+        Jellyx_{ver}_x64-setup.exe + .sha256
+        Jellyx_{ver}_x64_en-US.msi + .sha256
+        jellyx.exe + .sha256
+        Jellyx_{ver}_aarch64.dmg + .sha256
+        Jellyx_{ver}_x64.dmg + .sha256
 ```

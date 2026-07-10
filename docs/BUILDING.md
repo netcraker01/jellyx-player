@@ -1,6 +1,6 @@
-# Building and releasing Helix
+# Building and releasing Jellyx
 
-This guide is for **contributors and packagers**. If you just want to use Helix, see the [Download section in README.md](../README.md#download).
+This guide is for **contributors and packagers**. If you just want to use Jellyx, see the [Download section in README.md](../README.md#download).
 
 ---
 
@@ -14,8 +14,8 @@ This guide is for **contributors and packagers**. If you just want to use Helix,
 ## Build
 
 ```bash
-git clone https://github.com/netcraker01/helix
-cd helix
+git clone https://github.com/netcraker01/jellyx-player
+cd jellyx-player
 
 # Development mode
 cargo tauri dev
@@ -43,24 +43,24 @@ The official build scripts handle this automatically:
 
 ## Remote sources and yt-dlp
 
-Helix uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) to resolve streams from YouTube and SoundCloud. **You do not need to install yt-dlp manually.** On first launch, Helix auto-downloads the correct binary for your platform:
+Jellyx uses [yt-dlp](https://github.com/yt-dlp/yt-dlp) to resolve streams from YouTube and SoundCloud. **You do not need to install yt-dlp manually.** On first launch, Jellyx auto-downloads the correct binary for your platform:
 
 | Platform | Auto-download location |
 |---|---|
-| Linux | `~/.local/share/helix/bin/yt-dlp` |
-| macOS | `~/Library/Application Support/helix/bin/yt-dlp` |
-| Windows | `%LOCALAPPDATA%\helix\bin\yt-dlp.exe` |
+| Linux | `~/.local/share/jellyx/bin/yt-dlp` |
+| macOS | `~/Library/Application Support/jellyx/bin/yt-dlp` |
+| Windows | `%LOCALAPPDATA%\jellyx\bin\yt-dlp.exe` |
 
-If yt-dlp is already on your system PATH, Helix will use that instead. Release packages do not bundle yt-dlp — it is fetched on demand to keep downloads small and stay current.
+If yt-dlp is already on your system PATH, Jellyx will use that instead. Release packages do not bundle yt-dlp — it is fetched on demand to keep downloads small and stay current.
 
 ## Release pipeline
 
-Helix uses a single unified release workflow: `.github/workflows/release.yml`. It is the single source of truth for publishing a new version.
+Jellyx uses a single unified release workflow: `.github/workflows/release.yml`. It is the single source of truth for publishing a new version.
 
 ### How to publish a release
 
 ```bash
-# 1. Bump the version in helix-desktop/Cargo.toml, helix-desktop/tauri.conf.json, and ui/package.json
+# 1. Bump the version in jellyx-desktop/Cargo.toml, jellyx-desktop/tauri.conf.json, and ui/package.json
 # 2. Commit and tag
 git tag v0.2.0
 git push origin v0.2.0
@@ -74,7 +74,7 @@ Pushing a `v*` tag triggers three parallel jobs:
 | Job | Runner | Artifacts |
 |---|---|---|
 | **linux** | `ubuntu-22.04` | AppImage (`NO_STRIP=1`), `.deb`, `.rpm` |
-| **windows** | `windows-latest` | MSI, NSIS `setup.exe`, portable `helix.exe` |
+| **windows** | `windows-latest` | MSI, NSIS `setup.exe`, portable `jellyx.exe` |
 | **macos** | `macos-14` + `macos-13` | DMG for Apple Silicon + Intel |
 
 Each job builds its artifacts, generates a `.sha256` checksum file alongside each, uploads them as workflow artifacts (30-day retention), and attaches them to the GitHub Release for the tag.
