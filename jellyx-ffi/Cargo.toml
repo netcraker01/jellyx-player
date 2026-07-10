@@ -1,0 +1,17 @@
+[package]
+name = "jellyx-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Foreign Function Interface skeleton for Jellyx (UniFFI scaffolding initialized)."
+
+[lib]
+name = "jellyx_ffi"
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+jellyx-core = { path = "../jellyx-core" }
+# UniFFI for proc-macro-based FFI scaffolding (original user acceptance
+# criterion). Proc-macro-only path — no build.rs or UDL required for the
+# `setup_scaffolding!()` macro to compile.
+uniffi = "0.32"

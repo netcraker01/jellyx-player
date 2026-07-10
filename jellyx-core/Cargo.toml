@@ -1,0 +1,15 @@
+[package]
+name = "jellyx-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure, Tauri-free Jellyx domain logic shared by all consumers."
+
+[lib]
+name = "jellyx_core"
+crate-type = ["lib"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = { workspace = true }

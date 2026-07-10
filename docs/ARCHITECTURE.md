@@ -146,16 +146,16 @@ enum Source {
 
 ## 5. Estructura de Carpetas
 
-### 5.1 Backend (Rust / helix-desktop/)
+### 5.1 Backend (Rust / jellyx-desktop/)
 
 Estructura **híbrida**: dominios principales arriba, submódulos técnicos dentro.
 
 > La lógica de dominio pura (`models/`, `shared/utils`) se extrajo a
-> `helix-core/` en el workspace split. Ver [`ARCHITECTURE.md`](../ARCHITECTURE.md)
+> `jellyx-core/` en el workspace split. Ver [`ARCHITECTURE.md`](../ARCHITECTURE.md)
 > raíz para el layout del workspace y el boundary del core.
 
 ```
-helix-desktop/
+jellyx-desktop/
 ├── src/
 │   ├── app/                    # Inicialización y configuración de la app
 │   │   ├── mod.rs
@@ -209,10 +209,10 @@ helix-desktop/
 └── tauri.conf.json
 ```
 
-> **Nota:** `models/` y `shared/` se movieron a `helix-core/` en el workspace
+> **Nota:** `models/` y `shared/` se movieron a `jellyx-core/` en el workspace
 > split (PR 3). El árbol arriba refleja solo lo que permanece en
-> `helix-desktop`. Para los módulos extraídos, ver
-> [`helix-core/src/`](../helix-core/src/).
+> `jellyx-desktop`. Para los módulos extraídos, ver
+> [`jellyx-core/src/`](../jellyx-core/src/).
 
 ### 5.2 Frontend (Svelte / ui/)
 
