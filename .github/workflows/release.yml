@@ -117,6 +117,23 @@ jobs:
       - name: Install tauri-cli
         run: cargo install tauri-cli --locked
 
+      - name: Clean stale Linux bundle outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle_dirs=(
+            "target/release/bundle"
+            "target/release/portable-tar"
+            "helix-desktop/target/release/bundle"
+            "helix-desktop/target/release/portable-tar"
+          )
+          for dir in "${bundle_dirs[@]}"; do
+            if [ -d "$dir" ]; then
+              rm -rf "$dir"
+              echo "Removed stale Linux bundle output: $dir"
+            fi
+          done
+
       # Build all three Linux bundle formats in one pass.
       # NO_STRIP=1 prevents linuxdeploy from stripping RELR-enabled binaries,
       # which would otherwise corrupt the AppImage at runtime.
