@@ -39,6 +39,22 @@ describe('MiniPlayer', () => {
     expect(quitFromMiniPlayer).toHaveBeenCalledTimes(1);
   });
 
+  it('marks non-interactive surfaces as native drag regions without disabling controls', () => {
+    const { container } = render(MiniPlayer);
+
+    expect(screen.getByLabelText('Mini player').hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(container.querySelector('.device')?.hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(container.querySelector('.screen')?.hasAttribute('data-tauri-drag-region')).toBe(true);
+    expect(container.querySelector('.track-card')?.hasAttribute('data-tauri-drag-region')).toBe(true);
+
+    expect(screen.getByRole('button', { name: 'Return to full app' }).hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Minimize mini player' }).hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Quit Helix' }).hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Previous' }).hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Play' }).hasAttribute('data-tauri-drag-region')).toBe(false);
+  });
+
   it('renders the selected skin contract, sizing, and theme', () => {
     activateMiniPlayerSkin('graphite-pocket');
     setMiniPlayerScale(0.3);

@@ -45,24 +45,24 @@
       </button>
     </div>
 
-    <div class="screen">
-      <div class="track-card">
+    <div class="screen" data-tauri-drag-region>
+      <div class="track-card" data-tauri-drag-region>
         {#if $currentTrack && albumArtUrl($currentTrack.thumbnail)}
-          <img src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" class="artwork" />
+          <img src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" class="artwork" data-tauri-drag-region />
         {:else}
-          <div class="artwork placeholder">Helix</div>
+          <div class="artwork placeholder" data-tauri-drag-region>Helix</div>
         {/if}
-        <div class="metadata">
-          <strong>{$currentTrack?.title ?? 'No track selected'}</strong>
-          <span>{$currentTrack?.artist ?? skin.name}</span>
+        <div class="metadata" data-tauri-drag-region>
+          <strong data-tauri-drag-region>{$currentTrack?.title ?? 'No track selected'}</strong>
+          <span data-tauri-drag-region>{$currentTrack?.artist ?? skin.name}</span>
         </div>
       </div>
-      <div class="progress" aria-label="Playback progress">
-        <span style="width: {progressPct}%"></span>
+      <div class="progress" aria-label="Playback progress" data-tauri-drag-region>
+        <span style="width: {progressPct}%" data-tauri-drag-region></span>
       </div>
-      <div class="times">
-        <span>{formatTime($progress.position)}</span>
-        <span>{formatTime($progress.duration)}</span>
+      <div class="times" data-tauri-drag-region>
+        <span data-tauri-drag-region>{formatTime($progress.position)}</span>
+        <span data-tauri-drag-region>{formatTime($progress.duration)}</span>
       </div>
       <MiniVisualizer />
     </div>

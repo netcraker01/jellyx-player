@@ -3,7 +3,7 @@ resolver = "2"
 members = ["helix-desktop", "helix-core", "helix-cli", "helix-ffi"]
 
 [workspace.package]
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 license = "AGPL-3.0"
 
