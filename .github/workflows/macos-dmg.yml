@@ -115,12 +115,12 @@ jobs:
         run: |
           # In a Cargo workspace, Tauri v2 places bundles under the workspace
           # root target/<target>/release/bundle/dmg/. Search there first; the
-          # member-local helix-desktop/target/ paths are legacy fallbacks.
+          # member-local jellyx-desktop/target/ paths are legacy fallbacks.
           search_dirs=(
             "target/${{ matrix.target }}/release/bundle/dmg"
             "target/release/bundle/dmg"
-            "helix-desktop/target/${{ matrix.target }}/release/bundle/dmg"
-            "helix-desktop/target/release/bundle/dmg"
+            "jellyx-desktop/target/${{ matrix.target }}/release/bundle/dmg"
+            "jellyx-desktop/target/release/bundle/dmg"
           )
 
           dmg_file=""
@@ -154,7 +154,7 @@ jobs:
           build_ref="${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref_name }}"
           version="${build_ref#v}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            version=$(grep '^version' helix-desktop/Cargo.toml | head -1 | cut -d'"' -f2)
+            version=$(grep '^version' jellyx-desktop/Cargo.toml | head -1 | cut -d'"' -f2)
           fi
 
           echo "dmg_path=$dmg_file" >> "$GITHUB_OUTPUT"

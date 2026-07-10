@@ -94,8 +94,8 @@ jobs:
           $bundleDirs = @(
             "target/release/bundle/msi",
             "target/release/bundle/nsis",
-            "helix-desktop/target/release/bundle/msi",
-            "helix-desktop/target/release/bundle/nsis"
+            "jellyx-desktop/target/release/bundle/msi",
+            "jellyx-desktop/target/release/bundle/nsis"
           )
           foreach ($dir in $bundleDirs) {
             if (Test-Path $dir) {
@@ -117,12 +117,12 @@ jobs:
         run: |
           $searchDirs = @(
             "target/release",
-            "helix-desktop/target/release"
+            "jellyx-desktop/target/release"
           )
           $exeFile = $null
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
-              $candidate = Get-ChildItem -Path $dir -Filter "helix.exe" | Select-Object -First 1
+              $candidate = Get-ChildItem -Path $dir -Filter "jellyx.exe" | Select-Object -First 1
               if ($candidate) {
                 $exeFile = $candidate
                 break
@@ -130,7 +130,7 @@ jobs:
             }
           }
           if (-not $exeFile) {
-            Write-Error "No portable helix.exe found in expected directories: $($searchDirs -join ', ')"
+            Write-Error "No portable jellyx.exe found in expected directories: $($searchDirs -join ', ')"
             exit 1
           }
           Write-Host "Portable exe found: $($exeFile.FullName)"
@@ -152,12 +152,12 @@ jobs:
           if ($version -match '^\d+\.\d+\.\d+') {
             $version = $Matches[0]
           } else {
-            $version = (Select-String -Path "helix-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+            $version = (Select-String -Path "jellyx-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
           }
 
           $searchDirs = @(
             "target/release/bundle/msi",
-            "helix-desktop/target/release/bundle/msi"
+            "jellyx-desktop/target/release/bundle/msi"
           )
 
           $msiFile = $null
@@ -214,12 +214,12 @@ jobs:
           if ($version -match '^\d+\.\d+\.\d+') {
             $version = $Matches[0]
           } else {
-            $version = (Select-String -Path "helix-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+            $version = (Select-String -Path "jellyx-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
           }
 
           $searchDirs = @(
             "target/release/bundle/nsis",
-            "helix-desktop/target/release/bundle/nsis"
+            "jellyx-desktop/target/release/bundle/nsis"
           )
 
           $nsisFile = $null
