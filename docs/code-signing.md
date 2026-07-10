@@ -4,7 +4,7 @@
 
 ## The problem
 
-When users install Helix Player on Windows 11, they may see:
+When users install Jellyx Player on Windows 11, they may see:
 
 - **"Windows protected your PC"** — SmartScreen blue popup requiring "More info" → "Run anyway"
 - **Smart App Control block** — completely prevents running unsigned apps when enabled (default on new Windows 11 installs)
@@ -14,12 +14,12 @@ These are not bugs — they are the expected behavior for unsigned executables o
 
 ## Why two installers?
 
-Helix ships two Windows installer formats:
+Jellyx ships two Windows installer formats:
 
 | Format | File pattern | Purpose |
 |--------|-------------|---------|
-| **NSIS setup.exe** | `Helix_<version>_x64-setup.exe` | **Recommended for direct user installs.** Friendlier UX: language selector, per-machine install option, better error messages. |
-| **MSI** | `Helix_<version>_x64_en-US.msi` | Required for winget and enterprise/managed deployments. Supports transforms and Group Policy. |
+| **NSIS setup.exe** | `Jellyx_<version>_x64-setup.exe` | **Recommended for direct user installs.** Friendlier UX: language selector, per-machine install option, better error messages. |
+| **MSI** | `Jellyx_<version>_x64_en-US.msi` | Required for winget and enterprise/managed deployments. Supports transforms and Group Policy. |
 
 **Both must be signed.** An unsigned NSIS installer is just as blocked as an unsigned MSI.
 
@@ -79,8 +79,8 @@ Microsoft's cloud signing service. Signs with a Microsoft-managed EV certificate
 
 **Local signing:**
 ```powershell
-signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "Helix_0.1.0_x64_en-US.msi"
-signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "Helix_0.1.0_x64-setup.exe"
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "Jellyx_0.1.0_x64_en-US.msi"
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /a "Jellyx_0.1.0_x64-setup.exe"
 ```
 
 **CI signing** requires a self-hosted runner with the hardware token attached.
@@ -124,7 +124,7 @@ When `signCommand` is set, Tauri runs it on each bundle artifact (MSI and NSIS e
 
 ## Current status
 
-Helix releases are currently **unsigned**. The workflow in `.github/workflows/windows.yml` has a conditional signing step that activates when Azure Trusted Signing secrets are present. To enable signing:
+Jellyx releases are currently **unsigned**. The workflow in `.github/workflows/windows.yml` has a conditional signing step that activates when Azure Trusted Signing secrets are present. To enable signing:
 
 1. Set up an Azure Trusted Signing account
 2. Add the three secrets to GitHub repository settings
@@ -141,7 +141,7 @@ When signing is enabled:
 3. Signed artifacts are uploaded to the GitHub Release
 4. Verify signatures locally:
    ```powershell
-   Get-AuthenticodeSignature .\Helix_0.1.0_x64_en-US.msi
-   Get-AuthenticodeSignature .\Helix_0.1.0_x64-setup.exe
+   Get-AuthenticodeSignature .\Jellyx_0.1.0_x64_en-US.msi
+   Get-AuthenticodeSignature .\Jellyx_0.1.0_x64-setup.exe
    ```
 5. Both should show `Status: Valid`

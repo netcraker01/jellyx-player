@@ -1,6 +1,6 @@
-# Helix Engineering Process
+# Jellyx Engineering Process
 
-Helix is an AI-assisted software project, but it is human-directed, human-reviewed, and human-maintained.
+Jellyx is an AI-assisted software project, but it is human-directed, human-reviewed, and human-maintained.
 
 This document exists to explain the workflow plainly, not to make AI the center of the product.
 
@@ -13,7 +13,7 @@ This document exists to explain the workflow plainly, not to make AI the center 
 
 ## What that means in practice
 
-| Area | How Helix handles it |
+| Area | How Jellyx handles it |
 |---|---|
 | Product direction | Human-defined |
 | Requirements | Human-written and iterated |
@@ -39,9 +39,9 @@ This document exists to explain the workflow plainly, not to make AI the center 
 5. **Engineering accountability stays human**
    If something is released, the human maintainer owns the decision, the constraints, and the review of that change.
 
-## What Helix is not
+## What Jellyx is not
 
-Helix is not presented as:
+Jellyx is not presented as:
 
 - fully hand-written software
 - autonomous AI software

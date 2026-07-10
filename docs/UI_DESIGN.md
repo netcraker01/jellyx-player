@@ -1,12 +1,12 @@
-# Diseño de Interfaz y Sistema Visual — Helix Player
+# Diseño de Interfaz y Sistema Visual — Jellyx Player
 
-Este documento define las guías visuales, el layout y el sistema de diseño para Helix Player, asegurando una implementación coherente en el frontend (Svelte + Tauri).
+Este documento define las guías visuales, el layout y el sistema de diseño para Jellyx Player, asegurando una implementación coherente en el frontend (Svelte + Tauri).
 
-La referencia de producto es clara: Helix es una herramienta de música de fondo para trabajar. La UI debe sentirse tranquila, útil y honesta, con foco en audio, continuidad de reproducción y bajo ruido visual.
+La referencia de producto es clara: Jellyx es una herramienta de música de fondo para trabajar. La UI debe sentirse tranquila, útil y honesta, con foco en audio, continuidad de reproducción y bajo ruido visual.
 
 ## 1. División de la Ventana (Layout)
 
-Helix Player utiliza un **layout clásico de aplicación de escritorio** para garantizar una curva de aprendizaje baja y priorizar la intuición del usuario.
+Jellyx Player utiliza un **layout clásico de aplicación de escritorio** para garantizar una curva de aprendizaje baja y priorizar la intuición del usuario.
 
 El espacio se divide en tres áreas principales:
 
@@ -26,7 +26,7 @@ El espacio se divide en tres áreas principales:
 
 ## 2. Temas y Paleta de Colores
 
-Para la `v0.1`, Helix Player utilizará exclusivamente un **Tema Oscuro Estricto (Dark Mode only)**. 
+Para la `v0.1`, Jellyx Player utilizará exclusivamente un **Tema Oscuro Estricto (Dark Mode only)**. 
 
 Justificación:
 - Mejora drásticamente el contraste para las visualizaciones (FFT, osciloscopios) y las carátulas de los álbumes.
@@ -39,10 +39,10 @@ Justificación:
 
 ## 3. Tipografía
 
-Helix utilizará un **sistema tipográfico mixto**, combinando fuentes sans-serif para la legibilidad principal y fuentes monoespaciadas para los metadatos técnicos.
+Jellyx utilizará un **sistema tipográfico mixto**, combinando fuentes sans-serif para la legibilidad principal y fuentes monoespaciadas para los metadatos técnicos.
 
 - **Fuente principal (Sans-serif):** Se usará para títulos de canciones, nombres de artistas, navegación y textos de interfaz. Debe ser neutra y altamente legible (ej: Inter, Roboto o sistema nativo).
-- **Fuente secundaria (Monospace):** Se usará exclusivamente para duraciones de tiempo (ej: 02:34), metadatos técnicos, contadores de frames (FPS) de las visualizaciones o datos del espectrómetro de audio. Esto le otorga a Helix un sutil carácter técnico y de precisión.
+- **Fuente secundaria (Monospace):** Se usará exclusivamente para duraciones de tiempo (ej: 02:34), metadatos técnicos, contadores de frames (FPS) de las visualizaciones o datos del espectrómetro de audio. Esto le otorga a Jellyx un sutil carácter técnico y de precisión.
 
 ## 4. Iconografía
 
@@ -55,7 +55,7 @@ Se recomienda usar librerías consistentes y modernas como Lucide o Phosphor Ico
 
 ## 5. Componentes Clave: Visualizaciones (El "Wow Factor")
 
-Las visualizaciones en tiempo real (impulsadas por `rustfft`) son una capa expresiva de Helix, pero no deben romper el objetivo principal del producto: reproducir música de fondo de forma estable y poco distractora. En `v0.1`, se integrarán de forma **mixta (contextual y dedicada)**:
+Las visualizaciones en tiempo real (impulsadas por `rustfft`) son una capa expresiva de Jellyx, pero no deben romper el objetivo principal del producto: reproducir música de fondo de forma estable y poco distractora. En `v0.1`, se integrarán de forma **mixta (contextual y dedicada)**:
 
 1. **Modo Contextual (Ambient Blur / Aurora):**
    - Durante la navegación normal por la app, el color dominante de la carátula o una visualización de baja frecuencia se renderizará de fondo, muy desenfocado. 
