@@ -160,7 +160,7 @@ jobs:
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
               $candidate = Get-ChildItem -Path $dir -Filter "*.msi" |
-                Where-Object { $_.Name -like "Jellyx_${version}_*.msi" } |
+                Where-Object { $_.Name -like "*${version}_*.msi" } |
                 Select-Object -First 1
               if ($candidate) {
                 $msiFile = $candidate
@@ -223,12 +223,12 @@ jobs:
             if (Test-Path $dir) {
               # NSIS produces a setup .exe file
                 $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" |
-                Where-Object { $_.Name -like "Jellyx_${version}_*setup*.exe" } |
+                Where-Object { $_.Name -like "*${version}_*setup*.exe" } |
                 Select-Object -First 1
               if (-not $candidate) {
                 # Fallback: any .exe in the nsis bundle dir (excluding the app executable)
                 $candidate = Get-ChildItem -Path $dir -Filter "*.exe" |
-                  Where-Object { $_.Name -like "Jellyx_${version}_*.exe" } |
+                  Where-Object { $_.Name -like "*${version}_*.exe" } |
 
                   Select-Object -First 1
               }
