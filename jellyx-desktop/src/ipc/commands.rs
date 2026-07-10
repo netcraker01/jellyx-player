@@ -1079,9 +1079,14 @@ pub fn get_update_prefs(
 
 /// Returns true if `url` is on the Jellyx GitHub releases allowlist.
 ///
+/// Accepts both the current repo (`jellyx-player`) and the legacy repo (`helix`)
+/// so that old installed apps whose allowlist only knew the `helix` repo can
+/// still follow GitHub redirects to the correct release page.
+///
 /// Extracted as a pure helper so it can be unit-tested without a Tauri handle.
 pub fn is_release_url_allowed(url: &str) -> bool {
     url.starts_with("https://github.com/netcraker01/jellyx-player/releases/")
+        || url.starts_with("https://github.com/netcraker01/helix/releases/")
 }
 
 /// Open the release page in the system default browser.

@@ -16,11 +16,11 @@ fn open_release_page_accepts_jellyx_repo_url() {
 }
 
 #[test]
-fn open_release_page_rejects_old_helix_repo_url() {
+fn open_release_page_accepts_legacy_helix_repo_url() {
     let url = "https://github.com/netcraker01/helix/releases/tag/v0.3.3";
     assert!(
-        !is_release_url_allowed(url),
-        "expected old Helix release URL to be rejected: {}",
+        is_release_url_allowed(url),
+        "expected legacy Helix release URL to be allowed (GitHub redirects): {}",
         url
     );
 }
