@@ -3,7 +3,7 @@
   import { navigate } from '@app/router/navigation';
   import { Search, Sparkles, Clock, ListMusic, Play } from 'lucide-svelte';
   import { t } from '@i18n';
-  import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import JellyxLogo from '@shared/components/JellyxLogo.svelte';
   import TrackRow from '@shared/components/TrackRow.svelte';
   import {
     suggestionCategories,
@@ -64,7 +64,7 @@
 <div class="page-home">
   <div class="hero-center">
     <div class="brand-glow" aria-hidden="true"></div>
-    <HelixLogo size={96} />
+    <JellyxLogo size={96} />
 
     <h1 class="brand-heading">
       {$t('home.welcome')}

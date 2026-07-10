@@ -18,7 +18,7 @@
 
   onMount(() => {
     if (isLinux) {
-      hideTitleBar = localStorage.getItem('helix-hide-title-bar') === 'true';
+      hideTitleBar = (localStorage.getItem('jellyx-hide-title-bar') ?? localStorage.getItem('helix-hide-title-bar')) === 'true';
     }
     getVersion()
       .then((v) => {
@@ -72,7 +72,7 @@
 
   async function handleTitleBarToggle() {
     hideTitleBar = !hideTitleBar;
-    localStorage.setItem('helix-hide-title-bar', String(hideTitleBar));
+    localStorage.setItem('jellyx-hide-title-bar', String(hideTitleBar));
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().setDecorations(!hideTitleBar);
@@ -107,11 +107,11 @@
 
   $: currentLocale = $locale;
 
-  const HELIX_REPO_URL = 'https://github.com/netcraker01/helix';
-  const HELIX_LINKS = [
-    { key: 'settings.about_repo', url: HELIX_REPO_URL },
-    { key: 'settings.about_releases', url: `${HELIX_REPO_URL}/releases` },
-    { key: 'settings.about_issues', url: `${HELIX_REPO_URL}/issues` },
+  const JELLYX_REPO_URL = 'https://github.com/netcraker01/helix';
+  const JELLYX_LINKS = [
+    { key: 'settings.about_repo', url: JELLYX_REPO_URL },
+    { key: 'settings.about_releases', url: `${JELLYX_REPO_URL}/releases` },
+    { key: 'settings.about_issues', url: `${JELLYX_REPO_URL}/issues` },
   ];
 </script>
 
@@ -273,7 +273,7 @@
     </div>
   </section>
 
-  <section class="settings-section about-helix">
+  <section class="settings-section about-jellyx">
     <div class="section-header">
       <Library size={20} />
       <h2>{$t('settings.about')}</h2>
@@ -293,7 +293,7 @@
     </div>
 
     <ul class="about-links">
-      {#each HELIX_LINKS as link (link.key)}
+      {#each JELLYX_LINKS as link (link.key)}
         <li>
           <a href={link.url} target="_blank" rel="noopener noreferrer" class="about-link">
             <Github size={14} />
@@ -480,15 +480,15 @@
     outline-offset: 1px;
   }
 
-  /* About Helix — subtle expansion */
-  .about-helix .about-tagline {
+  /* About Jellyx — subtle expansion */
+  .about-jellyx .about-tagline {
     color: var(--text-primary, #e0e0e0);
     font-size: 0.95rem;
     font-weight: 500;
     margin: 0 0 0.5rem 0;
   }
 
-  .about-helix .about-desc {
+  .about-jellyx .about-desc {
     color: var(--text-secondary, #9ca3af);
     font-size: 0.85rem;
     line-height: 1.4;

@@ -8,7 +8,7 @@
   import { playTrack, addToQueueAction } from '@shared/utils/actions';
   import { getPlaylistTracks, removeTrackFromPlaylist, getPlaylistThumbnails, getChildPlaylists, countPlaylistTracks } from '@services/commands';
   import { albumArtUrl } from '@shared/utils/assetUrl';
-  import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import JellyxLogo from '@shared/components/JellyxLogo.svelte';
   import type { Track, PlaylistTrackEntry, UserPlaylist } from '@shared/types/models';
 
   export let id: string;
@@ -264,7 +264,7 @@
             <img class="track-thumb" src={albumArtUrl(entry.track.thumbnail)} alt={entry.track.title} />
           {:else}
             <div class="track-thumb-placeholder">
-              <HelixLogo size={20} monochrome={true} />
+              <JellyxLogo size={20} monochrome={true} />
             </div>
           {/if}
           <div class="track-info">

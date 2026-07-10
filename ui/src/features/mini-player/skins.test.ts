@@ -74,11 +74,11 @@ describe('mini player skins', () => {
 
     setMiniPlayerScale(0.1);
     expect(get(miniPlayerScale)).toBe(0.3);
-    expect(localStorage.getItem('helix-mini-player-scale')).toBe('0.3');
+    expect(localStorage.getItem('jellyx-mini-player-scale')).toBe('0.3');
 
     setMiniPlayerScale(2);
     expect(get(miniPlayerScale)).toBe(1);
-    expect(localStorage.getItem('helix-mini-player-scale')).toBe('1');
+    expect(localStorage.getItem('jellyx-mini-player-scale')).toBe('1');
 
     expect(clampMiniPlayerScale(0.33)).toBe(0.35);
   });

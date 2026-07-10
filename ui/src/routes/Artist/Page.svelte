@@ -11,7 +11,7 @@
   } from '@features/library/stores/artistDetail';
   import TrackRow from '@shared/components/TrackRow.svelte';
   import AlbumCard from '@shared/components/AlbumCard.svelte';
-  import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import JellyxLogo from '@shared/components/JellyxLogo.svelte';
   import { albumArtUrl } from '@shared/utils/assetUrl';
 
   export let id: string;
@@ -69,7 +69,7 @@
         />
       {:else}
         <div class="artist-header-art placeholder">
-          <HelixLogo size={72} monochrome={true} />
+          <JellyxLogo size={72} monochrome={true} />
         </div>
       {/if}
       <div class="artist-header-info">
@@ -314,7 +314,7 @@
   }
 
   .album-card-btn:focus-visible {
-    outline: 2px solid var(--color-helix-cyan, #00E5FF);
+    outline: 2px solid var(--color-jellyx-cyan, #00E5FF);
     outline-offset: 2px;
     border-radius: 12px;
   }

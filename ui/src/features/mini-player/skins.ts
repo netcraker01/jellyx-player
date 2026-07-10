@@ -1,3 +1,4 @@
+import { getMigratedItem, setMigratedItem } from '@shared/utils/storage';
 import { writable } from 'svelte/store';
 
 export type MiniPlayerControl = 'previous' | 'playPause' | 'next';
@@ -53,8 +54,8 @@ export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
   {
     id: 'ipod-classic',
     name: 'iPod Classic',
-    description: 'A compact click-wheel inspired skin for the first Helix mini player.',
-    author: 'Helix',
+    description: 'A compact click-wheel inspired skin for the first Jellyx mini player.',
+    author: 'Jellyx',
     kind: 'ipod',
     shape: 'rounded-rectangle',
     window: { width: 320, height: 480, resizable: false },
@@ -77,7 +78,7 @@ export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
     id: 'graphite-pocket',
     name: 'Graphite Pocket',
     description: 'A smaller graphite skin for compact desktop placement.',
-    author: 'Helix',
+    author: 'Jellyx',
     kind: 'ipod',
     shape: 'rounded-rectangle',
     window: { width: 300, height: 480, resizable: false },
@@ -102,8 +103,8 @@ export type MiniPlayerSkinId = (typeof MINI_PLAYER_SKINS)[number]['id'];
 
 export const DEFAULT_MINI_PLAYER_SKIN: MiniPlayerSkinId = 'ipod-classic';
 
-const MINI_PLAYER_SKIN_KEY = 'helix-mini-player-skin';
-const MINI_PLAYER_SCALE_KEY = 'helix-mini-player-scale';
+const MINI_PLAYER_SKIN_SUFFIX = 'mini-player-skin';
+const MINI_PLAYER_SCALE_SUFFIX = 'mini-player-scale';
 
 export function resolveMiniPlayerSkin(id: string | null | undefined): MiniPlayerSkin {
   return MINI_PLAYER_SKINS.find((skin) => skin.id === id) ?? MINI_PLAYER_SKINS[0];
@@ -163,40 +164,24 @@ export function resolveMiniPlayerSkinScale(skin: MiniPlayerSkin, scale: number =
 }
 
 function readPersistedSkin(): MiniPlayerSkinId {
-  try {
-    const raw = localStorage.getItem(MINI_PLAYER_SKIN_KEY);
-    return resolveMiniPlayerSkin(raw).id as MiniPlayerSkinId;
-  } catch {
-    return DEFAULT_MINI_PLAYER_SKIN;
-  }
+  const raw = getMigratedItem(MINI_PLAYER_SKIN_SUFFIX);
+  return resolveMiniPlayerSkin(raw).id as MiniPlayerSkinId;
 }
 
 function readPersistedScale(): number {
-  try {
-    const raw = localStorage.getItem(MINI_PLAYER_SCALE_KEY);
-    return raw === null ? MINI_PLAYER_SCALE_BOUNDS.default : clampMiniPlayerScale(Number(raw));
-  } catch {
-    return MINI_PLAYER_SCALE_BOUNDS.default;
-  }
+  const raw = getMigratedItem(MINI_PLAYER_SCALE_SUFFIX);
+  return raw === null ? MINI_PLAYER_SCALE_BOUNDS.default : clampMiniPlayerScale(Number(raw));
 }
 
 export const selectedMiniPlayerSkinId = writable<MiniPlayerSkinId>(readPersistedSkin());
 export const miniPlayerScale = writable<number>(readPersistedScale());
 
 selectedMiniPlayerSkinId.subscribe((id) => {
-  try {
-    localStorage.setItem(MINI_PLAYER_SKIN_KEY, id);
-  } catch {
-    // localStorage unavailable — keep the selected skin in memory for this session.
-  }
+  setMigratedItem(MINI_PLAYER_SKIN_SUFFIX, id);
 });
 
 miniPlayerScale.subscribe((scale) => {
-  try {
-    localStorage.setItem(MINI_PLAYER_SCALE_KEY, String(clampMiniPlayerScale(scale)));
-  } catch {
-    // localStorage unavailable — keep the selected scale in memory for this session.
-  }
+  setMigratedItem(MINI_PLAYER_SCALE_SUFFIX, String(clampMiniPlayerScale(scale)));
 });
 
 export function activateMiniPlayerSkin(id: string): void {

@@ -10,7 +10,7 @@
   import { countPlaylistTracks, getPlaylistThumbnails, getPlaylistTracks, resolvePlaylist, addTracksToPlaylist } from '@services/commands';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import { notifications } from '@shared/stores/notifications';
-  import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import JellyxLogo from '@shared/components/JellyxLogo.svelte';
   import type { UserPlaylist, ArtistFavorite } from '@shared/types/models';
 
   let showCreateDialog = false;
@@ -233,7 +233,7 @@
               <img src={albumArtUrl(artist.thumbnail)} alt={artist.artistName} class="artist-thumb" on:error={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
             {:else}
               <div class="artist-thumb-placeholder">
-                <HelixLogo size={32} monochrome={true} />
+                <JellyxLogo size={32} monochrome={true} />
               </div>
             {/if}
             <span class="artist-name">{artist.artistName}</span>

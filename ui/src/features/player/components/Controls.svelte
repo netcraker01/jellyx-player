@@ -70,7 +70,7 @@
   }
 
   .control-btn:hover:not(:disabled) {
-    color: var(--color-helix-cyan, #00E5FF);
+    color: var(--color-jellyx-cyan, #00E5FF);
     background: rgba(0, 229, 255, 0.08);
   }
 
@@ -84,7 +84,7 @@
   }
 
   .play-btn {
-    background: var(--helix-gradient-primary);
+    background: var(--jellyx-gradient-primary);
     color: #0a0a0f;
     width: 52px;
     height: 52px;
@@ -103,11 +103,11 @@
   }
 
   .mode-btn.active {
-    color: var(--color-helix-cyan, #00E5FF);
+    color: var(--color-jellyx-cyan, #00E5FF);
     background: rgba(0, 229, 255, 0.08);
   }
 
   .mode-btn:hover:not(:disabled) {
-    color: var(--color-helix-cyan, #00E5FF);
+    color: var(--color-jellyx-cyan, #00E5FF);
   }
 </style>

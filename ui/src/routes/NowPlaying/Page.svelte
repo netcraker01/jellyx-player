@@ -170,7 +170,7 @@
     height: 64px;
     border-radius: 50%;
     margin-bottom: 1rem;
-    background: var(--helix-gradient-primary);
+    background: var(--jellyx-gradient-primary);
     opacity: 0.25;
     flex-shrink: 0;
   }

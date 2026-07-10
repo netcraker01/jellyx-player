@@ -1,5 +1,5 @@
 /**
- * Helix i18n system.
+ * Jellyx i18n system.
  *
  * Reactive Svelte store for translations.
  * Backend sends error codes → frontend maps to translated strings.
@@ -97,9 +97,9 @@ export async function switchLocale(code: LocaleCode): Promise<void> {
   locale.set(code);
   translations.set(dict);
 
-  // Persist preference
+  // Persist preference to canonical key; legacy key is left intact as fallback.
   try {
-    localStorage.setItem('helix-locale', code);
+    localStorage.setItem('jellyx-locale', code);
   } catch {
     // localStorage might not be available
   }
@@ -112,10 +112,10 @@ export async function switchLocale(code: LocaleCode): Promise<void> {
  * Call once at app startup.
  */
 export async function initI18n(): Promise<void> {
-  // Check saved preference first
+  // Check saved preference first — canonical jellyx-locale wins over legacy helix-locale.
   let code: LocaleCode | null = null;
   try {
-    code = localStorage.getItem('helix-locale');
+    code = localStorage.getItem('jellyx-locale') ?? localStorage.getItem('helix-locale');
   } catch {
     // ignore
   }

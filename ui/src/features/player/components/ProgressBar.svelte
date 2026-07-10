@@ -72,14 +72,14 @@
     position: absolute;
     inset: 0;
     border-radius: 3px;
-    background: var(--helix-gradient-progress);
+    background: var(--jellyx-gradient-progress);
     opacity: 0.12;
     pointer-events: none;
   }
 
   .bar-fill {
     height: 100%;
-    background: var(--helix-gradient-progress);
+    background: var(--jellyx-gradient-progress);
     border-radius: 3px;
     transition: width 0.1s linear;
     position: relative;
@@ -94,7 +94,7 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: var(--color-helix-cyan, #00E5FF);
+    background: var(--color-jellyx-cyan, #00E5FF);
     opacity: 0;
     transition: opacity 0.15s;
     box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);

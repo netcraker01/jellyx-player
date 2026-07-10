@@ -1,7 +1,7 @@
 <script lang="ts">
   import { navigate } from '@app/router/navigation';
   import { albumArtUrl } from '@shared/utils/assetUrl';
-  import HelixLogo from './HelixLogo.svelte';
+  import JellyxLogo from './JellyxLogo.svelte';
 
   export let id: string;
   export let name: string = 'Unknown Artist';
@@ -18,7 +18,7 @@
     <img class="artist-art" src={albumArtUrl(thumbnail)} alt={name} />
   {:else}
     <div class="artist-art-placeholder">
-      <HelixLogo size={48} monochrome={true} />
+      <JellyxLogo size={48} monochrome={true} />
     </div>
   {/if}
   <div class="artist-info">
@@ -50,7 +50,7 @@
   }
 
   .artist-card:focus-visible {
-    outline: 2px solid var(--color-helix-cyan, #00E5FF);
+    outline: 2px solid var(--color-jellyx-cyan, #00E5FF);
     outline-offset: 2px;
   }
 
@@ -92,7 +92,7 @@
   }
 
   .artist-card:hover .artist-name {
-    color: var(--color-helix-magenta, #D946FF);
+    color: var(--color-jellyx-magenta, #D946FF);
   }
 
   .artist-meta {

@@ -32,7 +32,7 @@ describe('MiniPlayer', () => {
     render(MiniPlayer);
 
     await fireEvent.click(screen.getByRole('button', { name: 'Minimize mini player' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Quit Helix' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Quit Jellyx Player' }));
 
     expect(screen.getByLabelText('Mini player window controls')).toBeTruthy();
     expect(minimizeMiniPlayer).toHaveBeenCalledTimes(1);
@@ -49,7 +49,7 @@ describe('MiniPlayer', () => {
 
     expect(screen.getByRole('button', { name: 'Return to full app' }).hasAttribute('data-tauri-drag-region')).toBe(false);
     expect(screen.getByRole('button', { name: 'Minimize mini player' }).hasAttribute('data-tauri-drag-region')).toBe(false);
-    expect(screen.getByRole('button', { name: 'Quit Helix' }).hasAttribute('data-tauri-drag-region')).toBe(false);
+    expect(screen.getByRole('button', { name: 'Quit Jellyx Player' }).hasAttribute('data-tauri-drag-region')).toBe(false);
     expect(screen.getByRole('button', { name: 'Previous' }).hasAttribute('data-tauri-drag-region')).toBe(false);
     expect(screen.getByRole('button', { name: 'Next' }).hasAttribute('data-tauri-drag-region')).toBe(false);
     expect(screen.getByRole('button', { name: 'Play' }).hasAttribute('data-tauri-drag-region')).toBe(false);

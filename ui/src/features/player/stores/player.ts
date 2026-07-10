@@ -63,23 +63,21 @@ export const shuffle = writable(false);
 /** Current repeat mode: Off, All, or One. */
 export const repeatMode = writable<QueueState['repeatMode']>('Off');
 
-/** localStorage key for persisted volume (0-100, the user-facing unit). */
-const VOLUME_KEY = 'helix-volume';
+import { getMigratedItem, setMigratedItem } from '@shared/utils/storage';
+
+/** localStorage suffix for persisted volume (0-100, the user-facing unit). */
+const VOLUME_SUFFIX = 'volume';
 
 /** Default volume (0-100). Used when no persisted value exists. */
 const VOLUME_DEFAULT = 80;
 
 /** Read the persisted volume (0-100), falling back to the default. */
 function readPersistedVolume(): number {
-  try {
-    const raw = localStorage.getItem(VOLUME_KEY);
-    if (raw == null) return VOLUME_DEFAULT;
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return VOLUME_DEFAULT;
-    return Math.min(100, Math.max(0, Math.round(n)));
-  } catch {
-    return VOLUME_DEFAULT;
-  }
+  const raw = getMigratedItem(VOLUME_SUFFIX);
+  if (raw == null) return VOLUME_DEFAULT;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return VOLUME_DEFAULT;
+  return Math.min(100, Math.max(0, Math.round(n)));
 }
 
 /** Current volume level (0-100, the user-facing unit). Persisted to localStorage. */
@@ -87,11 +85,7 @@ export const volume = writable<number>(readPersistedVolume());
 
 // Persist volume to localStorage whenever it changes.
 volume.subscribe((v) => {
-  try {
-    localStorage.setItem(VOLUME_KEY, String(v));
-  } catch {
-    // localStorage may be unavailable (SSR / private mode) — value stays in-memory
-  }
+  setMigratedItem(VOLUME_SUFFIX, String(v));
 });
 
 /** Whether audio normalization is enabled. Persisted in DB. */
@@ -109,24 +103,20 @@ export const frequencyData = writable<FrequencyData | null>(null);
  *  NOT persisted: the visualizer is a transient, per-session view. */
 export const modoCineActive = writable<boolean>(false);
 
-/** localStorage key for the persisted visualizer mode. */
-const VISUALIZER_MODE_KEY = 'helix-visualizer-mode';
+/** localStorage suffix for the persisted visualizer mode. */
+const VISUALIZER_MODE_SUFFIX = 'visualizer-mode';
 
 /** Read a persisted visualizer mode id, validating it is a known mode.
  *  Unknown/missing values fall back to the default (bars) so the store
  *  never carries a stale id that the registry can't resolve. */
 function readPersistedVisualizerMode(): VisualizerModeId {
-  try {
-    const raw = localStorage.getItem(VISUALIZER_MODE_KEY);
-    if (raw == null) return DEFAULT_VISUALIZER_MODE;
-    // Validate against the registry's known ids; ignore anything else.
-    // (We import the mode set lazily to avoid a circular import with the
-    //  registry importing renderers that import types only.)
-    const known: VisualizerModeId[] = ['bars', 'wave', 'mirror'];
-    return (known as readonly string[]).includes(raw) ? (raw as VisualizerModeId) : DEFAULT_VISUALIZER_MODE;
-  } catch {
-    return DEFAULT_VISUALIZER_MODE;
-  }
+  const raw = getMigratedItem(VISUALIZER_MODE_SUFFIX);
+  if (raw == null) return DEFAULT_VISUALIZER_MODE;
+  // Validate against the registry's known ids; ignore anything else.
+  // (We import the mode set lazily to avoid a circular import with the
+  //  registry importing renderers that import types only.)
+  const known: VisualizerModeId[] = ['bars', 'wave', 'mirror'];
+  return (known as readonly string[]).includes(raw) ? (raw as VisualizerModeId) : DEFAULT_VISUALIZER_MODE;
 }
 
 /** Currently selected visualizer mode id (persisted to localStorage).
@@ -139,11 +129,7 @@ function readPersistedVisualizerMode(): VisualizerModeId {
 export const visualizerMode = writable<VisualizerModeId>(readPersistedVisualizerMode());
 
 visualizerMode.subscribe((v) => {
-  try {
-    localStorage.setItem(VISUALIZER_MODE_KEY, String(v));
-  } catch {
-    // localStorage unavailable — value stays in-memory
-  }
+  setMigratedItem(VISUALIZER_MODE_SUFFIX, String(v));
 });
 
 /** Toggle the fullscreen visualizer overlay from the bottom-bar button.
@@ -167,61 +153,45 @@ export function toggleModoCine(): void {
 // ── Cinematic ambient mode ─────────────────────────────────────────
 // Opt-in reactive background that paints layered gradients/glows behind the
 // app content, pulsing on frequencyData. Persisted to localStorage only — no
-// backend round-trip — matching the Helix appearance-settings convention.
+// backend round-trip.
 
-/** localStorage key for the cinematic-mode on/off preference. */
-const CINEMATIC_MODE_KEY = 'helix-cinematic-mode';
+/** localStorage suffix for the cinematic-mode on/off preference. */
+const CINEMATIC_MODE_SUFFIX = 'cinematic-mode';
 
-/** localStorage key for the cinematic intensity (0..1) preference. */
-const CINEMATIC_INTENSITY_KEY = 'helix-cinematic-intensity';
+/** localStorage suffix for the cinematic intensity (0..1) preference. */
+const CINEMATIC_INTENSITY_SUFFIX = 'cinematic-intensity';
 
 /** Default intensity when no persisted value exists (0..1). */
 const CINEMATIC_INTENSITY_DEFAULT = 0.5;
 
 /** Read a boolean preference from localStorage, defaulting to false. */
-function readPersistedFlag(key: string): boolean {
-  try {
-    return localStorage.getItem(key) === 'true';
-  } catch {
-    return false;
-  }
+function readPersistedFlag(suffix: string): boolean {
+  return getMigratedItem(suffix) === 'true';
 }
 
 /** Read a clamped float preference from localStorage. */
-function readPersistedFloat(key: string, fallback: number, min = 0, max = 1): number {
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw == null) return fallback;
-    const n = Number(raw);
-    if (!Number.isFinite(n)) return fallback;
-    return Math.min(max, Math.max(min, n));
-  } catch {
-    return fallback;
-  }
+function readPersistedFloat(suffix: string, fallback: number, min = 0, max = 1): number {
+  const raw = getMigratedItem(suffix);
+  if (raw == null) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
 /** Whether the cinematic ambient background is enabled (persisted, default off). */
-export const cinematicMode = writable<boolean>(readPersistedFlag(CINEMATIC_MODE_KEY));
+export const cinematicMode = writable<boolean>(readPersistedFlag(CINEMATIC_MODE_SUFFIX));
 
 cinematicMode.subscribe((v) => {
-  try {
-    localStorage.setItem(CINEMATIC_MODE_KEY, String(v));
-  } catch {
-    // localStorage unavailable — value stays in-memory
-  }
+  setMigratedItem(CINEMATIC_MODE_SUFFIX, String(v));
 });
 
 /** Cinematic background intensity (0..1, persisted, default 0.5). */
 export const cinematicIntensity = writable<number>(
-  readPersistedFloat(CINEMATIC_INTENSITY_KEY, CINEMATIC_INTENSITY_DEFAULT)
+  readPersistedFloat(CINEMATIC_INTENSITY_SUFFIX, CINEMATIC_INTENSITY_DEFAULT)
 );
 
 cinematicIntensity.subscribe((v) => {
-  try {
-    localStorage.setItem(CINEMATIC_INTENSITY_KEY, String(v));
-  } catch {
-    // localStorage unavailable — value stays in-memory
-  }
+  setMigratedItem(CINEMATIC_INTENSITY_SUFFIX, String(v));
 });
 
 /** Toggle the cinematic ambient mode on/off. */
@@ -494,7 +464,7 @@ export async function cycleRepeat(): Promise<void> {
   }
 }
 
-/** Remove a track from the queue by its Helix track ID. */
+/** Remove a track from the queue by its internal track ID. */
 export async function removeTrack(trackId: string): Promise<void> {
   try {
     await commands.removeFromQueue(trackId);
