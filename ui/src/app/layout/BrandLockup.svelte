@@ -1,19 +1,19 @@
 <script lang="ts">
   /**
-   * BrandLockup — Helix visual identity for sidebar header.
+   * BrandLockup — Jellyx visual identity for sidebar header.
    *
-   * Derived from assets/brand/HelixIcon.svelte. Strips the outer app-tile
+   * Derived from assets/brand/jellyx_brand_assets/JellyxIcon.svelte. Strips the outer app-tile
    * chrome (shadow, rounded rect frame) and keeps only the core
    * mark so it scales cleanly inside a header row.
    */
-  import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import JellyxLogo from '@shared/components/JellyxLogo.svelte';
   export let size: number = 28;
-  export let label = 'Helix';
+  export let label = 'Jellyx';
 </script>
 
 <div class="brand-lockup" role="banner" aria-label={label}>
-  <HelixLogo size={size} label={label} />
-  <span class="brand-wordmark">Helix</span>
+  <JellyxLogo size={size} label={label} />
+  <span class="brand-wordmark">Jellyx</span>
 </div>
 
 <style>
@@ -31,7 +31,7 @@
     letter-spacing: -0.02em;
     /* Brand gradient mapped from assets/brand/design-tokens.json.
        Falls back gracefully to the existing accent token. */
-    background: linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%);
+    background: var(--jellyx-gradient-primary, linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;

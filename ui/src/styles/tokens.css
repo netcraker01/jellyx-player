@@ -27,12 +27,49 @@
   /* Font */
   --font-family: 'Inter', sans-serif;
 
-  /* Helix brand palette (opt-in companions to existing tokens) */
-  --color-helix-cyan: #00E5FF;
-  --color-helix-violet: #8A5CFF;
-  --color-helix-magenta: #D946FF;
-  --helix-gradient-primary: linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%);
-  --helix-gradient-progress: linear-gradient(90deg, #00E5FF 0%, #8A5CFF 70%, #D946FF 100%);
+  /* Jellyx brand palette — canonical tokens */
+  --color-jellyx-midnight: #0B0F2B;
+  --color-jellyx-indigo: #1A1F4D;
+  --color-jellyx-cyan: #00E5FF;
+  --color-jellyx-blue: #128BFF;
+  --color-jellyx-violet: #8A5CFF;
+  --color-jellyx-magenta: #D946FF;
+  --color-jellyx-surface: #FFFFFF;
+  --color-jellyx-surface-soft: #F2F4F8;
+  --color-jellyx-border: #E8ECF3;
+
+  --jellyx-gradient-primary: linear-gradient(135deg, #00E5FF 0%, #128BFF 45%, #8A5CFF 72%, #D946FF 100%);
+  --jellyx-gradient-cyan: linear-gradient(135deg, #00E5FF 0%, #128BFF 60%, #6D5CFF 100%);
+  --jellyx-gradient-violet: linear-gradient(135deg, #8A5CFF 0%, #D946FF 100%);
+  --jellyx-gradient-progress: linear-gradient(90deg, #00E5FF 0%, #8A5CFF 70%, #D946FF 100%);
+
+  /* Helix brand palette aliases — retained for incremental migration */
+  --color-helix-midnight: var(--color-jellyx-midnight);
+  --color-helix-indigo: var(--color-jellyx-indigo);
+  --color-helix-cyan: var(--color-jellyx-cyan);
+  --color-helix-blue: var(--color-jellyx-blue);
+  --color-helix-violet: var(--color-jellyx-violet);
+  --color-helix-magenta: var(--color-jellyx-magenta);
+  --color-helix-surface: var(--color-jellyx-surface);
+  --color-helix-surface-soft: var(--color-jellyx-surface-soft);
+  --color-helix-border: var(--color-jellyx-border);
+
+  --helix-gradient-primary: var(--jellyx-gradient-primary);
+  --helix-gradient-progress: var(--jellyx-gradient-progress);
+
+  /* Jellyx shape tokens */
+  --jellyx-radius-sm: 8px;
+  --jellyx-radius-md: 16px;
+  --jellyx-radius-lg: 24px;
+  --jellyx-radius-app-icon: 22%;
+  --jellyx-shadow-soft: 0 18px 36px rgb(11 15 43 / 12%);
+
+  /* Helix shape aliases */
+  --helix-radius-sm: var(--jellyx-radius-sm);
+  --helix-radius-md: var(--jellyx-radius-md);
+  --helix-radius-lg: var(--jellyx-radius-lg);
+  --helix-radius-app-icon: var(--jellyx-radius-app-icon);
+  --helix-shadow-soft: var(--jellyx-shadow-soft);
 
   /* Visualizer */
   --viz-blur-radius: 20px;
