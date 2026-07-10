@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-capability",
-  "description": "Permissions for the main Helix application window.",
+  "description": "Permissions for the main Jellyx application window.",
   "local": true,
   "windows": ["main"],
   "permissions": [

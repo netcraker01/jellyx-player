@@ -1,0 +1,41 @@
+:root {
+  /* Brand: Jellyx */
+  --jellyx-midnight: #0B0F2B;
+  --helix-midnight: #0B0F2B;
+  --jellyx-indigo: #1A1F4D;
+  --helix-indigo: #1A1F4D;
+  --jellyx-cyan: #00E5FF;
+  --helix-cyan: #00E5FF;
+  --jellyx-blue: #128BFF;
+  --helix-blue: #128BFF;
+  --jellyx-violet: #8A5CFF;
+  --helix-violet: #8A5CFF;
+  --jellyx-magenta: #D946FF;
+  --helix-magenta: #D946FF;
+  --jellyx-surface: #FFFFFF;
+  --helix-surface: #FFFFFF;
+  --jellyx-surface-soft: #F2F4F8;
+  --helix-surface-soft: #F2F4F8;
+  --jellyx-border: #E8ECF3;
+  --helix-border: #E8ECF3;
+
+  /* Gradients */
+  --jellyx-gradient-primary: linear-gradient(135deg, #00E5FF 0%, #128BFF 45%, #8A5CFF 72%, #D946FF 100%);
+  --helix-gradient-primary: linear-gradient(135deg, #00E5FF 0%, #128BFF 45%, #8A5CFF 72%, #D946FF 100%);
+  --jellyx-gradient-cyan: linear-gradient(135deg, #00E5FF 0%, #128BFF 60%, #6D5CFF 100%);
+  --helix-gradient-cyan: linear-gradient(135deg, #00E5FF 0%, #128BFF 60%, #6D5CFF 100%);
+  --jellyx-gradient-violet: linear-gradient(135deg, #8A5CFF 0%, #D946FF 100%);
+  --helix-gradient-violet: linear-gradient(135deg, #8A5CFF 0%, #D946FF 100%);
+
+  /* UI */
+  --jellyx-radius-sm: 8px;
+  --helix-radius-sm: 8px;
+  --jellyx-radius-md: 16px;
+  --helix-radius-md: 16px;
+  --jellyx-radius-lg: 24px;
+  --helix-radius-lg: 24px;
+  --jellyx-radius-app-icon: 22%;
+  --helix-radius-app-icon: 22%;
+  --jellyx-shadow-soft: 0 18px 36px rgb(11 15 43 / 12%);
+  --helix-shadow-soft: 0 18px 36px rgb(11 15 43 / 12%);
+}

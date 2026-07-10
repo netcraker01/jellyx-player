@@ -43,7 +43,7 @@ fn row_to_playlist(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserPlaylist> {
     })
 }
 
-/// SQLite-backed database for Helix library data.
+/// SQLite-backed database for Jellyx library data.
 ///
 /// Stores favorites and play history with Track data serialized as JSON.
 /// Thread-safe via `Mutex<Connection>` (required because rusqlite's
@@ -924,7 +924,7 @@ impl Database {
         }
     }
 
-    /// Get a local track by its Helix track ID stored in the serialized payload.
+    /// Get a local track by its Jellyx track ID stored in the serialized payload.
     pub fn get_local_track_by_id(&self, track_id: &str) -> Result<Option<Track>, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
@@ -2098,7 +2098,7 @@ mod tests {
     #[test]
     fn repairs_missing_playlist_and_artist_columns_even_when_version_is_current() {
         let path = std::env::temp_dir().join(format!(
-            "helix-schema-repair-{}.db",
+            "jellyx-schema-repair-{}.db",
             uuid::Uuid::new_v4()
         ));
 
@@ -2175,7 +2175,7 @@ mod tests {
     #[test]
     fn repairs_artist_source_ref_when_source_column_already_exists() {
         let path = std::env::temp_dir().join(format!(
-            "helix-artist-source-ref-repair-{}.db",
+            "jellyx-artist-source-ref-repair-{}.db",
             uuid::Uuid::new_v4()
         ));
 

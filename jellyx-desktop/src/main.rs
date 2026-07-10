@@ -1,4 +1,4 @@
-//! Helix - A privacy-first, open-source music platform.
+//! Jellyx - A privacy-first, open-source music platform.
 //!
 //! Built with Tauri v2 + Rust + Svelte.
 //! Audio pipeline: symphonia (decode) + cpal (output).
@@ -23,7 +23,7 @@ fn main() {
     // when executing Svelte 5's compiled output — the WebKitWebProcess aborts
     // inside libjavascriptcoregtk during microtask execution. Disabling the JIT
     // forces the interpreter, which is stable. This is a WebKitGTK bug, not a
-    // Helix code issue (the crash reproduces at a clean repo HEAD).
+    // This is a WebKitGTK bug, not a Jellyx code issue (the crash reproduces at a clean repo HEAD).
     // Only needed in debug/dev builds; release builds run fine with the JIT.
     #[cfg(all(target_os = "linux", debug_assertions))]
     if std::env::var("JSC_useJIT").is_err() {
@@ -32,5 +32,5 @@ fn main() {
 
     app::setup::build_app()
         .run(tauri::generate_context!())
-        .expect("error while running Helix");
+        .expect("error while running Jellyx");
 }

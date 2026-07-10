@@ -722,7 +722,7 @@ pub fn add_to_queue_with_track(
     state.playback.add_to_queue_with_track(&track)
 }
 
-/// Remove a track from the queue by its Helix track ID.
+/// Remove a track from the queue by its Jellyx track ID.
 #[tauri::command]
 pub fn remove_from_queue(state: tauri::State<AppState>, track_id: &str) -> Result<(), AppError> {
     state.playback.remove_from_queue(track_id)

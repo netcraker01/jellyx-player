@@ -339,14 +339,14 @@ impl ScannerService {
                             }
                         }
                         Err(e) => {
-                            eprintln!("helix scanner: failed to persist {}: {:?}", path_str, e);
+                            eprintln!("jellyx scanner: failed to persist {}: {:?}", path_str, e);
                             result.errors += 1;
                         }
                     }
                 }
                 Err(e) => {
                     eprintln!(
-                        "helix scanner: failed to extract metadata from {}: {:?}",
+                        "jellyx scanner: failed to extract metadata from {}: {:?}",
                         path_str, e
                     );
                     if !Self::file_is_accessible(path) {
@@ -375,7 +375,7 @@ impl ScannerService {
         if let Some(ref playlist) = self.playlist_service {
             if let Err(e) = playlist.generate_folder_playlists(folder_path) {
                 eprintln!(
-                    "helix scanner: failed to generate folder playlists for {}: {:?}",
+                    "jellyx scanner: failed to generate folder playlists for {}: {:?}",
                     folder_path, e
                 );
             }

@@ -108,7 +108,7 @@ If you want more detail, see [docs/ENGINEERING-PROCESS.md](docs/ENGINEERING-PROC
 ## Watch It In Action
 
 <video src="docs/videos/demo.mp4" controls width="100%" poster="docs/screenshots/now-playing.png">
-  <img src="docs/videos/demo.gif" alt="Helix demo animation">
+  <img src="docs/videos/demo.gif" alt="Jellyx demo animation">
 </video>
 
 A short demo of search, playback and the player UI.
@@ -120,21 +120,21 @@ A short demo of search, playback and the player UI.
 <table>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/home.png" alt="Helix home screen">
+      <img src="docs/screenshots/home.png" alt="Jellyx home screen">
       <p align="center"><b>Home</b> - Start quickly and return to what you were already listening to.</p>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/search-results.png" alt="Helix search results">
+      <img src="docs/screenshots/search-results.png" alt="Jellyx search results">
       <p align="center"><b>Search</b> - Look across YouTube and SoundCloud from one place.</p>
     </td>
   </tr>
   <tr>
     <td width="50%">
-      <img src="docs/screenshots/now-playing.png" alt="Helix now playing">
+      <img src="docs/screenshots/now-playing.png" alt="Jellyx now playing">
       <p align="center"><b>Now Playing</b> - Keep queue, controls and track context visible.</p>
     </td>
     <td width="50%">
-      <img src="docs/screenshots/playlists.png" alt="Helix playlists">
+      <img src="docs/screenshots/playlists.png" alt="Jellyx playlists">
       <p align="center"><b>Your Library</b> - Save favorites, playlists and imports for later.</p>
     </td>
   </tr>

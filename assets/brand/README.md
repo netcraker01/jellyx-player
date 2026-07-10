@@ -1,6 +1,6 @@
-# Helix brand assets
+# Jellyx brand assets
 
-This folder contains the Helix brand kit: logo, app icon, design tokens, theme CSS, and a reusable Svelte icon component.
+This folder contains the Jellyx brand kit: logo, app icon, design tokens, and theme CSS.
 
 ## Files
 
@@ -14,30 +14,17 @@ This folder contains the Helix brand kit: logo, app icon, design tokens, theme C
 | `brand-guide.pdf` | Brand identity PDF/template. |
 | `design-tokens.json` | Colors, gradients, typography, and radii tokens. |
 | `theme.css` | CSS custom properties matching the design tokens. |
-| `HelixIcon.svelte` | Ready-to-use Svelte component of the Helix icon. |
 
 ## Using the Svelte icon component
 
-Copy `HelixIcon.svelte` into your project (for example, `ui/src/lib/components/HelixIcon.svelte`) and import it:
+The main icon component is `JellyxLogo.svelte` located in `ui/src/shared/components/`.
 
 ```svelte
 <script lang="ts">
-  import HelixIcon from '$lib/components/HelixIcon.svelte';
+  import JellyxLogo from '$lib/components/JellyxLogo.svelte';
 </script>
 
-<HelixIcon size={64} />
-```
-
-You can also pass a custom class:
-
-```svelte
-<HelixIcon size={96} className="app-logo" />
-```
-
-```css
-.app-logo {
-  filter: drop-shadow(0 12px 24px rgb(11 15 43 / 14%));
-}
+<JellyxLogo size={64} />
 ```
 
 ## Using the static SVG icon
@@ -45,7 +32,7 @@ You can also pass a custom class:
 Place `icon.svg` in your static assets folder and reference it:
 
 ```svelte
-<img src="/brand/icon.svg" alt="Helix" width="64" height="64" />
+<img src="/brand/icon.svg" alt="Jellyx" width="64" height="64" />
 ```
 
 ## Theme CSS
@@ -61,11 +48,11 @@ Example primary button:
 
 ```css
 .primary-button {
-  background: var(--helix-gradient-primary);
+  background: var(--jellyx-gradient-primary);
   color: white;
   border: 0;
-  border-radius: var(--helix-radius-md);
-  box-shadow: var(--helix-shadow-soft);
+  border-radius: var(--jellyx-radius-md);
+  box-shadow: var(--jellyx-shadow-soft);
 }
 ```
 

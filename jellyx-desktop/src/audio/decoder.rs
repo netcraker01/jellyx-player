@@ -458,7 +458,7 @@ mod tests {
     /// residual-buffer regression test.
     fn generate_test_flac(label: &str) -> Option<std::path::PathBuf> {
         let out = std::env::temp_dir().join(format!(
-            "helix_decoder_test_{}_{}.flac",
+            "jellyx_decoder_test_{}_{}.flac",
             label,
             std::process::id()
         ));

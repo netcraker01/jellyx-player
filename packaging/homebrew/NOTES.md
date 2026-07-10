@@ -87,7 +87,7 @@ brew install --cask jellyx-player
 ```
 
 Verify:
-- The app appears in `/Applications/Jellyx.app` after PR 5 lands (currently installs as `Helix.app` until `productName` changes)
+- The app appears in `/Applications/Jellyx.app` (productName updated in PR 5)
 - `Jellyx Player` shows in Spotlight
 - yt-dlp auto-downloads on first launch
 - Audio playback and visualizations work

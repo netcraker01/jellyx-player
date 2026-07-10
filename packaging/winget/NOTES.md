@@ -75,8 +75,7 @@ Jellyx_<version>_x64_en-US.msi
 ```
 where `<version>` comes from `jellyx-desktop/Cargo.toml` → `package.version`.
 
-The `productName` in `tauri.conf.json` is `Helix` during the transition — this will become
-`Jellyx` in PR 5. The visible display name ("Jellyx Player") is set via the WiX configuration
+The `productName` in `tauri.conf.json` is now `Jellyx Player` (updated in PR 5). The visible display name ("Jellyx Player") is set via the WiX configuration
 in `tauri.conf.json`.
 
 ## UpgradeCode Stability

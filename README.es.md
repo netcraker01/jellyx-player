@@ -1,7 +1,7 @@
 [English](README.md) | [Español](README.es.md)
 
 <p align="center">
-  <img src="assets/brand/banner-1eng.png" alt="Banner de Helix Player" width="960">
+  <img src="assets/brand/banner-1eng.png" alt="Banner de Jellyx Player" width="960">
 </p>
 
 <p align="center">

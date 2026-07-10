@@ -875,7 +875,7 @@ mod tests {
     fn proxy_serves_local_file_full_no_range() {
         // Write a temp file and serve it through the proxy as file:// URL.
         let temp_dir = std::env::temp_dir().join(format!(
-            "helix-proxy-local-test-{}-{}",
+            "jellyx-proxy-local-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -929,7 +929,7 @@ mod tests {
     fn proxy_serves_local_file_with_range() {
         // Serve a byte range from a local file through the proxy.
         let temp_dir = std::env::temp_dir().join(format!(
-            "helix-proxy-local-range-test-{}-{}",
+            "jellyx-proxy-local-range-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -982,7 +982,7 @@ mod tests {
     fn proxy_serves_local_file_open_end_range() {
         // Open-ended Range: bytes=50-
         let temp_dir = std::env::temp_dir().join(format!(
-            "helix-proxy-local-open-range-test-{}-{}",
+            "jellyx-proxy-local-open-range-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -1028,7 +1028,7 @@ mod tests {
     fn proxy_local_file_duration_hint_headers() {
         // Duration hint should be injected for local files too.
         let temp_dir = std::env::temp_dir().join(format!(
-            "helix-proxy-local-dur-test-{}-{}",
+            "jellyx-proxy-local-dur-test-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

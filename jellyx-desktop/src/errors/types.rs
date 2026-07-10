@@ -1,4 +1,4 @@
-//! Canonical error types for Helix.
+//! Canonical error types for Jellyx.
 //!
 //! `AppError` is the structured error type returned by all Tauri commands.
 //! Frontend maps `code` to a localized string and can use `details` for params.

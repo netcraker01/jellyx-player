@@ -1,5 +1,5 @@
 {
-  "brand": "Helix",
+  "brand": "Jellyx",
   "purpose": "Desktop background music player application",
   "colors": {
     "midnight": {
@@ -17,7 +17,7 @@
       "rgb": "0, 229, 255",
       "use": "Active accent, dot on the i, action icons"
     },
-    "helix_violet": {
+    "jellyx_violet": {
       "hex": "#8A5CFF",
       "rgb": "138, 92, 255",
       "use": "Progress, selection, secondary active states"
@@ -39,7 +39,7 @@
     }
   },
   "gradients": {
-    "helix_primary": "linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%)",
+    "jellyx_primary": "linear-gradient(135deg, #00E5FF 0%, #8A5CFF 58%, #D946FF 100%)",
     "dark_surface": "linear-gradient(180deg, #0B0F2B 0%, #111642 100%)",
     "progress": "linear-gradient(90deg, #00E5FF 0%, #8A5CFF 70%, #D946FF 100%)"
   },

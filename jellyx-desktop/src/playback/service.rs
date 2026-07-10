@@ -1395,7 +1395,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             })
     }
 
-    /// Look up a track by Helix ID in the current queue or source registry.
+    /// Look up a track by Jellyx ID in the current queue or source registry.
     #[allow(dead_code)]
     pub fn get_track_by_id(&self, track_id: &str) -> Result<Track, AppError> {
         {
@@ -2125,7 +2125,7 @@ mod tests {
     fn play_local_track_removes_missing_local_track_from_inventory() {
         let db = Arc::new(Database::open_in_memory().expect("failed to open db"));
         let temp_dir = std::env::temp_dir().join(format!(
-            "helix-playback-missing-track-{}",
+            "jellyx-playback-missing-track-{}",
             std::process::id()
         ));
 
@@ -2226,7 +2226,7 @@ mod tests {
     fn play_local_track_removes_permission_denied_local_track_from_inventory() {
         let db = Arc::new(Database::open_in_memory().expect("failed to open db"));
         let temp_dir = std::env::temp_dir().join(format!(
-            "helix-playback-permission-denied-track-{}",
+            "jellyx-playback-permission-denied-track-{}",
             std::process::id()
         ));
 
@@ -2307,7 +2307,7 @@ mod tests {
     fn play_local_track_removes_inaccessible_watched_folder_and_advances_queue() {
         let db = Arc::new(Database::open_in_memory().expect("failed to open db"));
         let temp_dir = std::env::temp_dir().join(format!(
-            "helix-playback-missing-folder-{}",
+            "jellyx-playback-missing-folder-{}",
             std::process::id()
         ));
 
@@ -2375,7 +2375,7 @@ mod tests {
     fn play_local_track_removes_permission_denied_watched_folder_and_advances_queue() {
         let db = Arc::new(Database::open_in_memory().expect("failed to open db"));
         let temp_dir = std::env::temp_dir().join(format!(
-            "helix-playback-permission-denied-folder-{}",
+            "jellyx-playback-permission-denied-folder-{}",
             std::process::id()
         ));
 
