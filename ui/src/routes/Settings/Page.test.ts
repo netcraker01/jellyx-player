@@ -69,11 +69,11 @@ describe('Settings page', () => {
     activateMiniPlayerSkin('ipod-classic');
     setMiniPlayerScale(1);
     translations.set({
-      'app.title': 'Helix',
+      'app.title': 'Jellyx',
       'app.tagline': 'Background music for long work sessions',
       'settings.title': 'Settings',
       'settings.language': 'Language',
-      'settings.about': 'About Helix',
+      'settings.about': 'About Jellyx Player',
       'settings.version': 'Version',
       'settings.about_description': 'Desktop background music player for people who work with music on. Listen to YouTube, SoundCloud and local files without accounts, subscriptions or unnecessary video playback.',
       'settings.about_repo': 'Source code',
@@ -105,7 +105,7 @@ describe('Settings page', () => {
     mocks.getVersion.mockResolvedValueOnce('0.1.0');
     const { container } = render(SettingsPage);
     expect(container.textContent).toContain('Language');
-    expect(container.textContent).toContain('About Helix');
+    expect(container.textContent).toContain('About Jellyx Player');
     expect(container.textContent).toContain('Version');
     expect(container.textContent).toContain('Mini player skins');
   });
@@ -138,10 +138,10 @@ describe('Settings page', () => {
     await fireEvent.input(slider, { target: { value: '0.35' } });
 
     expect(get(miniPlayerScale)).toBe(0.35);
-    expect(localStorage.getItem('helix-mini-player-scale')).toBe('0.35');
+    expect(localStorage.getItem('jellyx-mini-player-scale')).toBe('0.35');
   });
 
-  it('renders expanded About Helix content with links and credits', () => {
+  it('renders expanded About Jellyx Player content with links and credits', () => {
     mocks.getVersion.mockResolvedValueOnce('0.1.0');
     const { container } = render(SettingsPage);
     // Tagline is rendered inside the About section
@@ -151,7 +151,7 @@ describe('Settings page', () => {
     // Credits mention netcraker and 2026
     expect(container.textContent).toContain('netcraker');
     expect(container.textContent).toContain('2026');
-    // Repository links target the canonical GitHub repo
+    // Repository links target the canonical GitHub repo (repo rename handled in PR 6)
     const links = container.querySelectorAll<HTMLAnchorElement>('.about-link');
     expect(links.length).toBe(3);
     for (const a of links) {

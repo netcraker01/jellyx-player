@@ -53,7 +53,7 @@ describe('albumArtUrl', () => {
   it('returns undefined for local paths outside Tauri (browser fallback)', () => {
     // In the test environment, window exists but __TAURI_INTERNALS__ does not,
     // so albumArtUrl should return undefined for local paths.
-    const path = '/home/user/.local/share/helix/art/cover.jpg';
+    const path = '/home/user/.local/share/jellyx/art/cover.jpg';
     expect(albumArtUrl(path)).toBeUndefined();
     expect(mocks.convertFileSrc).not.toHaveBeenCalled();
   });

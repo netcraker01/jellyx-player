@@ -104,7 +104,7 @@ export function addToQueueWithTrack(track: Track): Promise<void> {
   return invokeCommand<void>('add_to_queue_with_track', { track });
 }
 
-/** Remove a track from the queue by its Helix track ID. */
+/** Remove a track from the queue by its internal track ID. */
 export function removeFromQueue(trackId: string): Promise<void> {
   return invokeCommand<void>('remove_from_queue', { trackId });
 }

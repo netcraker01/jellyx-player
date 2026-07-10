@@ -1,7 +1,7 @@
 /**
  * Dark-mode theme store.
  *
- * Sets CSS custom properties on :root for the Helix dark theme.
+ * Sets CSS custom properties on :root for the Jellyx dark theme.
  * Future: add theme switching (light mode toggle).
  */
 
@@ -9,7 +9,7 @@ import { writable } from 'svelte/store';
 
 type Theme = 'dark';
 
-// Helix is dark-mode only per UI_DESIGN.md
+// Jellyx is dark-mode only per UI_DESIGN.md
 export const currentTheme = writable<Theme>('dark');
 
 /**

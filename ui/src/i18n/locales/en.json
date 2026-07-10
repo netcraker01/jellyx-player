@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Helix",
+    "title": "Jellyx",
     "tagline": "Background music for long work sessions",
     "search_placeholder": "Search YouTube..."
   },
@@ -90,7 +90,7 @@
     "language": "Language",
     "theme": "Theme",
     "audio": "Audio",
-    "about": "About Helix",
+    "about": "About Jellyx Player",
     "version": "Version",
     "about_description": "Desktop background music player for people who work with music on. Listen to YouTube, SoundCloud and local files without accounts, subscriptions or unnecessary video playback.",
     "about_repo": "Source code",

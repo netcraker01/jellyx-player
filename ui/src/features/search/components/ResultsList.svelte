@@ -240,7 +240,7 @@
   }
 
   .list-btn:hover {
-    color: var(--color-helix-violet, #8A5CFF);
+    color: var(--color-jellyx-violet, #8A5CFF);
     background: rgba(138, 92, 255, 0.12);
   }
 </style>

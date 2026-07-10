@@ -3,7 +3,7 @@
   import ListPicker from '@features/playlists/components/ListPicker.svelte';
   import { playTrack, addToQueueAction, playNextAction } from '@shared/utils/actions';
   import { albumArtUrl } from '@shared/utils/assetUrl';
-  import HelixLogo from './HelixLogo.svelte';
+  import JellyxLogo from './JellyxLogo.svelte';
   import type { Track } from '@shared/types/models';
 
   export let tracks: { track: Track }[] = [];
@@ -65,7 +65,7 @@
         <img class="track-thumb" src={albumArtUrl(entry.track.thumbnail)} alt="" />
       {:else}
         <div class="track-thumb-placeholder">
-          <HelixLogo size={20} monochrome={true} />
+          <JellyxLogo size={20} monochrome={true} />
         </div>
       {/if}
       <div class="track-info">
@@ -245,7 +245,7 @@
   }
 
   .list-btn:hover {
-    color: var(--color-helix-violet, #8A5CFF);
+    color: var(--color-jellyx-violet, #8A5CFF);
     background: rgba(138, 92, 255, 0.12);
   }
 </style>

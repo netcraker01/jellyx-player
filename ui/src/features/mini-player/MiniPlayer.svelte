@@ -40,7 +40,7 @@
       <button class="window-control icon-btn" type="button" on:click={minimizeMiniPlayer} aria-label="Minimize mini player">
         <Minus size={14} />
       </button>
-      <button class="window-control icon-btn close-btn" type="button" on:click={quitFromMiniPlayer} aria-label="Quit Helix">
+      <button class="window-control icon-btn close-btn" type="button" on:click={quitFromMiniPlayer} aria-label="Quit Jellyx Player">
         <X size={14} />
       </button>
     </div>
@@ -50,7 +50,7 @@
         {#if $currentTrack && albumArtUrl($currentTrack.thumbnail)}
           <img src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" class="artwork" data-tauri-drag-region />
         {:else}
-          <div class="artwork placeholder" data-tauri-drag-region>Helix</div>
+          <div class="artwork placeholder" data-tauri-drag-region>Jellyx</div>
         {/if}
         <div class="metadata" data-tauri-drag-region>
           <strong data-tauri-drag-region>{$currentTrack?.title ?? 'No track selected'}</strong>

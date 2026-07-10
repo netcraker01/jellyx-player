@@ -9,7 +9,7 @@
  * correctly even when HTMLAudioElement.duration would otherwise report
  * Infinity (which is exactly what happens with YouTube m4a streams).
  *
- * Based on the Nuclear player's parser (MIT), adapted for Helix.
+ * Based on the Nuclear player's parser (MIT), adapted for Jellyx Player.
  *
  * Reference: ISO 14496-12:2015 §8.16.3 (Segment Index Box).
  */

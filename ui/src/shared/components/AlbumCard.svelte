@@ -1,7 +1,7 @@
 <script lang="ts">
   import { navigate } from '@app/router/navigation';
   import { albumArtUrl } from '@shared/utils/assetUrl';
-  import HelixLogo from './HelixLogo.svelte';
+  import JellyxLogo from './JellyxLogo.svelte';
 
   export let id: string;
   export let title: string = 'Unknown Album';
@@ -20,7 +20,7 @@
     <img class="album-art" src={albumArtUrl(cover)} alt={title} />
   {:else}
     <div class="album-art-placeholder">
-      <HelixLogo size={48} monochrome={true} />
+      <JellyxLogo size={48} monochrome={true} />
     </div>
   {/if}
   <div class="album-info">
@@ -56,7 +56,7 @@
   }
 
   .album-card:focus-visible {
-    outline: 2px solid var(--color-helix-cyan, #00E5FF);
+    outline: 2px solid var(--color-jellyx-cyan, #00E5FF);
     outline-offset: 2px;
   }
 
@@ -98,7 +98,7 @@
   }
 
   .album-card:hover .album-title {
-    color: var(--color-helix-cyan, #00E5FF);
+    color: var(--color-jellyx-cyan, #00E5FF);
   }
 
   .album-artist {

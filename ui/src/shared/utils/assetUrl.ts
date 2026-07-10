@@ -12,7 +12,7 @@ const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
 /**
  * Convert a local file path to a loadable URL via Tauri's asset protocol.
  *
- * Used to serve cached album art images from `~/.local/share/helix/art/`
+ * Used to serve cached album art images from `~/.local/share/jellyx/art/`
  * into `<img src>` attributes.
  *
  * `convertFileSrc` is synchronous in Tauri v2 — it just transforms the path

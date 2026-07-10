@@ -9,7 +9,7 @@
     albumDetailError,
   } from '@features/library/stores/albumDetail';
   import TrackRow from '@shared/components/TrackRow.svelte';
-  import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import JellyxLogo from '@shared/components/JellyxLogo.svelte';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import { playAlbum } from '@services/commands';
   import { notifications } from '@shared/stores/notifications';
@@ -72,7 +72,7 @@
         />
       {:else}
         <div class="album-cover-art placeholder">
-          <HelixLogo size={72} monochrome={true} />
+          <JellyxLogo size={72} monochrome={true} />
         </div>
       {/if}
       <div class="album-header-info">
@@ -238,7 +238,7 @@
     background: none;
     border: none;
     padding: 0;
-    color: var(--color-helix-cyan, #00E5FF);
+    color: var(--color-jellyx-cyan, #00E5FF);
     font-size: 1rem;
     cursor: pointer;
     text-decoration: underline;

@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * UpdateAvailableModal — global modal shown when a newer Helix version is available.
+   * UpdateAvailableModal — global modal shown when a newer Jellyx Player version is available.
    *
    * Phase 1: "Update now" opens the release page in the system default browser
    * via the backend `open_release_page` command. No in-place installation.
@@ -40,7 +40,7 @@
       <header class="dialog-header">
         <div class="title-row">
           <Download size={20} />
-          <h3 id="update-modal-title">A new version of Helix is available</h3>
+          <h3 id="update-modal-title">A new version of Jellyx Player is available</h3>
         </div>
         <button class="close-btn" on:click={dismissModal} title="Close" type="button" aria-label="Close">
           <X size={16} />

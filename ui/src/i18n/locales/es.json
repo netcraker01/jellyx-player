@@ -1,6 +1,6 @@
 {
   "app": {
-    "title": "Helix",
+    "title": "Jellyx",
     "tagline": "Música de fondo para sesiones largas de trabajo",
     "search_placeholder": "Buscar en YouTube..."
   },
@@ -90,7 +90,7 @@
     "language": "Idioma",
     "theme": "Tema",
     "audio": "Audio",
-    "about": "Acerca de Helix",
+    "about": "Acerca de Jellyx Player",
     "version": "Versión",
     "about_description": "Reproductor de música de fondo para escritorio pensado para personas que trabajan con música puesta. Escuchá YouTube, SoundCloud y archivos locales sin cuentas, sin suscripciones y sin reproducción de vídeo innecesaria.",
     "about_repo": "Código fuente",

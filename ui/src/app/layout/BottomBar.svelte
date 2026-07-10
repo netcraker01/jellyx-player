@@ -2,7 +2,7 @@
   import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize, Minimize, Shuffle, Repeat, Repeat1, Smartphone } from 'lucide-svelte';
   import { t } from '@i18n';
   import { enterMiniPlayer } from '@features/mini-player/mode';
-  import HelixLogo from '@shared/components/HelixLogo.svelte';
+  import JellyxLogo from '@shared/components/JellyxLogo.svelte';
   import { albumArtUrl } from '@shared/utils/assetUrl';
   import {
     currentTrack,
@@ -89,7 +89,7 @@
       <img class="track-thumbnail" src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" />
     {:else}
       <div class="track-placeholder">
-        <HelixLogo size={20} monochrome={true} />
+        <JellyxLogo size={20} monochrome={true} />
       </div>
     {/if}
     <div class="track-text">
