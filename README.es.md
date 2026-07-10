@@ -142,6 +142,16 @@ Una demo corta de búsqueda, reproducción e interfaz del reproductor.
       <p align="center"><b>Tu biblioteca</b> - Guarda favoritos, playlists e importaciones para más tarde.</p>
     </td>
   </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/mini-player.png" alt="Mini player de Jellyx">
+      <p align="center"><b>Mini Player</b> - Mantén el control mientras trabajás.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/Visualizations.png" alt="Visualizaciones de Jellyx">
+      <p align="center"><b>Visualizaciones</b> - Visuales reactivos que se mueven con tu música.</p>
+    </td>
+  </tr>
 </table>
 
 ---

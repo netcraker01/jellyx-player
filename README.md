@@ -138,6 +138,16 @@ A short demo of search, playback and the player UI.
       <p align="center"><b>Your Library</b> - Save favorites, playlists and imports for later.</p>
     </td>
   </tr>
+  <tr>
+    <td width="50%">
+      <img src="docs/screenshots/mini-player.png" alt="Jellyx mini player">
+      <p align="center"><b>Mini Player</b> - Stay in control while you work.</p>
+    </td>
+    <td width="50%">
+      <img src="docs/screenshots/Visualizations.png" alt="Jellyx visualizations">
+      <p align="center"><b>Visualizations</b> - React audio visualizers that move with your music.</p>
+    </td>
+  </tr>
 </table>
 
 ---
