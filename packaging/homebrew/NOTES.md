@@ -1,6 +1,6 @@
 # Homebrew Cask — Publishing Notes
 
-This document tracks the exact manual steps needed to publish Helix Player
+This document tracks the exact manual steps needed to publish Jellyx Player
 to a Homebrew tap once the first macOS DMG release is built.
 
 ---
@@ -9,10 +9,10 @@ to a Homebrew tap once the first macOS DMG release is built.
 
 | Item | Status |
 |------|--------|
-| Cask scaffold | ✅ Ready in `packaging/homebrew/Casks/helix-player.rb` |
+| Cask scaffold | ✅ Ready in `packaging/homebrew/Casks/jellyx-player.rb` |
 | DMG CI workflow | ✅ `.github/workflows/macos-dmg.yml` — builds both Apple Silicon and Intel |
 | First DMG release | 🔲 Not yet — push a `v*` tag to trigger the workflow |
-| Homebrew tap repo | 🔲 Not yet created at `netcraker01/homebrew-helix` |
+| Homebrew tap repo | 🔲 Not yet created at `netcraker01/homebrew-jellyx` |
 | Cask checksums | 🔲 Placeholder — must be replaced with real SHA256 values |
 
 ---
@@ -23,8 +23,8 @@ The CI workflow builds DMGs for **two architectures**:
 
 | Runner | Target | DMG filename pattern |
 |--------|--------|----------------------|
-| `macos-14` (M1) | `aarch64-apple-darwin` | `Helix_<version>_aarch64.dmg` |
-| `macos-13` (Intel) | `x86_64-apple-darwin` | `Helix_<version>_x64.dmg` |
+| `macos-14` (M1) | `aarch64-apple-darwin` | `Jellyx_<version>_aarch64.dmg` |
+| `macos-13` (Intel) | `x86_64-apple-darwin` | `Jellyx_<version>_x64.dmg` |
 
 The cask uses `on_arm` / `on_intel` blocks so Homebrew selects the correct
 DMG based on the user's Mac architecture.
@@ -41,8 +41,8 @@ git push origin v0.1.0
 ```
 
 This triggers the `macos-dmg.yml` workflow, which:
-- Builds `Helix_0.1.0_aarch64.dmg` on `macos-14`
-- Builds `Helix_0.1.0_x64.dmg` on `macos-13`
+- Builds `Jellyx_0.1.0_aarch64.dmg` on `macos-14`
+- Builds `Jellyx_0.1.0_x64.dmg` on `macos-13`
 - Attaches both DMGs + `.sha256` files to the GitHub Release
 
 ### 2. Download the checksums
@@ -50,13 +50,13 @@ This triggers the `macos-dmg.yml` workflow, which:
 From the GitHub Release page (or the Actions artifact), get:
 - The `.sha256` file for each DMG, or run:
   ```bash
-  shasum -a 256 Helix_0.1.0_aarch64.dmg
-  shasum -a 256 Helix_0.1.0_x64.dmg
+  shasum -a 256 Jellyx_0.1.0_aarch64.dmg
+  shasum -a 256 Jellyx_0.1.0_x64.dmg
   ```
 
 ### 3. Update the cask with real values
 
-Edit `packaging/homebrew/Casks/helix-player.rb`:
+Edit `packaging/homebrew/Casks/jellyx-player.rb`:
 - Replace `REPLACE_WITH_AARCH64_SHA256` with the actual aarch64 checksum
 - Replace `REPLACE_WITH_X64_SHA256` with the actual x64 checksum
 - Confirm `version` matches the release tag (without the `v` prefix)
@@ -67,36 +67,36 @@ Commit this to the main repo so the cask stays in sync.
 
 ```bash
 # Create the tap on GitHub: https://github.com/new
-# Repository name: homebrew-helix
+# Repository name: homebrew-jellyx
 # Make it public
 
-git clone https://github.com/netcraker01/homebrew-helix.git
-cd homebrew-helix
+git clone https://github.com/netcraker01/homebrew-jellyx.git
+cd homebrew-jellyx
 mkdir -p Casks
-cp ../packaging/homebrew/Casks/helix-player.rb Casks/
-git add Casks/helix-player.rb
-git commit -m "Add helix-player cask v0.1.0"
+cp ../packaging/homebrew/Casks/jellyx-player.rb Casks/
+git add Casks/jellyx-player.rb
+git commit -m "Add jellyx-player cask v0.1.0"
 git push
 ```
 
 ### 5. Test the tap locally
 
 ```bash
-brew tap netcraker01/helix
-brew install --cask helix-player
+brew tap netcraker01/jellyx
+brew install --cask jellyx-player
 ```
 
 Verify:
-- The app appears in `/Applications/Helix.app`
-- `Helix Player` shows in Spotlight
+- The app appears in `/Applications/Jellyx.app` after PR 5 lands (currently installs as `Helix.app` until `productName` changes)
+- `Jellyx Player` shows in Spotlight
 - yt-dlp auto-downloads on first launch
 - Audio playback and visualizations work
 
 ### 6. Verify the cask with Homebrew audit
 
 ```bash
-brew audit --cask helix-player
-brew style --cask Casks/helix-player.rb
+brew audit --cask jellyx-player
+brew style --cask Casks/jellyx-player.rb
 ```
 
 Fix any warnings or errors before announcing the tap.
@@ -111,8 +111,8 @@ On every new release:
 2. **Wait for CI** to build both DMGs and attach them to the Release
 3. **Download the `.sha256` files** from the Release
 4. **Update the cask** in both repos:
-   - `packaging/homebrew/Casks/helix-player.rb` in the main repo
-   - `Casks/helix-player.rb` in the `homebrew-helix` tap repo
+   - `packaging/homebrew/Casks/jellyx-player.rb` in the main repo
+   - `Casks/jellyx-player.rb` in the `homebrew-jellyx` tap repo
 5. **Bump version** and replace SHA256 values
 6. **Commit and push** to the tap repo
 
@@ -120,11 +120,11 @@ On every new release:
 
 ## Future: Official Homebrew Cask
 
-If Helix Player gains traction, consider submitting to the official Homebrew
+If Jellyx Player gains traction, consider submitting to the official Homebrew
 cask repo (`homebrew/cask`) so users can install without a custom tap:
 
 ```bash
-brew install --cask helix-player
+brew install --cask jellyx-player
 ```
 
 See: https://docs.brew.sh/Adding-Software-to-Homebrew#casks

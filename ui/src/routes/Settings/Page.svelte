@@ -107,7 +107,7 @@
 
   $: currentLocale = $locale;
 
-  const JELLYX_REPO_URL = 'https://github.com/netcraker01/helix';
+  const JELLYX_REPO_URL = 'https://github.com/netcraker01/jellyx-player';
   const JELLYX_LINKS = [
     { key: 'settings.about_repo', url: JELLYX_REPO_URL },
     { key: 'settings.about_releases', url: `${JELLYX_REPO_URL}/releases` },

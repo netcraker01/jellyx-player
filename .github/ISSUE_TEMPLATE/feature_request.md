@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest a new feature or improvement for Helix
+about: Suggest a new feature or improvement for Jellyx
 title: "[FEATURE] "
 labels: enhancement
 assignees: ''

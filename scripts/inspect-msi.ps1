@@ -2,7 +2,7 @@
 # inspect-msi.ps1 — Extract winget metadata from a built MSI
 # =============================================================================
 # Usage:
-#   .\scripts\inspect-msi.ps1 -MsiPath .\Helix_0.1.0_x64_en-US.msi
+#   .\scripts\inspect-msi.ps1 -MsiPath .\Jellyx_0.1.0_x64_en-US.msi
 #
 # Outputs:
 #   - SHA256 hash of the MSI
@@ -33,7 +33,7 @@ if (-not (Test-Path -Path $MsiPath)) {
 }
 
 Write-Host "==========================================" -ForegroundColor Cyan
-Write-Host "  Helix Player — MSI Metadata Inspector" -ForegroundColor Cyan
+Write-Host "  Jellyx Player — MSI Metadata Inspector" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -90,7 +90,7 @@ try {
     Write-Host "  Could not read MSI database directly." -ForegroundColor Red
     Write-Host "  Install the MSI first, then run:" -ForegroundColor Red
     Write-Host '  Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" |' -ForegroundColor White
-    Write-Host '    Where-Object { $_.DisplayName -like "*Helix*" } |' -ForegroundColor White
+    Write-Host '    Where-Object { $_.DisplayName -like "*Jellyx*" } |' -ForegroundColor White
     Write-Host '    Select-Object PSChildName, DisplayName, DisplayVersion' -ForegroundColor White
     Write-Host ""
     Write-Host "  For UpgradeCode, run:" -ForegroundColor Red
@@ -98,7 +98,7 @@ try {
     $productCode = "{REPLACE_WITH_WIX_PRODUCT_CODE}"
     $upgradeCode = "{REPLACE_WITH_WIX_UPGRADE_CODE}"
     $productVersion = "0.1.0"
-    $productName = "Helix Player"
+    $productName = "Jellyx Player"
 }
 
 Write-Host ""
@@ -108,7 +108,7 @@ Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host "  winget Manifest Snippet" -ForegroundColor Cyan
 Write-Host "==========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Copy these values into packaging/winget/manifests/netcraker01.helix-player.installer.yaml:"
+Write-Host "Copy these values into packaging/winget/manifests/netcraker01.jellyx-player.installer.yaml:"
 Write-Host ""
 Write-Host "  InstallerSha256: $sha256"
 Write-Host "  ProductCode: $productCode"
@@ -116,5 +116,5 @@ Write-Host "  UpgradeCode: $upgradeCode"
 Write-Host ""
 Write-Host "  InstallerUrl (for GitHub release):"
 $version = $productVersion
-Write-Host "    https://github.com/netcraker01/helix/releases/download/v${version}/$($fileInfo.Name)"
+Write-Host "    https://github.com/netcraker01/jellyx-player/releases/download/v${version}/$($fileInfo.Name)"
 Write-Host ""

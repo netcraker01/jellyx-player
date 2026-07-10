@@ -1,14 +1,14 @@
 # Contributor License Agreement (CLA)
 
-Thank you for your interest in contributing to **Helix**. To make sure the project can grow while protecting your rights and the project's future, we ask every contributor to agree to the terms below.
+Thank you for your interest in contributing to **Jellyx**. To make sure the project can grow while protecting your rights and the project's future, we ask every contributor to agree to the terms below.
 
 ## Summary
 
-By contributing code, documentation, or other work to Helix, you grant me (netcraker01) permission to use your contribution in both the open-source version (AGPL-3.0) and any future commercial versions. **You keep full ownership of your work** and can use it anywhere else.
+By contributing code, documentation, or other work to Jellyx, you grant me (netcraker01) permission to use your contribution in both the open-source version (AGPL-3.0) and any future commercial versions. **You keep full ownership of your work** and can use it anywhere else.
 
 ## What you agree to
 
-When you submit a contribution to Helix, you agree that:
+When you submit a contribution to Jellyx, you agree that:
 
 1. **You wrote it** — The contribution is your original work, or you have the right to submit it.
 
@@ -16,8 +16,8 @@ When you submit a contribution to Helix, you agree that:
 
 3. **You grant a license** — You grant netcraker01 a non-exclusive, royalty-free, worldwide, perpetual, and irrevocable license to:
    - Use, reproduce, modify, and distribute your contribution
-   - Include your contribution in Helix under the AGPL-3.0 license
-   - Include your contribution in commercial or proprietary versions of Helix under different licensing terms
+   - Include your contribution in Jellyx under the AGPL-3.0 license
+   - Include your contribution in commercial or proprietary versions of Jellyx under different licensing terms
    - Sublicense these rights to others
 
 4. **You are not paid** — You submit your contribution voluntarily, without any expectation of compensation.
@@ -28,7 +28,7 @@ When you submit a contribution to Helix, you agree that:
 
 - **Full credit** — Your name appears in `AUTHORS.md`, git history, and any credits section in the application
 - **Public recognition** — All contributions are publicly attributed to you in the git log
-- **Your code stays open** — Your contribution remains available under AGPL-3.0 in the open-source version of Helix
+- **Your code stays open** — Your contribution remains available under AGPL-3.0 in the open-source version of Jellyx
 
 ## How to accept
 
@@ -40,12 +40,12 @@ That's all. You only need to do this once.
 
 ## Why a CLA?
 
-AGPL-3.0 is a strong copyleft license that ensures Helix stays free and open. However, it also means that companies who want to embed Helix in their products (and cannot or will not comply with AGPL) cannot legally do so.
+AGPL-3.0 is a strong copyleft license that ensures Jellyx stays free and open. However, it also means that companies who want to embed Jellyx in their products (and cannot or will not comply with AGPL) cannot legally do so.
 
 The CLA allows me to offer **commercial licenses** to those companies. This creates a sustainable model where:
-- Helix remains **100% free and open-source** for everyone
+- Jellyx remains **100% free and open-source** for everyone
 - Companies that need proprietary use **pay for a commercial license**
-- Those funds can support **ongoing development** of Helix
+- Those funds can support **ongoing development** of Jellyx
 
 Without a CLA, every contributor would be a co-copyright holder, making it impossible to offer commercial licensing without unanimous consent from every single contributor.
 

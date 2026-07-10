@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Helix Build Helper — wraps cargo tauri build with correct environment
+# Jellyx Build Helper — wraps cargo tauri build with correct environment
 # =============================================================================
 # This is the OFFICIAL build script for producing release artifacts.
 # It sets environment variables needed for correct packaging on each platform.

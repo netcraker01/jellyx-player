@@ -1,6 +1,6 @@
-# Arquitectura Técnica — Helix Player
+# Arquitectura Técnica — Jellyx Player
 
-Este documento define las decisiones técnicas core y el diseño de sistemas para el MVP (v0.1) de Helix Player (Rust + Tauri + Svelte).
+Este documento define las decisiones técnicas core y el diseño de sistemas para el MVP (v0.1) de Jellyx Player (Rust + Tauri + Svelte).
 
 La arquitectura está orientada al caso de uso principal del producto: sesiones largas de música de fondo en escritorio, con reproducción estable, foco en audio y tolerancia a fallos de fuentes externas.
 
@@ -8,13 +8,13 @@ La arquitectura está orientada al caso de uso principal del producto: sesiones 
 
 ## 1. Gestión del Estado (State Management)
 
-Helix Player utiliza un patrón de **Estado Centralizado en Backend (Rust)**.
+Jellyx Player utiliza un patrón de **Estado Centralizado en Backend (Rust)**.
 
 El núcleo del reproductor (Rust) es la *Fuente de la Verdad (Source of Truth)* absoluta para todo lo relacionado con la reproducción.
 
 - **Rust controla:** El estado de reproducción (Play/Pause), la pista actual, la cola de reproducción completa (Queue), el progreso de la pista y el volumen.
 - **Svelte actúa como Cliente "Tonto":** El frontend se limita a suscribirse a los eventos emitidos por Rust. Si el usuario cierra o recarga la ventana del frontend, la música no debe detenerse a menos que el demonio de Rust se cierre. Svelte envía comandos ("play", "pause", "next", "add_to_queue") pero no confía en su propio estado local hasta que Rust emite el evento de confirmación de vuelta.
-- **Resiliencia:** Esto evita cortes de audio si el hilo principal de JavaScript (UI) se satura renderizando vistas complejas o bloqueos temporales, algo clave cuando Helix se usa durante horas como reproductor de fondo.
+- **Resiliencia:** Esto evita cortes de audio si el hilo principal de JavaScript (UI) se satura renderizando vistas complejas o bloqueos temporales, algo clave cuando Jellyx se usa durante horas como reproductor de fondo.
 
 ---
 
@@ -22,7 +22,7 @@ El núcleo del reproductor (Rust) es la *Fuente de la Verdad (Source of Truth)* 
 
 ### IPC Dual: Comandos + Eventos + Binario
 
-Helix usa un modelo de comunicación **dual** entre Rust y Svelte:
+Jellyx usa un modelo de comunicación **dual** entre Rust y Svelte:
 
 | Tipo | Dirección | Uso | Formato |
 |------|-----------|-----|---------|
@@ -47,7 +47,7 @@ La transferencia de datos FFT/audio entre Rust y Svelte se hace por **IPC binari
 
 ### Arquitectura con Bus Interno de PCM
 
-Helix usa un pipeline de audio con **bus interno de PCM** para desacoplar la salida de audio y el análisis FFT. La prioridad es que la reproducción siga siendo estable aunque la UI, las visualizaciones o una fuente externa fallen.
+Jellyx usa un pipeline de audio con **bus interno de PCM** para desacoplar la salida de audio y el análisis FFT. La prioridad es que la reproducción siga siendo estable aunque la UI, las visualizaciones o una fuente externa fallen.
 
 ```
 ┌─────────────┐     ┌─────────────┐     ┌─────────────────────┐
@@ -87,11 +87,11 @@ Helix usa un pipeline de audio con **bus interno de PCM** para desacoplar la sal
 
 ### 4.1 Track — Modelo Unificado Rico
 
-Helix usa un modelo **unificado rico** para `Track`, con campos comunes y metadata opcional por fuente.
+Jellyx usa un modelo **unificado rico** para `Track`, con campos comunes y metadata opcional por fuente.
 
 ```rust
 struct Track {
-    id: String,              // UUID interno de Helix
+    id: String,              // UUID interno de Jellyx
     source: Source,           // Enum: YouTube | SoundCloud | Local
     source_id: String,        // ID en la fuente original (video ID, track ID, path)
     title: String,

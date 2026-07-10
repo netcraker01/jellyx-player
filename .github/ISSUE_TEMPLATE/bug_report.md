@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report something that is not working correctly in Helix
+about: Report something that is not working correctly in Jellyx
 title: "[BUG] "
 labels: bug
 assignees: ''
@@ -27,7 +27,7 @@ What actually happened. Include screenshots if possible.
 ## Environment
 
 - OS and version:
-- Helix version:
+- Jellyx version:
 - Installation method (AppImage, .deb, .exe, etc.):
 - Affected source (YouTube / SoundCloud / local file):
 - yt-dlp version (if known, shown in Settings / About):

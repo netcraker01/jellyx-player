@@ -1,6 +1,6 @@
 # winget Publishing Notes
 
-This directory contains winget manifest templates for Helix Player.
+This directory contains winget manifest templates for Jellyx Player.
 The manifests have **placeholder values** that must be replaced after a real MSI is built.
 
 ## Quick Start
@@ -16,13 +16,13 @@ The manifests have **placeholder values** that must be replaced after a real MSI
 
 2. **Download the MSI artifact** from GitHub Actions:
    - Go to **Actions → Windows MSI** workflow
-   - Download the `helix-player-msi-*` artifact
+   - Download the `jellyx-player-msi-*` artifact
    - Or find it attached to the GitHub Release if built from a tag
 
 3. **Extract metadata** from the MSI:
    ```powershell
    # On a Windows machine with the MSI file:
-   .\scripts\inspect-msi.ps1 -MsiPath .\Helix_0.1.0_x64_en-US.msi
+   .\scripts\inspect-msi.ps1 -MsiPath .\Jellyx_0.1.0_x64_en-US.msi
    ```
    This outputs: SHA256, ProductCode, UpgradeCode, and a ready-to-paste manifest snippet.
 
@@ -30,21 +30,21 @@ The manifests have **placeholder values** that must be replaced after a real MSI
    ```powershell
    # Install the MSI, then read from registry:
    Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*" |
-     Where-Object { $_.DisplayName -like "*Helix*" } |
+     Where-Object { $_.DisplayName -like "*Jellyx*" } |
      Select-Object PSChildName, DisplayName, DisplayVersion
 
    # UpgradeCode (derivable from productName, does not change between versions):
    cargo tauri inspect wix-upgrade-code
 
    # SHA256:
-   Get-FileHash .\Helix_0.1.0_x64_en-US.msi -Algorithm SHA256
+   Get-FileHash .\Jellyx_0.1.0_x64_en-US.msi -Algorithm SHA256
    ```
 
 4. **Fill in the manifests** — replace all `REPLACE_WITH_*` placeholders:
-   - `netcraker01.helix-player.installer.yaml` — `InstallerSha256`, `ProductCode`, `UpgradeCode`, `InstallerUrl`
-   - `netcraker01.helix-player.locale.en-US.yaml` — update `PackageVersion`, `ReleaseNotes`, `ReleaseNotesUrl`
-   - `netcraker01.helix-player.version.yaml` — update `PackageVersion`
-   - `netcraker01.helix-player.yaml` — update `PackageVersion`
+   - `netcraker01.jellyx-player.installer.yaml` — `InstallerSha256`, `ProductCode`, `UpgradeCode`, `InstallerUrl`
+   - `netcraker01.jellyx-player.locale.en-US.yaml` — update `PackageVersion`, `ReleaseNotes`, `ReleaseNotesUrl`
+   - `netcraker01.jellyx-player.version.yaml` — update `PackageVersion`
+   - `netcraker01.jellyx-player.yaml` — update `PackageVersion`
 
 5. **Validate locally**:
    ```powershell
@@ -54,7 +54,7 @@ The manifests have **placeholder values** that must be replaced after a real MSI
 6. **Submit to winget-pkgs**:
    ```bash
    # Fork https://github.com/microsoft/winget-pkgs
-   # Create directory: manifests/n/netcraker01/helix-player/<version>/
+   # Create directory: manifests/n/netcraker01/jellyx-player/<version>/
    # Copy all YAML files there
    # Open a PR against microsoft/winget-pkgs
    ```
@@ -63,7 +63,7 @@ The manifests have **placeholder values** that must be replaced after a real MSI
 
 | Placeholder | Source | How to obtain |
 |---|---|---|
-| `REPLACE_WITH_ACTUAL_SHA256_X64` | Built MSI | `Get-FileHash .\Helix_<ver>_x64_en-US.msi -Algorithm SHA256` |
+| `REPLACE_WITH_ACTUAL_SHA256_X64` | Built MSI | `Get-FileHash .\Jellyx_<ver>_x64_en-US.msi -Algorithm SHA256` |
 | `REPLACE_WITH_WIX_PRODUCT_CODE` | MSI Property table | `inspect-msi.ps1` or registry after install |
 | `REPLACE_WITH_WIX_UPGRADE_CODE` | MSI Property table | `inspect-msi.ps1` or `cargo tauri inspect wix-upgrade-code` |
 
@@ -71,12 +71,13 @@ The manifests have **placeholder values** that must be replaced after a real MSI
 
 Tauri's WiX bundler produces MSI files named:
 ```
-Helix_<version>_x64_en-US.msi
+Jellyx_<version>_x64_en-US.msi
 ```
-where `<version>` comes from `helix-desktop/Cargo.toml` → `package.version`.
+where `<version>` comes from `jellyx-desktop/Cargo.toml` → `package.version`.
 
-The `productName` in `tauri.conf.json` is `Helix` (not "Helix Player") — this is intentional.
-The visible display name ("Helix Player") is set via the WiX configuration in `tauri.conf.json`.
+The `productName` in `tauri.conf.json` is `Helix` during the transition — this will become
+`Jellyx` in PR 5. The visible display name ("Jellyx Player") is set via the WiX configuration
+in `tauri.conf.json`.
 
 ## UpgradeCode Stability
 
@@ -98,8 +99,8 @@ The `.github/workflows/windows.yml` workflow handles Windows builds:
 Both artifacts include `.sha256` checksum files.
 
 The workflow builds two installer formats:
-- **MSI** (`Helix_<version>_x64_en-US.msi`) — for winget and managed installs
-- **NSIS setup.exe** (`Helix_<version>_x64-setup.exe`) — recommended for direct user installs
+- **MSI** (`Jellyx_<version>_x64_en-US.msi`) — for winget and managed installs
+- **NSIS setup.exe** (`Jellyx_<version>_x64-setup.exe`) — recommended for direct user installs
 
 winget manifests should reference the **MSI** installer type only.
 

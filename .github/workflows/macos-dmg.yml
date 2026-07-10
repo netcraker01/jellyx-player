@@ -1,5 +1,5 @@
 # =============================================================================
-# Helix Player — macOS DMG Build (CI validation)
+# Jellyx Player — macOS DMG Build (CI validation)
 # =============================================================================
 # Builds the macOS DMG installer for releases, PR validation, and manual runs.
 # We intentionally do NOT run this on every push to main because GitHub-hosted
@@ -170,7 +170,7 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-player-dmg-${{ matrix.arch_suffix }}-${{ steps.dmg.outputs.version }}
+          name: jellyx-player-dmg-${{ matrix.arch_suffix }}-${{ steps.dmg.outputs.version }}
           path: |
             ${{ steps.dmg.outputs.dmg_path }}
             ${{ steps.dmg.outputs.sha256_file }}
@@ -181,7 +181,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_ref, 'v'))
         uses: softprops/action-gh-release@v2
         with:
-          name: Helix ${{ steps.dmg.outputs.version }}
+          name: Jellyx ${{ steps.dmg.outputs.version }}
           tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref_name }}
           files: |
             ${{ steps.dmg.outputs.dmg_path }}
@@ -193,7 +193,7 @@ jobs:
         shell: bash
         run: |
           echo "=========================================="
-          echo "  Helix Player — macOS DMG Build Output"
+          echo "  Jellyx Player — macOS DMG Build Output"
           echo "=========================================="
           echo ""
           echo "DMG file:       ${{ steps.dmg.outputs.dmg_name }}"
@@ -202,5 +202,5 @@ jobs:
           echo ""
           echo "To update the Homebrew cask, you need:"
           echo "  1. Download the .sha256 file from the artifact"
-          echo "  2. Update packaging/homebrew/Casks/helix-player.rb"
+          echo "  2. Update packaging/homebrew/Casks/jellyx-player.rb"
           echo "     with the version, URL, and SHA256 per architecture"

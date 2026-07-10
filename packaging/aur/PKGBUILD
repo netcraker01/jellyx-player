@@ -1,24 +1,24 @@
 # Maintainer: netcraker01 <netcraker01@users.noreply.github.com>
-# Package: helix-player
+# Package: jellyx-player
 # =============================================================================
-# PKGBUILD for Helix Music Player
+# PKGBUILD for Jellyx Music Player
 #
 # This is a PREPARATION scaffold. Before publishing to AUR:
 #   1. Replace source URL and SHA256 with the actual release tarball.
 #   2. Test build in a clean chroot: makepkg -cC && makepkg --install
-#   3. Check namcap warnings: namcap PKGBUILD helix-*.pkg.tar.zst
+#   3. Check namcap warnings: namcap PKGBUILD jellyx-*.pkg.tar.zst
 #   4. Upload to AUR: https://aur.archlinux.org/pkgsubmit
 #
 # Build dependencies: rust, nodejs, npm, cargo-tauri-cli
 # Runtime dependencies: webkit2gtk-4.1 (via tauri), yt-dlp (optional, auto-downloaded)
 # =============================================================================
 
-pkgname=helix-player
+pkgname=jellyx-player
 pkgver=0.1.0
 pkgrel=1
 pkgdesc="Privacy-first music player — stream from YouTube/SoundCloud/Bandcamp, visualize, discover"
 arch=('x86_64' 'aarch64')
-url="https://github.com/netcraker01/helix"
+url="https://github.com/netcraker01/jellyx-player"
 license=('AGPL-3.0-or-later')
 depends=(
   'webkit2gtk-4.1'
@@ -42,12 +42,12 @@ optdepends=(
   'pulseaudio: Audio output via PulseAudio'
   'pipewire-pulse: Audio output via PipeWire (PulseAudio compatibility)'
 )
-provides=('helix')
-conflicts=('helix')
+provides=('jellyx')
+conflicts=('jellyx')
 source=(
-  "helix-${pkgver}.tar.gz::https://github.com/netcraker01/helix/archive/refs/tags/v${pkgver}.tar.gz"
+  "jellyx-${pkgver}.tar.gz::https://github.com/netcraker01/jellyx-player/archive/refs/tags/v${pkgver}.tar.gz"
   # Or use the archive from the main branch:
-  # "helix-${pkgver}.tar.gz::https://github.com/netcraker01/helix/archive/refs/heads/main.tar.gz"
+  # "jellyx-${pkgver}.tar.gz::https://github.com/netcraker01/jellyx-player/archive/refs/heads/main.tar.gz"
 )
 # REPLACE with actual SHA256 of the release tarball
 sha256sums=('SKIP')
@@ -56,7 +56,7 @@ sha256sums=('SKIP')
 # validpgpkeys=('')
 
 build() {
-  cd "helix-${pkgver}"
+  cd "jellyx-${pkgver}"
 
   # Build the frontend
   cd ui
@@ -66,33 +66,33 @@ build() {
 
   # Build the Tauri app
   # NO_STRIP=1 prevents linuxdeploy from stripping RELR-enabled binaries
-  NO_STRIP=1 cargo tauri build --release --manifest-path helix-desktop/Cargo.toml
+  NO_STRIP=1 cargo tauri build --release --manifest-path jellyx-desktop/Cargo.toml
 
   # For AppImage specifically, use the dedicated script:
   # NO_STRIP=1 ./scripts/build-appimage.sh --skip-build
 }
 
 package() {
-  cd "helix-${pkgver}"
+  cd "jellyx-${pkgver}"
 
   # Install the binary
-  install -Dm755 "target/release/helix" "${pkgdir}/usr/bin/helix"
+  install -Dm755 "target/release/jellyx" "${pkgdir}/usr/bin/jellyx"
 
   # Install desktop entry
-  install -Dm644 "packaging/flatpak/com.helix.music.desktop" \
-    "${pkgdir}/usr/share/applications/com.helix.music.desktop"
+  install -Dm644 "packaging/flatpak/com.jellyx.music.desktop" \
+    "${pkgdir}/usr/share/applications/com.jellyx.music.desktop"
 
   # Install icons
-  install -Dm644 "helix-desktop/icons/32x32.png" \
-    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/com.helix.music.png"
-  install -Dm644 "helix-desktop/icons/128x128.png" \
-    "${pkgdir}/usr/share/icons/hicolor/128x128/apps/com.helix.music.png"
-  install -Dm644 "helix-desktop/icons/128x128@2x.png" \
-    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/com.helix.music.png"
+  install -Dm644 "jellyx-desktop/icons/32x32.png" \
+    "${pkgdir}/usr/share/icons/hicolor/32x32/apps/com.jellyx.music.png"
+  install -Dm644 "jellyx-desktop/icons/128x128.png" \
+    "${pkgdir}/usr/share/icons/hicolor/128x128/apps/com.jellyx.music.png"
+  install -Dm644 "jellyx-desktop/icons/128x128@2x.png" \
+    "${pkgdir}/usr/share/icons/hicolor/256x256/apps/com.jellyx.music.png"
 
   # Install metainfo
-  install -Dm644 "packaging/flatpak/com.helix.music.metainfo.xml" \
-    "${pkgdir}/usr/share/metainfo/com.helix.music.metainfo.xml"
+  install -Dm644 "packaging/flatpak/com.jellyx.music.metainfo.xml" \
+    "${pkgdir}/usr/share/metainfo/com.jellyx.music.metainfo.xml"
 
   # Install license
   install -Dm644 "LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"

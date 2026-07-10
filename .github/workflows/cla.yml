@@ -22,7 +22,7 @@ jobs:
           PR_AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           # List of users who have accepted the CLA
-          CLA_SIGNED_URL="https://raw.githubusercontent.com/netcraker01/helix/main/.github/cla-signers.txt"
+          CLA_SIGNED_URL="https://raw.githubusercontent.com/netcraker01/jellyx-player/main/.github/cla-signers.txt"
 
           # Check if author is in the signed list
           if curl -s "$CLA_SIGNED_URL" | grep -qi "^${PR_AUTHOR}$"; then

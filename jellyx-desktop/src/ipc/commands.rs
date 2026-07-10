@@ -1077,6 +1077,13 @@ pub fn get_update_prefs(
     })
 }
 
+/// Returns true if `url` is on the Jellyx GitHub releases allowlist.
+///
+/// Extracted as a pure helper so it can be unit-tested without a Tauri handle.
+pub fn is_release_url_allowed(url: &str) -> bool {
+    url.starts_with("https://github.com/netcraker01/jellyx-player/releases/")
+}
+
 /// Open the release page in the system default browser.
 ///
 /// Implemented via `tauri-plugin-shell`'s `open` API. The `shell` plugin's
@@ -1086,10 +1093,10 @@ pub fn open_release_page(
     app: tauri::AppHandle,
     url: String,
 ) -> Result<(), AppError> {
-    if !url.starts_with("https://github.com/netcraker01/helix/releases/") {
+    if !is_release_url_allowed(&url) {
         return Err(AppError {
             code: "OPEN_RELEASE_PAGE_DENIED".into(),
-            details: Some("release URL is outside the Helix GitHub releases allowlist".into()),
+            details: Some("release URL is outside the Jellyx GitHub releases allowlist".into()),
         });
     }
 
@@ -1102,6 +1109,9 @@ pub fn open_release_page(
             details: Some(format!("{}", e)),
         })
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Return the current app version (used by the frontend to display
 /// "You're up to date" alongside the latest version).
