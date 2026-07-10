@@ -57,9 +57,6 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}-v2
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-*-v2
-            ${{ runner.os }}-cargo-registry-
 
       - name: Cache Cargo build
         uses: actions/cache@v4
@@ -67,9 +64,6 @@ jobs:
           path: |
             target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-v2
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-*-v2
-            ${{ runner.os }}-cargo-build-
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -88,7 +82,7 @@ jobs:
         working-directory: ui
 
       - name: Install tauri-cli
-        run: cargo install tauri-cli --locked
+        run: cargo install tauri-cli --locked --force
 
       - name: Clean stale Windows bundle outputs
         shell: pwsh
