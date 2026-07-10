@@ -1,7 +1,7 @@
 [English](README.md) | [Español](README.es.md)
 
 <p align="center">
-  <img src="assets/brand/banner-1eng.png" alt="Helix Player banner" width="960">
+  <img src="assets/brand/banner-1eng.png" alt="Jellyx Player banner" width="960">
 </p>
 
 <p align="center">
@@ -12,15 +12,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/netcraker01/helix/releases"><img src="https://img.shields.io/github/release/netcraker01/helix?style=flat-square&color=00E5FF&label=release" alt="Latest release"></a>
-  <a href="https://github.com/netcraker01/helix/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/netcraker01/helix/release.yml?style=flat-square&label=build&color=8A5CFF" alt="Build status"></a>
+  <a href="https://github.com/netcraker01/jellyx-player/releases"><img src="https://img.shields.io/github/release/netcraker01/jellyx-player?style=flat-square&color=00E5FF&label=release" alt="Latest release"></a>
+  <a href="https://github.com/netcraker01/jellyx-player/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/netcraker01/jellyx-player/release.yml?style=flat-square&label=build&color=8A5CFF" alt="Build status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-D946FF?style=flat-square" alt="License"></a>
   <img src="https://img.shields.io/badge/platforms-Linux%20%7C%20macOS%20%7C%20Windows-00E5FF?style=flat-square" alt="Platforms">
 </p>
 
 <p align="center">
-  <a href="#why-helix-exists"><strong>Why Helix exists</strong></a> ·
-  <a href="#what-helix-does"><strong>What it does</strong></a> ·
+  <a href="#why-jellyx-exists"><strong>Why Jellyx exists</strong></a> ·
+  <a href="#what-jellyx-does"><strong>What it does</strong></a> ·
   <a href="#use-cases"><strong>Use cases</strong></a> ·
   <a href="#download"><strong>Download</strong></a> ·
   <a href="#build"><strong>Build</strong></a>
@@ -28,26 +28,26 @@
 
 ---
 
-## Helix
+## Jellyx
 
-Helix is a desktop background music player for people who work with music on.
+Jellyx is a desktop background music player for people who work with music on.
 
 Many of us open YouTube just to listen to long ambient, focus, lofi, jazz, electronic or live sessions while working. The video is usually hidden, minimized or sitting behind the IDE, but the browser still loads a heavy video-first experience.
 
-Helix exists for that exact workflow. It focuses on the audio: YouTube, SoundCloud and local files in a native desktop app, without accounts, subscriptions or unnecessary video playback.
+Jellyx exists for that exact workflow. It focuses on the audio: YouTube, SoundCloud and local files in a native desktop app, without accounts, subscriptions or unnecessary video playback.
 
-## Why Helix exists
+## Why Jellyx exists
 
-I built Helix because I wanted a calmer way to keep music running in the background during long work sessions.
+I built Jellyx because I wanted a calmer way to keep music running in the background during long work sessions.
 
 - I did not want to keep YouTube open just to listen.
 - I did not want another subscription just for background music.
 - I wanted YouTube, SoundCloud and local files in one desktop workflow.
 - I wanted something simple, honest and focused on audio instead of distraction.
 
-Helix is not trying to be a universal music platform. It is a practical tool for a specific everyday problem: listening to background music while you work.
+Jellyx is not trying to be a universal music platform. It is a practical tool for a specific everyday problem: listening to background music while you work.
 
-## What Helix does
+## What Jellyx does
 
 - Plays audio from YouTube.
 - Plays SoundCloud streams.
@@ -75,7 +75,7 @@ Helix is not trying to be a universal music platform. It is a practical tool for
 - People who want YouTube, SoundCloud and local files in one place
 - People who do not want another music subscription just for focus music
 
-## What Helix Is Not
+## What Jellyx Is Not
 
 - Not a Spotify clone
 - Not a professional DJ app
@@ -83,21 +83,21 @@ Helix is not trying to be a universal music platform. It is a practical tool for
 - Not a product trying to replace every music player
 - Not finished or production-grade yet
 
-Different tools solve different jobs. Helix is for background listening during work, especially when the source is often video-first but the need is really audio-first.
+Different tools solve different jobs. Jellyx is for background listening during work, especially when the source is often video-first but the need is really audio-first.
 
 ## Privacy And Accounts
 
 Privacy still matters here, but it is not the whole story.
 
 - No account is required for basic use.
-- Helix does not add its own tracking system.
-- Helix does not require a subscription.
-- Helix does not add its own ads.
+- Jellyx does not add its own tracking system.
+- Jellyx does not require a subscription.
+- Jellyx does not add its own ads.
 - External sources may have their own behavior, limits or availability changes.
 
 ## AI-Assisted Development
 
-Helix is AI-assisted, human-directed and human-reviewed.
+Jellyx is AI-assisted, human-directed and human-reviewed.
 
 The product direction, requirements, architecture and release decisions are human-led. AI helps with parts of implementation and documentation, but the project is maintained under explicit review and verification.
 
@@ -148,23 +148,23 @@ Pick your platform and try the current alpha:
 
 | Platform | Recommended | Alternative |
 |---|---|---|
-| **Linux** | [`.deb` / `.rpm`](https://github.com/netcraker01/helix/releases) | `AppImage`, `.tar.gz` |
-| **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/helix/releases) | Intel support is still limited in alpha |
-| **Windows** | [NSIS setup.exe](https://github.com/netcraker01/helix/releases) | `.msi` or portable `.exe` |
+| **Linux** | [`.deb` / `.rpm`](https://github.com/netcraker01/jellyx-player/releases) | `AppImage`, `.tar.gz` |
+| **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/jellyx-player/releases) | Intel support is still limited in alpha |
+| **Windows** | [NSIS setup.exe](https://github.com/netcraker01/jellyx-player/releases) | `.msi` or portable `.exe` |
 
 > **Windows note:** Installers are currently unsigned. Windows 11 may show a SmartScreen warning. Click "More info -> Run anyway" to install.
 
 > **Linux note:** For this alpha, `.deb` and `.rpm` are the recommended Linux packages. AppImage is available, but may have graphics or runtime issues on some Wayland setups.
 
-All downloads, checksums and release notes are on the [Releases](https://github.com/netcraker01/helix/releases) page.
+All downloads, checksums and release notes are on the [Releases](https://github.com/netcraker01/jellyx-player/releases) page.
 
 ## Build
 
-If you want to build Helix yourself:
+If you want to build Jellyx yourself:
 
 ```bash
-git clone https://github.com/netcraker01/helix
-cd helix
+git clone https://github.com/netcraker01/jellyx-player
+cd jellyx-player
 cargo tauri dev
 ```
 
@@ -172,10 +172,10 @@ For full build and packaging instructions, see [docs/BUILDING.md](docs/BUILDING.
 
 ## Contribute
 
-Helix is open source and maintained in the open.
+Jellyx is open source and maintained in the open.
 
-- [Report a bug](https://github.com/netcraker01/helix/issues/new?template=bug_report.md)
-- [Suggest a feature](https://github.com/netcraker01/helix/issues/new?template=feature_request.md)
+- [Report a bug](https://github.com/netcraker01/jellyx-player/issues/new?template=bug_report.md)
+- [Suggest a feature](https://github.com/netcraker01/jellyx-player/issues/new?template=feature_request.md)
 - [Read the contributor guide](CONTRIBUTING.md)
 - [See the design tokens](assets/brand/design-tokens.json)
 
@@ -192,7 +192,7 @@ All contributors keep ownership of their work and are credited in [AUTHORS.md](A
 
 ## License
 
-Helix is dual-licensed:
+Jellyx is dual-licensed:
 
 - **Open source:** [AGPL-3.0](LICENSE)
 - **Commercial:** Available for organizations that cannot comply with AGPL-3.0. Contact the project owner for details.

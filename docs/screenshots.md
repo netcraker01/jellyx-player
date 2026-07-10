@@ -1,12 +1,12 @@
-# Helix Screenshot Guide
+# Jellyx Screenshot Guide
 
 Use this checklist when preparing screenshots for the GitHub README, Flathub, Homebrew, winget pages, and GitHub releases.
 
 ## Goal
 
-Create a small, stable set of screenshots that explain what Helix does at a glance. The screenshots should communicate a calm desktop audio workflow, not implementation details.
+Create a small, stable set of screenshots that explain what Jellyx does at a glance. The screenshots should communicate a calm desktop audio workflow, not implementation details.
 
-Helix is a desktop background music player for people who work with music on. The screenshots should show the real application clearly:
+Jellyx is a desktop background music player for people who work with music on. The screenshots should show the real application clearly:
 
 1. Home and discovery
 2. Search and results across audio sources
@@ -53,10 +53,10 @@ For Flathub, the screenshot URLs must be reachable over HTTPS.
 Commit the images into `docs/screenshots/` and reference the raw GitHub URLs:
 
 ```text
-https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png
-https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search-results.png
-https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/now-playing.png
-https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/playlists.png
+https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/home.png
+https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/search-results.png
+https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/now-playing.png
+https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/playlists.png
 ```
 
 ## README usage
@@ -69,19 +69,19 @@ The [README.md](../README.md) embeds these screenshots with relative paths so th
 <screenshots>
   <screenshot type="default">
     <caption>Home screen for returning to recent background music sessions</caption>
-    <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png</image>
+    <image>https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/home.png</image>
   </screenshot>
   <screenshot>
     <caption>Search YouTube and SoundCloud from one desktop player</caption>
-    <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search-results.png</image>
+    <image>https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/search-results.png</image>
   </screenshot>
   <screenshot>
     <caption>Playback controls and queue for long listening sessions</caption>
-    <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/now-playing.png</image>
+    <image>https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/now-playing.png</image>
   </screenshot>
   <screenshot>
     <caption>Save playlists and favorites for repeated work sessions</caption>
-    <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/playlists.png</image>
+    <image>https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/playlists.png</image>
   </screenshot>
 </screenshots>
 ```

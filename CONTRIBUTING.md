@@ -1,12 +1,12 @@
-# Contributing to Helix
+# Contributing to Jellyx
 
-Thanks for your interest in Helix! This guide covers how to report bugs, suggest features, build the project, and submit changes.
+Thanks for your interest in Jellyx! This guide covers how to report bugs, suggest features, build the project, and submit changes.
 
 ## Quick links
 
-- [Issue tracker](https://github.com/netcraker01/helix/issues)
-- [Discussions](https://github.com/netcraker01/helix/discussions) — questions, ideas, community
-- [Releases](https://github.com/netcraker01/helix/releases)
+- [Issue tracker](https://github.com/netcraker01/jellyx-player/issues)
+- [Discussions](https://github.com/netcraker01/jellyx-player/discussions) — questions, ideas, community
+- [Releases](https://github.com/netcraker01/jellyx-player/releases)
 - [Architecture overview](docs/ARCHITECTURE.md)
 - [Building from source](docs/BUILDING.md)
 - [Packaging guide](docs/packaging.md)
@@ -25,8 +25,8 @@ Thanks for your interest in Helix! This guide covers how to report bugs, suggest
 See [docs/BUILDING.md](docs/BUILDING.md) for full instructions. The short version:
 
 ```bash
-git clone https://github.com/netcraker01/helix
-cd helix
+git clone https://github.com/netcraker01/jellyx-player
+cd jellyx-player
 cargo tauri dev
 ```
 
@@ -44,7 +44,7 @@ cargo tauri dev
 
 ## Project methodology
 
-Helix is developed as an **AI-assisted, human-directed, and human-reviewed project**.
+Jellyx is developed as an **AI-assisted, human-directed, and human-reviewed project**.
 
 - Requirements, architecture, constraints, and acceptance criteria are human-led.
 - AI may write parts of the implementation.
@@ -62,7 +62,7 @@ If your change touches UI, visuals, or public-facing assets, check the brand sys
 
 ## Contributor License Agreement
 
-By contributing to Helix, you agree to the [Contributor License Agreement (CLA)](CLA.md), which grants the project owner permission to include your contribution under both AGPL-3.0 and commercial licenses. You retain ownership of your work and will be credited in [AUTHORS.md](AUTHORS.md).
+By contributing to Jellyx, you agree to the [Contributor License Agreement (CLA)](CLA.md), which grants the project owner permission to include your contribution under both AGPL-3.0 and commercial licenses. You retain ownership of your work and will be credited in [AUTHORS.md](AUTHORS.md).
 
 ## Pull request policy
 
@@ -108,6 +108,6 @@ This mirrors the SDD delivery strategy: independent, reviewable work units that 
 
 ## Questions?
 
-Open a [discussion](https://github.com/netcraker01/helix/discussions) or reach out via the issue tracker.
+Open a [discussion](https://github.com/netcraker01/jellyx-player/discussions) or reach out via the issue tracker.
 
-Thank you for helping make Helix better!
+Thank you for helping make Jellyx better!

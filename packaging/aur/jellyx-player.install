@@ -1,4 +1,4 @@
-# Helix Player AUR Package — Post-install/upgrade/removal hooks
+# Jellyx Player AUR Package — Post-install/upgrade/removal hooks
 # =============================================================================
 # yt-dlp is auto-downloaded on first use if not installed.
 # This .install file provides user-facing messages about optional dependencies.
@@ -6,10 +6,10 @@
 
 post_install() {
   echo ""
-  echo "==> Helix Music Player installed successfully."
+  echo "==> Jellyx Music Player installed successfully."
   echo ""
   echo "    yt-dlp is required for streaming from YouTube/SoundCloud/Bandcamp."
-  echo "    If yt-dlp is not installed, Helix will auto-download it on first run."
+  echo "    If yt-dlp is not installed, Jellyx will auto-download it on first run."
   echo ""
   echo "    Optional runtime dependencies:"
   echo "      - pulseaudio or pipewire-pulse: Audio playback"
@@ -22,11 +22,11 @@ post_upgrade() {
 
 post_remove() {
   echo ""
-  echo "==> Helix Music Player removed."
+  echo "==> Jellyx Music Player removed."
   echo ""
   echo "    Auto-downloaded yt-dlp binary may remain in:"
-  echo "      ~/.local/share/helix/bin/"
+  echo "      ~/.local/share/jellyx/bin/"
   echo ""
-  echo "    To remove it: rm -rf ~/.local/share/helix/"
+  echo "    To remove it: rm -rf ~/.local/share/jellyx/"
   echo ""
 }

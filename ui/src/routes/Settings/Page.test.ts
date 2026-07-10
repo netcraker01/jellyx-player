@@ -155,7 +155,7 @@ describe('Settings page', () => {
     const links = container.querySelectorAll<HTMLAnchorElement>('.about-link');
     expect(links.length).toBe(3);
     for (const a of links) {
-      expect(a.href).toContain('https://github.com/netcraker01/helix');
+      expect(a.href).toContain('https://github.com/netcraker01/jellyx-player');
       expect(a.getAttribute('target')).toBe('_blank');
       expect(a.getAttribute('rel')).toBe('noopener noreferrer');
     }

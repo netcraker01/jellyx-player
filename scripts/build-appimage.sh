@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Helix AppImage Build Script
+# Jellyx AppImage Build Script
 # =============================================================================
 # Workaround for: linuxdeploy tries to strip RELR-enabled shared libraries,
 # which produces a broken AppImage. This script builds the AppImage with
@@ -26,7 +26,7 @@
 #   - linuxdeploy (optional — this script downloads it if missing)
 #
 # Environment variables:
-#   HELIX_APPIMAGE_OUTPUT_DIR  — override output directory (default: target/release/bundle)
+#   JELLYX_APPIMAGE_OUTPUT_DIR  — override output directory (default: target/release/bundle)
 # =============================================================================
 
 set -euo pipefail
@@ -54,7 +54,7 @@ cd "$PROJECT_ROOT"
 
 # --- Step 1: Build the Tauri app (Linux target) ---
 if [ "$SKIP_BUILD" = false ]; then
-  echo "==> Building Helix (Tauri release)..."
+  echo "==> Building Jellyx (Tauri release)..."
   # NO_STRIP=1 is passed through to linuxdeploy via the Tauri bundler
   export NO_STRIP=1
   cargo tauri build --bundles appimage
@@ -67,7 +67,7 @@ fi
 # In a Cargo workspace, build artifacts go to the workspace root target/.
 APPDIR_BASE="$PROJECT_ROOT/target/release/bundle/appimage"
 
-# Find the .AppDir directory (Tauri creates one named like com.helix.music.AppDir)
+# Find the .AppDir directory (Tauri creates one named like com.jellyx.music.AppDir)
 APPDIR=$(find "$APPDIR_BASE" -maxdepth 1 -name "*.AppDir" -type d 2>/dev/null | head -1)
 
 if [ -z "$APPDIR" ] || [ ! -d "$APPDIR" ]; then
@@ -97,7 +97,7 @@ if [ -n "$EXISTING_APPIMAGE" ]; then
     fi
   fi
 
-  OUTPUT_DIR="${HELIX_APPIMAGE_OUTPUT_DIR:-$(dirname "$EXISTING_APPIMAGE")}"
+  OUTPUT_DIR="${JELLYX_APPIMAGE_OUTPUT_DIR:-$(dirname "$EXISTING_APPIMAGE")}"
   echo "==> AppImage ready: $EXISTING_APPIMAGE"
   echo "==> Output directory: $OUTPUT_DIR"
   echo ""
@@ -129,7 +129,7 @@ fi
 
 # Build the AppImage using linuxdeploy with NO_STRIP=1
 export NO_STRIP=1
-export OUTPUT="${HELIX_APPIMAGE_OUTPUT_DIR:-$APPDIR_BASE}/helix-latest-x86_64.AppImage"
+export OUTPUT="${JELLYX_APPIMAGE_OUTPUT_DIR:-$APPDIR_BASE}/jellyx-latest-x86_64.AppImage"
 
 echo "==> Generating AppImage with linuxdeploy (NO_STRIP=1)..."
 "$LINUXDEPLOY" --appdir "$APPDIR" --output appimage

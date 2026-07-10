@@ -1,7 +1,7 @@
 //! Release manifest fetch and parsing.
 //!
 //! Long-term preferred source: a static `latest.json` file hosted on a CDN.
-//! Phase 1 fallback: GitHub Releases latest release API for `netcraker01/helix`
+//! Phase 1 fallback: GitHub Releases latest release API for `netcraker01/jellyx-player`
 //! (matches the repo in `tauri.conf.json` identifier conventions).
 //!
 //! Both shapes are normalized into [`LatestRelease`]. The fetcher tries the
@@ -50,10 +50,10 @@ struct StaticManifest {
 }
 
 const GITHUB_LATEST_URL: &str =
-    "https://api.github.com/repos/netcraker01/helix/releases/latest";
+    "https://api.github.com/repos/netcraker01/jellyx-player/releases/latest";
 const STATIC_MANIFEST_URL: &str =
     "https://releases.helix.dev/latest.json";
-const USER_AGENT: &str = concat!("Helix/", env!("CARGO_PKG_VERSION"));
+const USER_AGENT: &str = concat!("Jellyx/", env!("CARGO_PKG_VERSION"));
 
 /// Fetch the latest release info asynchronously, trying the static manifest first and
 /// falling back to the GitHub Releases API.
@@ -87,9 +87,7 @@ async fn fetch_static_manifest(client: &reqwest::Client) -> Result<LatestRelease
         .clone()
         .unwrap_or_else(|| format!("v{}", manifest.version));
 
-    let release_url = manifest.release_url.unwrap_or_else(|| {
-        format!("https://github.com/netcraker01/helix/releases/tag/{}", tag_name)
-    });
+    let release_url = manifest.release_url.unwrap_or_else(|| default_release_url(&tag_name));
 
     Ok(LatestRelease {
         version: strip_v(&manifest.version),
@@ -135,3 +133,21 @@ async fn fetch_github_latest(client: &reqwest::Client) -> Result<Option<LatestRe
 fn strip_v(s: &str) -> String {
     s.trim().trim_start_matches('v').to_string()
 }
+
+/// Default release page URL used when a static manifest omits `release_url`.
+/// Keeps the updater pointing at the Jellyx repository even if the CDN manifest
+/// is incomplete.
+pub fn default_release_url(tag_name: &str) -> String {
+    let normalized = if tag_name.starts_with('v') {
+        tag_name.to_string()
+    } else {
+        format!("v{}", tag_name)
+    };
+    format!(
+        "https://github.com/netcraker01/jellyx-player/releases/tag/{}",
+        normalized
+    )
+}
+
+#[cfg(test)]
+mod tests;

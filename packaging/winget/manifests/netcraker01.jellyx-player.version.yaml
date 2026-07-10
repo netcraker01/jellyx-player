@@ -3,7 +3,7 @@
 # This file declares the package version for the winget manifest set.
 # Replace the version placeholder with each new release version.
 # =============================================================================
-PackageIdentifier: netcraker01.helix-player
+PackageIdentifier: netcraker01.jellyx-player
 PackageVersion: 0.1.0
 DefaultLocale: en-US
 ManifestType: version

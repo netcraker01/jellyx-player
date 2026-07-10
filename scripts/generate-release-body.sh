@@ -9,7 +9,7 @@ set -euo pipefail
 version="${1:?usage: generate-release-body.sh <version> [prev_tag]}"
 prev_tag="${2:-}"
 
-repo_url="https://github.com/netcraker01/helix"
+repo_url="https://github.com/netcraker01/jellyx-player"
 
 if [ -z "$prev_tag" ]; then
   prev_tag="$(git tag --sort=-creatordate | grep -E '^v[0-9]' | head -2 | tail -1)"
@@ -64,15 +64,15 @@ cat <<EOF
 
 | Platform | File | Type |
 |----------|------|------|
-| Linux | \`Helix_${version}_amd64.AppImage\` | AppImage |
-| Linux | \`Helix_${version}_amd64.deb\` | Debian package |
-| Linux | \`Helix-${version}-1.x86_64.rpm\` | RPM package |
-| Linux | \`Helix_${version}_amd64.tar.gz\` | Portable tarball |
-| Windows | \`Helix_${version}_x64-setup.exe\` | NSIS installer (recommended) |
-| Windows | \`Helix_${version}_x64_en-US.msi\` | MSI installer |
-| Windows | \`helix.exe\` | Portable executable |
-| macOS (Apple Silicon) | \`Helix_${version}_aarch64.dmg\` | DMG |
-| macOS (Intel) | \`Helix_${version}_x64.dmg\` | DMG |
+| Linux | \`Jellyx_${version}_amd64.AppImage\` | AppImage |
+| Linux | \`Jellyx_${version}_amd64.deb\` | Debian package |
+| Linux | \`Jellyx-${version}-1.x86_64.rpm\` | RPM package |
+| Linux | \`Jellyx_${version}_amd64.tar.gz\` | Portable tarball |
+| Windows | \`Jellyx_${version}_x64-setup.exe\` | NSIS installer (recommended) |
+| Windows | \`Jellyx_${version}_x64_en-US.msi\` | MSI installer |
+| Windows | \`jellyx.exe\` | Portable executable |
+| macOS (Apple Silicon) | \`Jellyx_${version}_aarch64.dmg\` | DMG |
+| macOS (Intel) | \`Jellyx_${version}_x64.dmg\` | DMG |
 
 > ⚠️ Windows builds are unsigned. See the [README](${repo_url}#windows) for SmartScreen workaround.
 
@@ -81,7 +81,7 @@ cat <<EOF
 Every binary has a corresponding \`.sha256\` file. Verify downloads:
 
 \`\`\`bash
-sha256sum -c Helix_${version}_amd64.AppImage.sha256
+sha256sum -c Jellyx_${version}_amd64.AppImage.sha256
 \`\`\`
 
 ---

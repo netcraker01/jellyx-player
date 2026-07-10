@@ -3,22 +3,22 @@
 # This is the en-US locale metadata for the winget package.
 # REPLACE placeholder Publisher/URLs with actual values before submission.
 # =============================================================================
-PackageIdentifier: netcraker01.helix-player
+PackageIdentifier: netcraker01.jellyx-player
 PackageVersion: 0.1.0
 PackageLocale: en-US
 Publisher: netcraker01
 PublisherUrl: https://github.com/netcraker01
-PublisherSupportUrl: https://github.com/netcraker01/helix/issues
+PublisherSupportUrl: https://github.com/netcraker01/jellyx-player/issues
 Author: netcraker01
-PackageName: Helix Player
-PackageUrl: https://github.com/netcraker01/helix
+PackageName: Jellyx Player
+PackageUrl: https://github.com/netcraker01/jellyx-player
 License: AGPL-3.0-or-later
-LicenseUrl: https://github.com/netcraker01/helix/blob/main/LICENSE
+LicenseUrl: https://github.com/netcraker01/jellyx-player/blob/main/LICENSE
 Copyright: Copyright (c) 2026 netcraker01
-CopyrightUrl: https://github.com/netcraker01/helix/blob/main/LICENSE
-ShortDescription: Helix Player is a desktop background music player for people who work with music on
+CopyrightUrl: https://github.com/netcraker01/jellyx-player/blob/main/LICENSE
+ShortDescription: Jellyx Player is a desktop background music player for people who work with music on
 Description: >
-  Helix Player is a desktop background music player for people who work with music on.
+  Jellyx Player is a desktop background music player for people who work with music on.
   It lets you listen to YouTube, SoundCloud, and local files in a native desktop app
   without accounts, subscriptions, or unnecessary video playback.
 
@@ -27,7 +27,7 @@ Description: >
 
   yt-dlp is automatically downloaded on first launch for streaming support.
   Alternatively, install yt-dlp separately: winget install yt-dlp
-Moniker: helix-player
+Moniker: jellyx-player
 Tags:
   - music
   - player
@@ -45,6 +45,6 @@ ReleaseNotes: |
   - Queue management, playlists, favorites, and listening history
   - Real-time audio visualizers and cinematic mode
   - Auto-downloads yt-dlp on first run
-ReleaseNotesUrl: https://github.com/netcraker01/helix/releases/tag/v0.1.0
+ReleaseNotesUrl: https://github.com/netcraker01/jellyx-player/releases/tag/v0.1.0
 ManifestType: defaultLocale
 ManifestVersion: 1.6.0

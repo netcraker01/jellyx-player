@@ -2,7 +2,7 @@
 # =============================================================================
 # REPLACE all placeholder values before submission.
 # Build the MSI first, then extract values with:
-#   .\scripts\inspect-msi.ps1 -MsiPath .\Helix_0.1.0_x64_en-US.msi
+#   .\scripts\inspect-msi.ps1 -MsiPath .\Jellyx_0.1.0_x64_en-US.msi
 #
 # Placeholders to replace:
 #   - REPLACE_WITH_ACTUAL_SHA256_X64  → SHA256 from Get-FileHash or .sha256 file
@@ -10,10 +10,10 @@
 #   - REPLACE_WITH_WIX_UPGRADE_CODE    → UpgradeCode from MSI database (stable, do NOT change)
 #   - URLs                             → actual GitHub release download URLs
 #
-# The UpgradeCode is pinned in helix-desktop/tauri.conf.json (bundle.windows.wix.upgradeCode).
+# The UpgradeCode is pinned in jellyx-desktop/tauri.conf.json (bundle.windows.wix.upgradeCode).
 # It must stay the same across ALL versions — changing it breaks upgrade detection.
 # =============================================================================
-PackageIdentifier: netcraker01.helix-player
+PackageIdentifier: netcraker01.jellyx-player
 PackageVersion: 0.1.0
 Platform:
   - Windows.Desktop
@@ -25,15 +25,15 @@ InstallModes:
   - silentWithProgress
 UpgradeBehavior: install
 Commands:
-  - helix
+  - jellyx
 Protocols:
-  - helix
+  - jellyx
 FileExtensions: []
 Dependencies:
   PackageDependencies:
     - PackageIdentifier: Microsoft.EdgeWebView2Runtime
 AppsAndFeaturesEntries:
-  - DisplayName: Helix Player
+  - DisplayName: Jellyx Player
     Publisher: netcraker01
     DisplayVersion: "0.1.0"
     ProductCode: "{5D94C021-6FA6-4482-B427-2C427D30F3AF}"
@@ -41,13 +41,13 @@ AppsAndFeaturesEntries:
 Installers:
   - Architecture: x64
     InstallerType: wix
-    InstallerUrl: https://github.com/netcraker01/helix/releases/download/v0.1.0/Helix_0.1.0_x64_en-US.msi
+    InstallerUrl: https://github.com/netcraker01/jellyx-player/releases/download/v0.1.0/Jellyx_0.1.0_x64_en-US.msi
     InstallerSha256: 2704DCD4695E701ECD87596C7A4FD4AA876488781066FB8106328D1D125FEA28
     ProductCode: "{5D94C021-6FA6-4482-B427-2C427D30F3AF}"
   # Uncomment when shipping ARM64 builds:
   # - Architecture: arm64
   #   InstallerType: wix
-  #   InstallerUrl: https://github.com/netcraker01/helix/releases/download/v0.1.0/Helix_0.1.0_arm64_en-US.msi
+  #   InstallerUrl: https://github.com/netcraker01/jellyx-player/releases/download/v0.1.0/Jellyx_0.1.0_arm64_en-US.msi
   #   InstallerSha256: REPLACE_WITH_ACTUAL_SHA256_ARM64
   #   ProductCode: "{REPLACE_WITH_WIX_PRODUCT_CODE_ARM64}"
 ManifestType: installer

@@ -1,6 +1,6 @@
 # AUR Publishing Notes
 # =============================================================================
-# Steps to publish helix-player to the Arch User Repository:
+# Steps to publish jellyx-player to the Arch User Repository:
 #
 # 1. PREPARE THE PKGBUILD
 #    - Replace sha256sums with the actual checksum of the release tarball:
@@ -9,7 +9,7 @@
 #      extra-x86_64-build  (from devtools package)
 #    - Run namcap on both PKGBUILD and the built package:
 #      namcap PKGBUILD
-#      namcap helix-player-*.pkg.tar.zst
+#      namcap jellyx-player-*.pkg.tar.zst
 #
 # 2. GENERATE .SRCINFO
 #    makepkg --printsrcinfo > .SRCINFO
@@ -17,16 +17,16 @@
 #
 # 3. CREATE AUR PACKAGE
 #    # If this is a new package:
-#    ssh aur@aur.archlinux.org setup-repo helix-player
+#    ssh aur@aur.archlinux.org setup-repo jellyx-player
 #    # Or via the AUR web interface: https://aur.archlinux.org/packages/new/
 #    # Then push:
-#    git clone ssh://aur@aur.archlinux.org/helix-player.git aur-helix-player
-#    cd aur-helix-player
+#    git clone ssh://aur@aur.archlinux.org/jellyx-player.git aur-jellyx-player
+#    cd aur-jellyx-player
 #    cp ../packaging/aur/PKGBUILD .
-#    cp ../packaging/aur/helix-player.install .
+#    cp ../packaging/aur/jellyx-player.install .
 #    makepkg --printsrcinfo > .SRCINFO
-#    git add PKGBUILD .SRCINFO helix-player.install
-#    git commit -m "Initial upload: helix-player 0.1.0"
+#    git add PKGBUILD .SRCINFO jellyx-player.install
+#    git commit -m "Initial upload: jellyx-player 0.1.0"
 #    git push
 #
 # 4. MAINTENANCE
@@ -40,5 +40,5 @@
 #    - Upload your SSH public key at https://aur.archlinux.org/account/
 #    - You need a GPG key for signing if using makepkg --sign
 #
-# NOTE: Helix is licensed under AGPL-3.0 — this is acceptable for AUR
+# NOTE: Jellyx is licensed under AGPL-3.0 — this is acceptable for AUR
 # (AUR permits any OSI-approved license).

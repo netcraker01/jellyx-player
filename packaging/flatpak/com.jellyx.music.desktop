@@ -1,12 +1,12 @@
 [Desktop Entry]
 Type=Application
-Name=Helix
+Name=Jellyx
 GenericName=Music Player
 Comment=Desktop background music player for people who work with music on
-Exec=helix
-Icon=com.helix.music
+Exec=jellyx
+Icon=com.jellyx.music
 Terminal=false
 Categories=AudioVideo;Audio;Player;Music;
 Keywords=music;player;stream;youtube;soundcloud;visualization;
 StartupNotify=true
-StartupWMClass=helix
+StartupWMClass=jellyx

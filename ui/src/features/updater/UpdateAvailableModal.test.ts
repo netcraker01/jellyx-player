@@ -70,7 +70,7 @@ function sampleInfo(overrides: Partial<UpdateInfo> = {}): UpdateInfo {
     currentVersion: '0.2.3',
     latestVersion: '0.2.4',
     body: 'Bug fixes and improvements',
-    releaseUrl: 'https://github.com/netcraker01/helix/releases/tag/v0.2.4',
+    releaseUrl: 'https://github.com/netcraker01/jellyx-player/releases/tag/v0.2.4',
     publishedAt: '2026-07-07T10:00:00Z',
     channel: 'linux-deb',
     policy: 'open_release_page',

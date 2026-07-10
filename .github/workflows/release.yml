@@ -1,5 +1,5 @@
 # =============================================================================
-# Helix Player — Release Pipeline (Linux + Windows)
+# Jellyx Player — Release Pipeline (Linux + Windows)
 # =============================================================================
 # Builds Linux (AppImage, .deb, .rpm) and Windows (MSI, NSIS, portable exe)
 # on a v* tag push and attaches them to the GitHub Release.
@@ -221,7 +221,7 @@ jobs:
 
           portable_dir="target/release/portable-tar"
           mkdir -p "$portable_dir"
-          tarball_path="$portable_dir/Helix_${version}_amd64.tar.gz"
+          tarball_path="$portable_dir/Jellyx_${version}_amd64.tar.gz"
           tar -C "$(dirname "$binary_path")" -czf "$tarball_path" "$(basename "$binary_path")"
           tarball_hash=$(sha256sum "$tarball_path" | cut -d' ' -f1)
           tarball_hash_file="${tarball_path}.sha256"
@@ -252,7 +252,7 @@ jobs:
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-linux-appimage-${{ steps.artifacts.outputs.version }}
+          name: jellyx-linux-appimage-${{ steps.artifacts.outputs.version }}
           path: |
             ${{ steps.artifacts.outputs.appimage_path }}
             ${{ steps.artifacts.outputs.appimage_sha256_file }}
@@ -262,7 +262,7 @@ jobs:
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-linux-deb-${{ steps.artifacts.outputs.version }}
+          name: jellyx-linux-deb-${{ steps.artifacts.outputs.version }}
           path: |
             ${{ steps.artifacts.outputs.deb_path }}
             ${{ steps.artifacts.outputs.deb_sha256_file }}
@@ -272,7 +272,7 @@ jobs:
       - name: Upload .rpm artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-linux-rpm-${{ steps.artifacts.outputs.version }}
+          name: jellyx-linux-rpm-${{ steps.artifacts.outputs.version }}
           path: |
             ${{ steps.artifacts.outputs.rpm_path }}
             ${{ steps.artifacts.outputs.rpm_sha256_file }}
@@ -282,7 +282,7 @@ jobs:
       - name: Upload tar.gz artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-linux-targz-${{ steps.artifacts.outputs.version }}
+          name: jellyx-linux-targz-${{ steps.artifacts.outputs.version }}
           path: |
             ${{ steps.artifacts.outputs.tarball_path }}
             ${{ steps.artifacts.outputs.tarball_sha256_file }}
@@ -308,7 +308,7 @@ jobs:
       - name: Attach Linux artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Helix ${{ steps.artifacts.outputs.version }}
+          name: Jellyx ${{ steps.artifacts.outputs.version }}
           body_path: ${{ steps.body.outputs.body_file }}
           files: |
             ${{ steps.artifacts.outputs.appimage_path }}
@@ -449,7 +449,7 @@ jobs:
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
               $candidate = Get-ChildItem -Path $dir -Filter "*.msi" |
-                Where-Object { $_.Name -like "Helix_${version}_*.msi" } |
+                Where-Object { $_.Name -like "Jellyx_${version}_*.msi" } |
                 Select-Object -First 1
               if ($candidate) {
                 $msiFile = $candidate
@@ -508,12 +508,14 @@ jobs:
           $nsisFile = $null
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
-              $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" |
-                Where-Object { $_.Name -like "Helix_${version}_*setup*.exe" } |
+                $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" |
+                Where-Object { $_.Name -like "Jellyx_${version}_*setup*.exe" } |
                 Select-Object -First 1
               if (-not $candidate) {
+                # Fallback: any .exe in the nsis bundle dir (excluding the app executable)
                 $candidate = Get-ChildItem -Path $dir -Filter "*.exe" |
-                  Where-Object { $_.Name -like "Helix_${version}_*.exe" } |
+                  Where-Object { $_.Name -like "Jellyx_${version}_*.exe" } |
+
                   Select-Object -First 1
               }
               if ($candidate) {
@@ -565,7 +567,7 @@ jobs:
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-windows-msi-${{ steps.msi.outputs.version }}
+          name: jellyx-windows-msi-${{ steps.msi.outputs.version }}
           path: |
             ${{ steps.msi.outputs.msi_path }}
             ${{ steps.msi.outputs.sha256_file }}
@@ -576,7 +578,7 @@ jobs:
       - name: Upload NSIS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-windows-setup-${{ steps.msi.outputs.version }}
+          name: jellyx-windows-setup-${{ steps.msi.outputs.version }}
           path: |
             ${{ steps.nsis.outputs.nsis_path }}
             ${{ steps.nsis.outputs.nsis_sha256_file }}
@@ -586,7 +588,7 @@ jobs:
       - name: Upload portable exe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-windows-portable-${{ steps.msi.outputs.version }}
+          name: jellyx-windows-portable-${{ steps.msi.outputs.version }}
           path: |
             ${{ steps.portable.outputs.exe_path }}
             ${{ steps.portable.outputs.sha256_file }}
@@ -596,7 +598,7 @@ jobs:
       - name: Attach Windows artifacts to Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Helix ${{ steps.msi.outputs.version }}
+          name: Jellyx ${{ steps.msi.outputs.version }}
           files: |
             ${{ steps.msi.outputs.msi_path }}
             ${{ steps.msi.outputs.sha256_file }}
@@ -625,18 +627,18 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           ./scripts/validate-release.sh \
             "$GITHUB_REF_NAME" \
-            "Helix ${version}" \
-            "Helix_${version}_amd64.AppImage" \
-            "Helix_${version}_amd64.AppImage.sha256" \
-            "Helix_${version}_amd64.deb" \
-            "Helix_${version}_amd64.deb.sha256" \
-            "Helix-${version}-1.x86_64.rpm" \
-            "Helix-${version}-1.x86_64.rpm.sha256" \
-            "Helix_${version}_amd64.tar.gz" \
-            "Helix_${version}_amd64.tar.gz.sha256" \
-            "Helix_${version}_x64-setup.exe" \
-            "Helix_${version}_x64-setup.exe.sha256" \
-            "Helix_${version}_x64_en-US.msi" \
-            "Helix_${version}_x64_en-US.msi.sha256" \
+            "Jellyx ${version}" \
+            "Jellyx_${version}_amd64.AppImage" \
+            "Jellyx_${version}_amd64.AppImage.sha256" \
+            "Jellyx-${version}-1.x86_64.rpm" \
+            "Jellyx-${version}-1.x86_64.rpm.sha256" \
+            "Jellyx_${version}_amd64.deb" \
+            "Jellyx_${version}_amd64.deb.sha256" \
+            "Jellyx_${version}_amd64.tar.gz" \
+            "Jellyx_${version}_amd64.tar.gz.sha256" \
+            "Jellyx_${version}_x64-setup.exe" \
+            "Jellyx_${version}_x64-setup.exe.sha256" \
+            "Jellyx_${version}_x64_en-US.msi" \
+            "Jellyx_${version}_x64_en-US.msi.sha256" \
             "jellyx.exe" \
             "jellyx.exe.sha256"

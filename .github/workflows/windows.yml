@@ -1,5 +1,5 @@
 # =============================================================================
-# Helix Player — Windows Build (CI validation)
+# Jellyx Player — Windows Build (CI validation)
 # =============================================================================
 # Builds both Windows installer formats on every push to main and on PRs.
 # This is CI validation only — it produces artifacts for review, NOT release.
@@ -164,7 +164,7 @@ jobs:
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
               $candidate = Get-ChildItem -Path $dir -Filter "*.msi" |
-                Where-Object { $_.Name -like "Helix_${version}_*.msi" } |
+                Where-Object { $_.Name -like "Jellyx_${version}_*.msi" } |
                 Select-Object -First 1
               if ($candidate) {
                 $msiFile = $candidate
@@ -226,13 +226,14 @@ jobs:
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
               # NSIS produces a setup .exe file
-              $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" |
-                Where-Object { $_.Name -like "Helix_${version}_*setup*.exe" } |
+                $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" |
+                Where-Object { $_.Name -like "Jellyx_${version}_*setup*.exe" } |
                 Select-Object -First 1
               if (-not $candidate) {
                 # Fallback: any .exe in the nsis bundle dir (excluding the app executable)
                 $candidate = Get-ChildItem -Path $dir -Filter "*.exe" |
-                  Where-Object { $_.Name -like "Helix_${version}_*.exe" } |
+                  Where-Object { $_.Name -like "Jellyx_${version}_*.exe" } |
+
                   Select-Object -First 1
               }
               if ($candidate) {
@@ -296,7 +297,7 @@ jobs:
       - name: Upload MSI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-player-msi-${{ steps.msi.outputs.version }}
+          name: jellyx-player-msi-${{ steps.msi.outputs.version }}
           path: |
             ${{ steps.msi.outputs.msi_path }}
             ${{ steps.msi.outputs.sha256_file }}
@@ -307,7 +308,7 @@ jobs:
       - name: Upload NSIS artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-player-setup-${{ steps.msi.outputs.version }}
+          name: jellyx-player-setup-${{ steps.msi.outputs.version }}
           path: |
             ${{ steps.nsis.outputs.nsis_path }}
             ${{ steps.nsis.outputs.nsis_sha256_file }}
@@ -317,7 +318,7 @@ jobs:
       - name: Upload portable exe artifact
         uses: actions/upload-artifact@v4
         with:
-          name: helix-player-portable-${{ steps.msi.outputs.version }}
+          name: jellyx-player-portable-${{ steps.msi.outputs.version }}
           path: |
             ${{ steps.portable.outputs.exe_path }}
             ${{ steps.portable.outputs.sha256_file }}
@@ -331,7 +332,7 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "=========================================="
-          Write-Host "  Helix Player — Windows Build Output"
+          Write-Host "  Jellyx Player — Windows Build Output"
           Write-Host "=========================================="
           Write-Host ""
           Write-Host "MSI file:       ${{ steps.msi.outputs.msi_name }}"

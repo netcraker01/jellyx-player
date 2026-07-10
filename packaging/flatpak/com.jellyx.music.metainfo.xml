@@ -1,23 +1,23 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.helix.music</id>
-  <name>Helix</name>
+  <id>com.jellyx.music</id>
+  <name>Jellyx</name>
   <summary>Desktop background music player for people who work with music on</summary>
   <developer id="netcraker01">
     <name>netcraker01</name>
   </developer>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>AGPL-3.0-only</project_license>
-  <project_group>Helix</project_group>
+  <project_group>Jellyx</project_group>
 
   <description>
     <p>
-      Helix is a desktop background music player built with Rust, Tauri, and Svelte.
+      Jellyx is a desktop background music player built with Rust, Tauri, and Svelte.
       It lets you listen to YouTube, SoundCloud, and local files in a native desktop app
       without accounts, subscriptions, or unnecessary video playback.
     </p>
     <p>
-      Helix was built for long work sessions where the music matters more than the video.
+      Jellyx was built for long work sessions where the music matters more than the video.
       It keeps playback focused on audio while still offering queueing, local organization,
       and FFT-driven visualizers when you want a richer desktop player view.
     </p>
@@ -27,7 +27,7 @@
       <li>Play local files alongside remote sources</li>
       <li>Queue management, playlists, artist favorites, and listening history</li>
       <li>Real-time audio visualizations including spectrum and oscilloscope modes</li>
-      <li>No account requirement and no Helix subscription model</li>
+      <li>No account requirement and no Jellyx subscription model</li>
       <li>Automatic yt-dlp management on first use</li>
     </ul>
   </description>
@@ -39,14 +39,14 @@
     <category>Music</category>
   </categories>
 
-  <url type="homepage">https://github.com/netcraker01/helix</url>
-  <url type="bugtracker">https://github.com/netcraker01/helix/issues</url>
-  <url type="vcs-browser">https://github.com/netcraker01/helix</url>
+  <url type="homepage">https://github.com/netcraker01/jellyx-player</url>
+  <url type="bugtracker">https://github.com/netcraker01/jellyx-player/issues</url>
+  <url type="vcs-browser">https://github.com/netcraker01/jellyx-player</url>
 
-  <launchable type="desktop-id">com.helix.music.desktop</launchable>
+  <launchable type="desktop-id">com.jellyx.music.desktop</launchable>
 
   <provides>
-    <binary>helix</binary>
+    <binary>jellyx</binary>
   </provides>
 
   <requires>
@@ -83,7 +83,7 @@
     <release version="0.1.0" date="2026-06-30" type="development">
       <description>
         <ul>
-          <li>Initial Linux release packaging for Helix</li>
+          <li>Initial Linux release packaging for Jellyx</li>
           <li>YouTube and SoundCloud search and playback</li>
           <li>Playlists, artist favorites, and recent items on the home screen</li>
           <li>Automatic yt-dlp download on first remote use</li>
@@ -96,19 +96,19 @@
   <screenshots>
     <screenshot type="default">
       <caption>Home screen for returning to recent background music sessions</caption>
-      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/home.png</image>
+      <image>https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/home.png</image>
     </screenshot>
     <screenshot>
       <caption>Search YouTube and SoundCloud from one desktop player</caption>
-      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/search-results.png</image>
+      <image>https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/search-results.png</image>
     </screenshot>
     <screenshot>
       <caption>Playback controls and queue for long listening sessions</caption>
-      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/now-playing.png</image>
+      <image>https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/now-playing.png</image>
     </screenshot>
     <screenshot>
       <caption>Save playlists and favorites for repeated work sessions</caption>
-      <image>https://raw.githubusercontent.com/netcraker01/helix/main/docs/screenshots/playlists.png</image>
+      <image>https://raw.githubusercontent.com/netcraker01/jellyx-player/main/docs/screenshots/playlists.png</image>
     </screenshot>
   </screenshots>
 </component>
