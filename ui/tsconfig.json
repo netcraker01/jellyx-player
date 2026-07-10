@@ -11,7 +11,7 @@
     "isolatedModules": true,
     "noEmit": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
-    "types": ["vitest/globals"],
+    "types": ["vitest/globals", "node"],
     "paths": {
       "@app/*": ["./src/app/*"],
       "@features/*": ["./src/features/*"],
