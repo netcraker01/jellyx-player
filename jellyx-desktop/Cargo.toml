@@ -1,0 +1,50 @@
+[package]
+name = "jellyx-desktop"
+version = "0.3.3"
+edition = "2021"
+license = "AGPL-3.0"
+description = "A desktop background music player for people who work with music on."
+
+[lib]
+name = "jellyx_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "jellyx"
+path = "src/main.rs"
+
+[features]
+integration = []
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+jellyx-core = { path = "../jellyx-core" }
+tauri = { version = "2", features = ["devtools", "protocol-asset", "test"] }
+tauri-plugin-shell = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+semver = "1"
+symphonia = { version = "0.6", features = ["mp3", "isomp4", "aac", "ogg", "vorbis", "flac", "wav", "pcm"] }
+symphonia-core = "0.6"
+symphonia-bundle-mp3 = "0.6"
+symphonia-bundle-flac = "0.6"
+symphonia-format-isomp4 = "0.6"
+symphonia-format-ogg = "0.6"
+symphonia-codec-vorbis = "0.6"
+symphonia-codec-aac = "0.6"
+symphonia-adapter-libopus = { version = "0.3", features = ["bundled"] }
+cpal = "0.15"
+crossbeam-channel = "0.5"
+rustfft = "6"
+uuid = { version = "1", features = ["v4"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+dirs = { workspace = true }
+walkdir = "2"
+tauri-plugin-dialog = "2"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "default-tls", "charset", "json"] }
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+percent-encoding = "2"

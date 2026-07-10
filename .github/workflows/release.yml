@@ -11,7 +11,7 @@
 #
 # Two jobs run in parallel:
 #   - build-linux   → AppImage (NO_STRIP=1), .deb, .rpm
-#   - build-windows → MSI, NSIS setup.exe, portable helix.exe
+#   - build-windows → MSI, NSIS setup.exe, portable jellyx.exe
 #
 # Each job:
 #   1. Builds its platform artifacts
@@ -124,8 +124,8 @@ jobs:
           bundle_dirs=(
             "target/release/bundle"
             "target/release/portable-tar"
-            "helix-desktop/target/release/bundle"
-            "helix-desktop/target/release/portable-tar"
+            "jellyx-desktop/target/release/bundle"
+            "jellyx-desktop/target/release/portable-tar"
           )
           for dir in "${bundle_dirs[@]}"; do
             if [ -d "$dir" ]; then
@@ -152,9 +152,9 @@ jobs:
 
           # In a Cargo workspace, Tauri v2 places bundles under the workspace
           # root target/release/bundle/. Search there first; the member-local
-          # helix-desktop/target/ path is kept as a legacy fallback.
+          # jellyx-desktop/target/ path is kept as a legacy fallback.
           search_root=""
-          for candidate in "target/release/bundle" "helix-desktop/target/release/bundle"; do
+          for candidate in "target/release/bundle" "jellyx-desktop/target/release/bundle"; do
             if [ -d "$candidate" ]; then
               search_root="$candidate"
               break
@@ -162,7 +162,7 @@ jobs:
           done
 
           if [ -z "$search_root" ]; then
-            echo "ERROR: No bundle directory found under target/release/bundle or helix-desktop/target/release/bundle" >&2
+            echo "ERROR: No bundle directory found under target/release/bundle or jellyx-desktop/target/release/bundle" >&2
             exit 1
           fi
 
@@ -202,12 +202,12 @@ jobs:
           # Version from the tag (strip leading 'v'); fall back to Cargo.toml.
           version="${GITHUB_REF_NAME#v}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            version=$(grep '^version' helix-desktop/Cargo.toml | head -1 | cut -d'"' -f2)
+            version=$(grep '^version' jellyx-desktop/Cargo.toml | head -1 | cut -d'"' -f2)
           fi
 
           # --- portable tar.gz ---
           binary_path=""
-          for candidate in "target/release/helix" "helix-desktop/target/release/helix"; do
+          for candidate in "target/release/jellyx" "jellyx-desktop/target/release/jellyx"; do
             if [ -f "$candidate" ]; then
               binary_path="$candidate"
               break
@@ -215,7 +215,7 @@ jobs:
           done
 
           if [ -z "$binary_path" ]; then
-            echo "ERROR: No Linux helix binary found under target/release or helix-desktop/target/release" >&2
+            echo "ERROR: No Linux jellyx binary found under target/release or jellyx-desktop/target/release" >&2
             exit 1
           fi
 
@@ -323,7 +323,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ---------------------------------------------------------------------------
-  # Windows: MSI + NSIS setup.exe + portable helix.exe
+  # Windows: MSI + NSIS setup.exe + portable jellyx.exe
   # ---------------------------------------------------------------------------
   # Tauri builds both MSI and NSIS in one invocation (single build, packaged
   # twice). The portable .exe is the raw release binary copied out of the
@@ -382,8 +382,8 @@ jobs:
           $bundleDirs = @(
             "target/release/bundle/msi",
             "target/release/bundle/nsis",
-            "helix-desktop/target/release/bundle/msi",
-            "helix-desktop/target/release/bundle/nsis"
+            "jellyx-desktop/target/release/bundle/msi",
+            "jellyx-desktop/target/release/bundle/nsis"
           )
           foreach ($dir in $bundleDirs) {
             if (Test-Path $dir) {
@@ -403,12 +403,12 @@ jobs:
         run: |
           $searchDirs = @(
             "target/release",
-            "helix-desktop/target/release"
+            "jellyx-desktop/target/release"
           )
           $exeFile = $null
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
-              $candidate = Get-ChildItem -Path $dir -Filter "helix.exe" | Select-Object -First 1
+              $candidate = Get-ChildItem -Path $dir -Filter "jellyx.exe" | Select-Object -First 1
               if ($candidate) {
                 $exeFile = $candidate
                 break
@@ -416,7 +416,7 @@ jobs:
             }
           }
           if (-not $exeFile) {
-            Write-Error "No portable helix.exe found in expected directories: $($searchDirs -join ', ')"
+            Write-Error "No portable jellyx.exe found in expected directories: $($searchDirs -join ', ')"
             exit 1
           }
           Write-Host "Portable exe found: $($exeFile.FullName)"
@@ -437,12 +437,12 @@ jobs:
           if ($version -match '^\d+\.\d+\.\d+') {
             $version = $Matches[0]
           } else {
-            $version = (Select-String -Path "helix-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+            $version = (Select-String -Path "jellyx-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
           }
 
           $searchDirs = @(
             "target/release/bundle/msi",
-            "helix-desktop/target/release/bundle/msi"
+            "jellyx-desktop/target/release/bundle/msi"
           )
 
           $msiFile = $null
@@ -497,12 +497,12 @@ jobs:
           if ($version -match '^\d+\.\d+\.\d+') {
             $version = $Matches[0]
           } else {
-            $version = (Select-String -Path "helix-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
+            $version = (Select-String -Path "jellyx-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
           }
 
           $searchDirs = @(
             "target/release/bundle/nsis",
-            "helix-desktop/target/release/bundle/nsis"
+            "jellyx-desktop/target/release/bundle/nsis"
           )
 
           $nsisFile = $null
@@ -638,5 +638,5 @@ jobs:
             "Helix_${version}_x64-setup.exe.sha256" \
             "Helix_${version}_x64_en-US.msi" \
             "Helix_${version}_x64_en-US.msi.sha256" \
-            "helix.exe" \
-            "helix.exe.sha256"
+            "jellyx.exe" \
+            "jellyx.exe.sha256"

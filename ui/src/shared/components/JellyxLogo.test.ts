@@ -10,7 +10,7 @@ import { resolve } from 'path';
 import JellyxLogo from '@shared/components/JellyxLogo.svelte';
 
 describe('PR 1 brand assets', () => {
-  const iconsDir = resolve(__dirname, '../../../../helix-desktop/icons');
+  const iconsDir = resolve(__dirname, '../../../../jellyx-desktop/icons');
   const assetsDir = resolve(__dirname, '../assets/jellyx');
 
   it('has a JellyxLogo Svelte component export', () => {

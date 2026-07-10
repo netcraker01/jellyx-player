@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["helix-desktop", "helix-core", "helix-cli", "helix-ffi"]
+members = ["jellyx-desktop", "jellyx-core", "jellyx-cli", "jellyx-ffi"]
 
 [workspace.package]
 version = "0.3.3"
@@ -10,8 +10,8 @@ license = "AGPL-3.0"
 # Shared workspace dependencies.
 # Member crates reference these via `dependency = { workspace = true }`.
 # Only Tauri-free, broadly-shared crates belong here; desktop-only deps stay
-# declared in `helix-desktop/Cargo.toml`. Populated incrementally as crates
-# are introduced (helix-core in PR 2, extraction in PR 3).
+# declared in `jellyx-desktop/Cargo.toml`. Populated incrementally as crates
+# are introduced (jellyx-core in PR 2, extraction in PR 3).
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
