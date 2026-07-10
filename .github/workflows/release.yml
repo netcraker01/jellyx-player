@@ -624,17 +624,17 @@ jobs:
           ./scripts/validate-release.sh \
             "$GITHUB_REF_NAME" \
             "Jellyx ${version}" \
-            "Jellyx_${version}_amd64.AppImage" \
-            "Jellyx_${version}_amd64.AppImage.sha256" \
-            "Jellyx-${version}-1.x86_64.rpm" \
-            "Jellyx-${version}-1.x86_64.rpm.sha256" \
-            "Jellyx_${version}_amd64.deb" \
-            "Jellyx_${version}_amd64.deb.sha256" \
+            "Jellyx.Player_${version}_amd64.AppImage" \
+            "Jellyx.Player_${version}_amd64.AppImage.sha256" \
+            "Jellyx.Player-${version}-1.x86_64.rpm" \
+            "Jellyx.Player-${version}-1.x86_64.rpm.sha256" \
+            "Jellyx.Player_${version}_amd64.deb" \
+            "Jellyx.Player_${version}_amd64.deb.sha256" \
             "Jellyx_${version}_amd64.tar.gz" \
             "Jellyx_${version}_amd64.tar.gz.sha256" \
-            "Jellyx_${version}_x64-setup.exe" \
-            "Jellyx_${version}_x64-setup.exe.sha256" \
-            "Jellyx_${version}_x64_en-US.msi" \
-            "Jellyx_${version}_x64_en-US.msi.sha256" \
+            "Jellyx.Player_${version}_x64-setup.exe" \
+            "Jellyx.Player_${version}_x64-setup.exe.sha256" \
+            "Jellyx.Player_${version}_x64_en-US.msi" \
+            "Jellyx.Player_${version}_x64_en-US.msi.sha256" \
             "jellyx.exe" \
             "jellyx.exe.sha256"
