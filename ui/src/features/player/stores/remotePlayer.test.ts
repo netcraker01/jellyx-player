@@ -18,6 +18,8 @@ import {
 import { reportRemoteAudioPlaybackFailure, reportRemoteAudioPlaybackRuntimeFailure, reportRemoteAudioPlaybackSuccess } from '@services/commands';
 import { Source, type Track } from '@shared/types/models';
 
+const { readable } = await vi.hoisted(() => import('svelte/store'));
+
 vi.mock('@tauri-apps/api/core', () => ({
   convertFileSrc: (path: string) => `asset://localhost/${encodeURIComponent(path)}`,
 }));
@@ -27,6 +29,15 @@ vi.mock('@shared/stores/notifications', () => ({
     push: vi.fn(),
   },
 }));
+
+vi.mock('@i18n', () => {
+  const translateFn = (key: string, params?: Record<string, string | number>) => {
+    if (params?.default) return params.default as string;
+    return key;
+  };
+  const store = readable(translateFn, () => {});
+  return { t: store };
+});
 
 vi.mock('@services/commands', () => ({
     cacheRemoteStream: vi.fn(),
@@ -175,6 +186,57 @@ describe('remotePlayer store', () => {
 
     expect(get(remoteActive)).toBe(false);
     expect(reportRemoteAudioPlaybackSuccess).not.toHaveBeenCalled();
+    play.mockRestore();
+  });
+});
+
+describe('remotePlayer store > AppError extraction in play() rejection', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('surfaces a structured AppError code+details, not [object Object]', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    // play() rejects with a structured AppError object, not an Error instance.
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockRejectedValue({
+      code: 'PLAYBACK_ERROR',
+      details: 'codec not supported',
+    });
+    const track = {
+      id: 'apperror-test', title: '', artist: '', album: '', duration: 0,
+      source: Source.SoundCloud, sourceId: 'src', streamUrl: 'http://127.0.0.1:8765/proxy?apperror',
+    } as Track;
+
+    const { notifications } = await import('@shared/stores/notifications');
+    const pushSpy = notifications.push as ReturnType<typeof vi.fn>;
+
+    await loadRemoteStream(track, track.streamUrl!);
+
+    const errorCall = pushSpy.mock.calls.find((c) => c[0]?.type === 'error');
+    expect(errorCall).toBeTruthy();
+    expect(errorCall![0].message).not.toBe('[object Object]');
+    expect(errorCall![0].message).toBe('codec not supported');
+    expect(get(remoteActive)).toBe(false);
+    play.mockRestore();
+  });
+
+  it('extracts a standard Error instance .message from play() rejection', async () => {
+    vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const play = vi.spyOn(HTMLMediaElement.prototype, 'play').mockRejectedValue(new Error('autoplay blocked'));
+    const track = {
+      id: 'error-instance-test', title: '', artist: '', album: '', duration: 0,
+      source: Source.SoundCloud, sourceId: 'src', streamUrl: 'http://127.0.0.1:8765/proxy?errinst',
+    } as Track;
+
+    const { notifications } = await import('@shared/stores/notifications');
+    const pushSpy = notifications.push as ReturnType<typeof vi.fn>;
+
+    await loadRemoteStream(track, track.streamUrl!);
+
+    const errorCall = pushSpy.mock.calls.find((c) => c[0]?.type === 'error');
+    expect(errorCall).toBeTruthy();
+    expect(errorCall![0].message).toBe('autoplay blocked');
+    expect(errorCall![0].message).not.toBe('[object Object]');
     play.mockRestore();
   });
 });

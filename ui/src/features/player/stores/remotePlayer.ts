@@ -45,6 +45,7 @@ import {
   reportRemoteAudioPlaybackSuccess,
 } from '@services/commands';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { extractErrorMessage } from '@shared/utils/errors';
 import type { Track, FrequencyData } from '@shared/types/models';
 import { Source } from '@shared/types/models';
 
@@ -466,7 +467,7 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
   } catch (e) {
     if (!isCurrentAttempt(attempt, audio)) return;
     reportAttemptOutcome(attempt, false, false);
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
     remoteActive.set(false);
     return; // Don't attempt cache download if playback failed
@@ -592,7 +593,7 @@ export function resumeRemote(): void {
     // a user gesture (clicking play) is the right moment to resume it.
     resumeAudioCtx();
     audioEl.play().catch((e) => {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = extractErrorMessage(e, get(t));
       notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
     });
   }

@@ -299,7 +299,7 @@ pub(crate) fn is_approved_remote_url(raw_url: &str) -> bool {
     if url.scheme() != "https"
         || url.username() != ""
         || url.password().is_some()
-        || url.port().is_some()
+        || url.port().is_some_and(|p| p != 443)
     {
         return false;
     }
@@ -1365,6 +1365,36 @@ mod tests {
         assert!(!is_approved_remote_url(
             "https://googlevideo.com:8443/media"
         ));
+    }
+
+    #[test]
+    fn https_with_explicit_443_port_is_approved() {
+        // googlevideo.com CDN sometimes emits URLs with an explicit :443 port.
+        // The default https port must NOT be treated as an SSRF risk.
+        assert!(is_approved_remote_url(
+            "https://r1---sn.googlevideo.com:443/videoplayback"
+        ));
+        assert!(is_approved_remote_url(
+            "https://cf-hls-media.sndcdn.com:443/media"
+        ));
+    }
+
+    #[test]
+    fn https_with_non_default_port_is_rejected() {
+        // Only 443 (the https default) is permitted; any other port stays rejected.
+        assert!(!is_approved_remote_url(
+            "https://googlevideo.com:8443/media"
+        ));
+        assert!(!is_approved_remote_url(
+            "https://r1---sn.googlevideo.com:8443/videoplayback"
+        ));
+    }
+
+    #[test]
+    fn http_with_port_443_is_rejected() {
+        // Port 443 is only allowed for https — http on any port stays blocked.
+        assert!(!is_approved_remote_url("http://googlevideo.com:443/media"));
+        assert!(!is_approved_remote_url("http://127.0.0.1:443/private"));
     }
 
     #[test]

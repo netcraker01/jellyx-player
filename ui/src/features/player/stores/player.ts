@@ -64,6 +64,7 @@ export const shuffle = writable(false);
 export const repeatMode = writable<QueueState['repeatMode']>('Off');
 
 import { getMigratedItem, setMigratedItem } from '@shared/utils/storage';
+import { extractErrorMessage } from '@shared/utils/errors';
 
 /** localStorage suffix for persisted volume (0-100, the user-facing unit). */
 const VOLUME_SUFFIX = 'volume';
@@ -339,7 +340,7 @@ async function initializePlayerEvents(): Promise<void> {
     const track = get(currentTrack);
     if (track && shouldAcceptStreamResolution(track, payload)) {
       loadRemoteStream(track, payload.streamUrl, payload.remoteUrl, payload.proxyCapability).catch((e) => {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg = extractErrorMessage(e, get(t));
         notifications.push({ type: 'error', title: 'Remote Playback Error', message: msg, dismissible: true });
       });
     }
@@ -414,9 +415,9 @@ export async function playTrack(track: Track): Promise<void> {
       await commands.playStream(track);
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    // Detect DRM-protected tracks for a user-friendly message
     const translate = get(t);
+    const msg = extractErrorMessage(e, translate);
+    // Detect DRM-protected tracks for a user-friendly message
     const drmMessage = msg.includes('DRM')
       ? translate('playback.drm_protected', { default: 'Cannot play: DRM-protected track' })
       : msg;
@@ -438,7 +439,7 @@ export async function skipToNext(): Promise<void> {
       return; // Successfully started next track
     } catch (e) {
       // Track failed (DRM, network, etc.) — show error and try the next one
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = extractErrorMessage(e, translate);
       const drmMessage = msg.includes('DRM')
         ? translate('playback.drm_protected', { default: 'Cannot play: DRM-protected track' })
         : msg;
@@ -458,7 +459,7 @@ export async function pauseTrack(): Promise<void> {
     }
     await commands.pause();
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
@@ -471,7 +472,7 @@ export async function resumeTrack(): Promise<void> {
     }
     await commands.resume();
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
@@ -481,7 +482,7 @@ export async function nextTrack(): Promise<void> {
   try {
     await commands.next();
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
@@ -491,7 +492,7 @@ export async function previousTrack(): Promise<void> {
   try {
     await commands.previous();
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
@@ -509,7 +510,7 @@ export async function seekTo(position: number): Promise<void> {
       await commands.seek(position);
     }
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
@@ -531,7 +532,7 @@ export async function setVolume(value: number): Promise<void> {
     // Backend expects 0.0-1.0 — scale the 0-100 UI value here at the IPC boundary.
     await commands.setVolume(clamped / 100);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
@@ -554,7 +555,7 @@ export async function toggleShuffle(): Promise<void> {
   try {
     await commands.setShuffle(!enabled);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
@@ -564,7 +565,7 @@ export async function cycleRepeat(): Promise<void> {
   try {
     await commands.cycleRepeat();
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
 }
@@ -574,7 +575,7 @@ export async function removeTrack(trackId: string): Promise<void> {
   try {
     await commands.removeFromQueue(trackId);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Queue Error', message: msg, dismissible: true });
   }
 }
@@ -585,7 +586,7 @@ export async function clearQueue(): Promise<void> {
     await commands.clearQueue();
     notifications.push({ type: 'info', title: 'Queue', message: get(t)('toasts.queue_cleared'), dismissible: true });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Queue Error', message: msg, dismissible: true });
   }
 }
@@ -600,7 +601,7 @@ export async function toggleNormalizeAudio(enabled: boolean): Promise<void> {
     await commands.setPlaybackNormalizeAudio(enabled);
     normalizeAudio.set(enabled);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Settings Error', message: msg, dismissible: true });
   }
 }
@@ -611,7 +612,7 @@ export async function playNext(trackId: string): Promise<void> {
     await commands.playNext(trackId);
     notifications.push({ type: 'info', title: 'Queue', message: get(t)('toasts.play_next_set'), dismissible: true });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Queue Error', message: msg, dismissible: true });
   }
 }

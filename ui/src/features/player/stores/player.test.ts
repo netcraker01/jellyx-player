@@ -73,11 +73,18 @@ vi.mock('@features/favorites/stores/favorites', () => ({
   },
 }));
 
-vi.mock('@i18n', () => ({
-  t: {
-    subscribe: vi.fn(() => () => {}),
-  },
-}));
+const { readable } = await vi.hoisted(() => import('svelte/store'));
+
+vi.mock('@i18n', () => {
+  const translateFn = (key: string, params?: Record<string, string | number>) => {
+    // Return the default value from params if provided, otherwise the key.
+    // Matches the convention used across the codebase's i18n test mocks.
+    if (params?.default) return params.default as string;
+    return key;
+  };
+  const store = readable(translateFn, () => {});
+  return { t: store };
+});
 
 const remoteTrack: Track = {
   id: 'track:yt:1',
@@ -294,5 +301,65 @@ describe('player store > setVolume (0-100 → 0.0-1.0 scaling)', () => {
     const unsub = volume.subscribe((v) => { value = v; });
     expect(value).toBe(42);
     unsub();
+  });
+});
+
+describe('player store > AppError extraction in error notifications', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('playTrack surfaces a structured AppError code+details, not [object Object]', async () => {
+    mocks.playStream.mockRejectedValueOnce({
+      code: 'PLAYBACK_ERROR',
+      details: 'decode: corrupted frame',
+    });
+    // Stub skipToNext's dependency so the auto-advance doesn't throw.
+    const next = (await import('@services/commands')).next;
+    (next as ReturnType<typeof vi.fn>).mockResolvedValueOnce(undefined);
+
+    await playTrack(remoteTrack);
+
+    const call = mocks.push.mock.calls.find(
+      (c) => c[0]?.type === 'error',
+    );
+    expect(call).toBeTruthy();
+    expect(call![0].message).not.toBe('[object Object]');
+    expect(call![0].message).toBe('decode: corrupted frame');
+  });
+
+  it('setVolume surfaces a structured AppError instead of [object Object]', async () => {
+    mocks.setVolumeCmd.mockRejectedValueOnce({
+      code: 'DEVICE_NOT_FOUND',
+      details: 'no output device',
+    });
+
+    await setVolume(50);
+
+    const call = mocks.push.mock.calls[0];
+    expect(call).toBeTruthy();
+    expect(call[0].message).not.toBe('[object Object]');
+    expect(call[0].message).toBe('no output device');
+  });
+
+  it('falls back to a generic message for an unknown AppError code with no details', async () => {
+    mocks.setVolumeCmd.mockRejectedValueOnce({ code: 'UNMAPPED_CODE' });
+
+    await setVolume(50);
+
+    const call = mocks.push.mock.calls[0];
+    expect(call[0].message).not.toBe('[object Object]');
+    expect(call[0].message).not.toBe('errors.UNMAPPED_CODE');
+    expect(call[0].message.length).toBeGreaterThan(0);
+  });
+
+  it('extracts a standard Error instance .message', async () => {
+    mocks.setVolumeCmd.mockRejectedValueOnce(new Error('backend crashed'));
+
+    await setVolume(50);
+
+    const call = mocks.push.mock.calls[0];
+    expect(call[0].message).toBe('backend crashed');
+    expect(call[0].message).not.toBe('[object Object]');
   });
 });
