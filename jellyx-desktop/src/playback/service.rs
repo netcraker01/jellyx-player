@@ -3160,8 +3160,7 @@ mod tests {
         if let Err(ref e) = result {
             let is_device_error = e.code == "DEVICE_NOT_FOUND";
             let is_format_error = e.code == "PLAYBACK_ERROR"
-                && e
-                    .details
+                && e.details
                     .as_deref()
                     .is_some_and(|d| d.contains("unsupported format"));
             assert!(
