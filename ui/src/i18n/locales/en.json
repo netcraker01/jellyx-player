@@ -24,6 +24,12 @@
   "mini_player": {
     "open": "Open mini player"
   },
+  "migration": {
+    "cleanup_title": "Jellyx migration complete",
+    "cleanup_message": "Jellyx imported and verified your Helix data. Remove Helix binaries and registry entries? Your data will be kept.",
+    "remove_helix": "Remove Helix",
+    "keep_helix": "Keep Helix"
+  },
   "home": {
     "recently_played": "Recently Played",
     "recommended": "Recommended for You",
@@ -90,6 +96,10 @@
     "language": "Language",
     "theme": "Theme",
     "audio": "Audio",
+    "privacy": "Privacy",
+    "telemetry": "Share anonymous failure signals",
+    "telemetry_desc": "Off by default. Enable only if you want to help identify reliability problems.",
+    "telemetry_details": "When enabled, Jellyx sends only redacted component identifiers and bounded timing aggregates, and only when the operator has configured a telemetry service. It never sends music, paths, URLs, account data, device identifiers, or raw error details. Turn this off at any time to stop future transmission.",
     "about": "About Jellyx Player",
     "version": "Version",
     "about_description": "Desktop background music player for people who work with music on. Listen to YouTube, SoundCloud and local files without accounts, subscriptions or unnecessary video playback.",
@@ -112,7 +122,14 @@
     "mini_player_skins_desc": "Choose the declarative skin used by the mini player. Skins define layout, colors and window sizing without running scripts.",
     "mini_player_size": "Mini player size",
     "skin_activate": "Activate",
-    "skin_active": "Active"
+    "skin_active": "Active",
+    "diagnostics_title": "Local diagnostics",
+    "diagnostics_desc": "A local, redacted summary for troubleshooting. It is available whether or not telemetry sharing is enabled.",
+    "diagnostics_events_last_hour": "Events in the last hour",
+    "diagnostics_error_rate": "Observed error rate",
+    "diagnostics_unavailable": "Diagnostics are temporarily unavailable.",
+    "diagnostics_refresh": "Refresh diagnostics",
+    "diagnostics_refreshing": "Refreshing…"
   },
   "errors": {
     "NETWORK_TIMEOUT": "Connection timed out. Check your network.",

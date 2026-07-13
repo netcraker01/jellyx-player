@@ -2,21 +2,17 @@
   /**
    * Compact spectrum visualizer for the mini player.
    *
-   * Starts its own FFT channel because the main Visualizer.svelte is not
-   * rendered when the mini-player route is active. Publishes to the shared
-   * frequencyData store so other consumers (e.g. cinematic background) still
-   * receive the same data.
+   * Consumes the shared FFT store. It does not own playback IPC, so
+    * it remains accurate across route and mini-player window changes.
    */
   import { onMount, onDestroy } from 'svelte';
   import { frequencyData } from '@features/player/stores/player';
-  import { createFftChannel } from '@services/events';
   import { renderBars } from '@features/player/visualizers/bars';
   import type { VisualizerTheme } from '@features/player/visualizers/types';
   import type { FrequencyData } from '@shared/types/models';
 
   let canvas: HTMLCanvasElement;
   let rafId: number | null = null;
-  let unlisten: (() => void) | null = null;
 
   // Local reference to frequency data for the rAF loop (avoids reactive churn
   // inside the animation frame — same pattern as the main Visualizer).
@@ -69,11 +65,7 @@
 
   let ro: ResizeObserver | null = null;
 
-  onMount(async () => {
-    unlisten = await createFftChannel((data: FrequencyData) => {
-      frequencyData.set(data);
-    });
-
+  onMount(() => {
     handleResize();
     const frame = (): void => {
       renderFrame();
@@ -91,8 +83,6 @@
   onDestroy(() => {
     if (rafId !== null) cancelAnimationFrame(rafId);
     rafId = null;
-    if (unlisten) unlisten();
-    unlisten = null;
     if (ro) {
       ro.disconnect();
       ro = null;

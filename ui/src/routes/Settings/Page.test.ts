@@ -13,6 +13,9 @@ const mocks = vi.hoisted(() => ({
   getSourceSettings: vi.fn(),
   setSourceEnabled: vi.fn(),
   getAudioSettings: vi.fn(),
+  getTelemetrySettings: vi.fn(),
+  setTelemetryEnabled: vi.fn(),
+  getFailureDiagnostics: vi.fn(),
 }));
 
 vi.mock('@services/commands', () => ({
@@ -20,6 +23,9 @@ vi.mock('@services/commands', () => ({
   getSourceSettings: mocks.getSourceSettings,
   setSourceEnabled: mocks.setSourceEnabled,
   getAudioSettings: mocks.getAudioSettings,
+  getTelemetrySettings: mocks.getTelemetrySettings,
+  setTelemetryEnabled: mocks.setTelemetryEnabled,
+  getFailureDiagnostics: mocks.getFailureDiagnostics,
   setPlaybackNormalizeAudio: vi.fn(),
   setNormalizeAudio: vi.fn(),
 }));
@@ -64,14 +70,23 @@ describe('Settings page', () => {
     mocks.getSourceSettings.mockReset();
     mocks.setSourceEnabled.mockReset();
     mocks.getAudioSettings.mockReset();
+    mocks.getTelemetrySettings.mockReset();
+    mocks.setTelemetryEnabled.mockReset();
+    mocks.getFailureDiagnostics.mockReset();
     mocks.getSourceSettings.mockResolvedValue([]);
     mocks.getAudioSettings.mockResolvedValue({ normalizeAudio: true });
+    mocks.getTelemetrySettings.mockResolvedValue({ enabled: false });
+    mocks.getFailureDiagnostics.mockResolvedValue({ eventsLastHour: 2, errorRatePercent: 1.5, counters: {}, recentEvents: [], operationRates: {}, latency: {}, alerts: [] });
     activateMiniPlayerSkin('ipod-classic');
     setMiniPlayerScale(1);
     translations.set({
       'app.title': 'Jellyx',
       'app.tagline': 'Background music for long work sessions',
       'settings.title': 'Settings',
+      'settings.privacy': 'Privacy',
+      'settings.telemetry': 'Share anonymous failure signals',
+      'settings.telemetry_desc': 'Off by default.',
+      'settings.telemetry_details': 'Turn this off at any time.',
       'settings.language': 'Language',
       'settings.about': 'About Jellyx Player',
       'settings.version': 'Version',
@@ -85,6 +100,13 @@ describe('Settings page', () => {
       'settings.mini_player_size': 'Mini player size',
       'settings.skin_activate': 'Activate',
       'settings.skin_active': 'Active',
+      'settings.diagnostics_title': 'Local diagnostics',
+      'settings.diagnostics_desc': 'A local, redacted summary for troubleshooting.',
+      'settings.diagnostics_events_last_hour': 'Events in the last hour',
+      'settings.diagnostics_error_rate': 'Observed error rate',
+      'settings.diagnostics_unavailable': 'Diagnostics are temporarily unavailable.',
+      'settings.diagnostics_refresh': 'Refresh diagnostics',
+      'settings.diagnostics_refreshing': 'Refreshing…',
       'common.loading': 'Loading...',
       'common.error': 'Error',
     });
@@ -108,6 +130,89 @@ describe('Settings page', () => {
     expect(container.textContent).toContain('About Jellyx Player');
     expect(container.textContent).toContain('Version');
     expect(container.textContent).toContain('Mini player skins');
+  });
+
+  it('persists telemetry only after an explicit user toggle', async () => {
+    mocks.getVersion.mockResolvedValueOnce('0.1.0');
+    render(SettingsPage);
+    const toggle = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Share anonymous failure signals' });
+    expect(toggle.checked).toBe(false);
+    await fireEvent.click(toggle);
+    expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it('shows local diagnostics and refreshes them without telemetry opt-in', async () => {
+    mocks.getVersion.mockResolvedValueOnce('0.1.0');
+    render(SettingsPage);
+    await vi.waitFor(() => expect(screen.getByText('Events in the last hour')).toBeTruthy());
+    expect(screen.getByText('2')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Refresh diagnostics' }));
+    expect(mocks.getFailureDiagnostics).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    { initial: false, stale: false, expected: true, label: 'opt-in' },
+    { initial: true, stale: true, expected: false, label: 'opt-out' },
+  ])('keeps the successful $label toggle when the initial consent read resolves late', async ({ initial, stale, expected }) => {
+    let resolveInitial!: (value: { enabled: boolean }) => void;
+    mocks.getTelemetrySettings.mockImplementationOnce(() => new Promise((resolve) => { resolveInitial = resolve; }));
+    mocks.setTelemetryEnabled.mockResolvedValue(undefined);
+    mocks.getVersion.mockResolvedValueOnce('0.1.0');
+    render(SettingsPage);
+
+    const toggle = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Share anonymous failure signals' });
+    if (initial) {
+      // Establish the initial UI state before the user action in this sequence.
+      resolveInitial({ enabled: initial });
+      await Promise.resolve();
+    }
+    await fireEvent.click(toggle);
+    expect(mocks.setTelemetryEnabled).toHaveBeenCalledWith(expected);
+
+    if (!initial) resolveInitial({ enabled: stale });
+    await Promise.resolve();
+    expect(toggle.checked).toBe(expected);
+  });
+
+  it('serializes rapid telemetry writes so the latest action persists last', async () => {
+    let resolveFirst!: () => void;
+    let resolveSecond!: () => void;
+    mocks.setTelemetryEnabled
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise<void>((resolve) => { resolveSecond = resolve; }));
+    mocks.getVersion.mockResolvedValueOnce('0.1.0');
+    render(SettingsPage);
+
+    const toggle = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Share anonymous failure signals' });
+    await fireEvent.click(toggle);
+    await fireEvent.click(toggle);
+    expect(mocks.setTelemetryEnabled).toHaveBeenCalledTimes(1);
+    expect(mocks.setTelemetryEnabled).toHaveBeenLastCalledWith(true);
+
+    resolveFirst();
+    await vi.waitFor(() => expect(mocks.setTelemetryEnabled).toHaveBeenCalledTimes(2));
+    expect(mocks.setTelemetryEnabled).toHaveBeenLastCalledWith(false);
+    resolveSecond();
+    await Promise.resolve();
+    expect(toggle.checked).toBe(false);
+  });
+
+  it('recovers a queued consent write after the prior write fails', async () => {
+    let rejectFirst!: (error: Error) => void;
+    mocks.setTelemetryEnabled
+      .mockImplementationOnce(() => new Promise<void>((_, reject) => { rejectFirst = reject; }))
+      .mockResolvedValueOnce(undefined);
+    mocks.getVersion.mockResolvedValueOnce('0.1.0');
+    render(SettingsPage);
+
+    const toggle = screen.getByRole<HTMLInputElement>('checkbox', { name: 'Share anonymous failure signals' });
+    await fireEvent.click(toggle);
+    await fireEvent.click(toggle);
+    rejectFirst(new Error('temporary persistence failure'));
+
+    await vi.waitFor(() => expect(mocks.setTelemetryEnabled).toHaveBeenCalledTimes(2));
+    expect(mocks.setTelemetryEnabled).toHaveBeenLastCalledWith(false);
+    await vi.waitFor(() => expect(toggle.checked).toBe(false));
   });
 
   it('activates the Graphite Pocket mini-player skin and updates active state', async () => {

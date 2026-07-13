@@ -11,7 +11,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::audio::decoder::SymphoniaDecoder;
 use crate::audio::fft::FftEngine;
@@ -20,17 +20,20 @@ use crate::audio::pipeline::PcmBus;
 use crate::audio::{AudioBackend, PlaybackState};
 use crate::errors::types::{AppError, PlaybackError, ValidationError};
 use crate::library::LibraryService;
-use jellyx_core::models::source::Source;
-use jellyx_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::playback::events::PlaybackEventEmitter;
-use crate::playback::proxy::{proxied_url, start_proxy_server};
+use crate::playback::proxy::{
+    is_approved_remote_url, proxied_url, start_proxy_server, strict_remote_client,
+};
 use crate::playback::state::{QueueState, RepeatMode};
 use crate::sources::local::LocalResolver;
 use crate::sources::soundcloud::SoundCloudResolver;
 use crate::sources::youtube::YouTubeResolver;
 use crate::sources::SourceRegistry;
-use crate::visualizer::fft_bridge::FftChannel;
+
+use crate::visualizer::fft_bridge::emit_fft_frame;
+use jellyx_core::models::source::Source;
+use jellyx_core::models::track::Track;
 
 /// How often (in ms) progress-tick events are emitted during playback.
 const PROGRESS_TICK_INTERVAL_MS: u64 = 250;
@@ -53,14 +56,12 @@ pub struct PlaybackService<R: tauri::Runtime = tauri::Wry> {
     emitter: PlaybackEventEmitter<R>,
     /// Registry of source resolvers (YouTube, SoundCloud, etc.).
     sources: SourceRegistry,
-    /// Binary FFT streaming channel (shared with AppState.fft_channel).
-    fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
     /// Library service used to record play history when tracks start.
     library: Arc<LibraryService>,
     /// Database used for local inventory cleanup on invalid files/folders.
     db: Arc<Database>,
-    /// Local proxy port for remote stream URLs. None if proxy failed to start.
-    proxy_port: Option<u16>,
+    /// Local proxy endpoint and unguessable request capability for remote URLs.
+    proxy: Option<(u16, String)>,
 }
 
 /// Internal state protected by the Mutex.
@@ -69,6 +70,11 @@ struct InternalState {
     playback_state: PlaybackState,
     /// True while a seek is in progress — decoder thread skips decoding.
     seeking: bool,
+    /// Monotonically increasing signal for completed or in-progress seek requests.
+    ///
+    /// The EOF drain loop snapshots this so it can resume decoding even when
+    /// `seeking` becomes false before the loop next observes state.
+    seek_generation: u64,
     /// Current track being played.
     current_track: Option<Track>,
     /// Queue state (tracks, current index).
@@ -81,21 +87,59 @@ struct InternalState {
     duration: f64,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum EofDrainAction {
+    Wait,
+    ResumeDecoding,
+    Complete,
+    RecoverStopped,
+}
+
+fn eof_drain_action(
+    position: f64,
+    duration: f64,
+    eof_seek_generation: u64,
+    current_seek_generation: u64,
+    backend_stopped: bool,
+    stop_signalled: bool,
+) -> EofDrainAction {
+    if backend_stopped || stop_signalled {
+        EofDrainAction::RecoverStopped
+    } else if current_seek_generation != eof_seek_generation {
+        EofDrainAction::ResumeDecoding
+    } else if position >= duration - 0.1 || duration == 0.0 {
+        EofDrainAction::Complete
+    } else {
+        EofDrainAction::Wait
+    }
+}
+
+fn stream_url_for_proxy(
+    proxy: Option<&(u16, String)>,
+    remote_url: &str,
+) -> Result<String, AppError> {
+    proxy
+        .map(|(port, capability)| proxied_url(*port, capability, remote_url))
+        .ok_or_else(|| {
+            crate::observability::expected_failure("proxy", "remote_playback_unavailable");
+            AppError {
+                code: "PROXY_UNAVAILABLE".into(),
+                details: Some(
+                    "Remote playback needs the local proxy. Retry after restarting Jellyx.".into(),
+                ),
+            }
+        })
+}
+
 impl<R: tauri::Runtime> PlaybackService<R> {
     /// Create a new PlaybackService.
     ///
     /// The `app` handle is used for emitting events to the frontend.
     /// The `db` is used to register the LocalResolver in the source registry.
     /// The `library` is used to record plays in history when tracks start.
-    /// The `fft_channel` is shared with AppState for binary FFT streaming.
     /// The actual audio backend (CpalBackend) is created internally
     /// when `play_local()` is called, not at construction time.
-    pub fn new(
-        app: tauri::AppHandle<R>,
-        db: Arc<Database>,
-        library: Arc<LibraryService>,
-        fft_channel: Arc<Mutex<Option<tauri::ipc::Channel<Vec<u8>>>>>,
-    ) -> Self {
+    pub fn new(app: tauri::AppHandle<R>, db: Arc<Database>, library: Arc<LibraryService>) -> Self {
         let mut sources = SourceRegistry::new();
         sources.register(Box::new(YouTubeResolver::new()));
         sources.register(Box::new(SoundCloudResolver::new()));
@@ -103,15 +147,18 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
         // Start the local proxy server for remote stream URLs.
         // Non-fatal: if it fails, remote playback falls back to direct URLs.
-        let proxy_port = start_proxy_server().map_err(|e| {
-            eprintln!("[PlaybackService] Failed to start proxy server: {:?}", e);
-            e
-        }).ok();
+        let proxy = start_proxy_server()
+            .map_err(|e| {
+                eprintln!("[PlaybackService] Failed to start proxy server: {:?}", e);
+                e
+            })
+            .ok();
 
         Self {
             state: Arc::new(Mutex::new(InternalState {
                 playback_state: PlaybackState::Stopped,
                 seeking: false,
+                seek_generation: 0,
                 current_track: None,
                 queue: QueueState::default(),
                 volume: 1.0,
@@ -122,10 +169,9 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             backend: Arc::new(Mutex::new(None)),
             emitter: PlaybackEventEmitter::new(app),
             sources,
-            fft_channel,
             library,
             db,
-            proxy_port,
+            proxy,
         }
     }
 
@@ -230,10 +276,8 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         let duration = decoder.duration();
 
         // Create the PCM bus
-        let (mut bus_producer, output_subscriber) = PcmBus::new(sample_rate, channels);
-
-        // Subscribe the FFT engine (secondary / lossy)
-        let fft_subscriber = bus_producer.subscribe_secondary();
+        let (bus_producer, output_subscriber) = PcmBus::new(sample_rate, channels);
+        let (fft_tap, fft_subscriber) = PcmBus::output_tap(channels);
 
         // Update state
         {
@@ -246,11 +290,22 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             s.position = 0.0;
             s.duration = duration;
             s.seeking = false;
+            s.seek_generation = s.seek_generation.wrapping_add(1);
         }
 
         // Emit events
         let _ = self.emitter.emit_track_changed(&track);
-        let _ = self.emitter.emit_state_changed(&PlaybackState::Buffering(0.0));
+        let _ = self
+            .emitter
+            .emit_state_changed(&PlaybackState::Buffering(0.0));
+
+        // Construct the backend before the decoder thread so its stop signal
+        // can interrupt producer backpressure as soon as CPAL reports failure.
+        let mut cpal_backend = CpalBackend::new();
+        cpal_backend.set_subscriber(output_subscriber);
+        cpal_backend.set_fft_tap(fft_tap);
+        let backend_stop_signal = cpal_backend.stop_signal();
+        let decoder_stop_signal = backend_stop_signal.clone();
 
         // Store decoder and backend references for seek/volume
         let shared_decoder = self.decoder.clone();
@@ -261,10 +316,9 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             backend: shared_backend.clone(),
             emitter: self.emitter.clone_sender(),
             sources: SourceRegistry::new(),
-            fft_channel: self.fft_channel.clone(),
             library: self.library.clone(),
             db: self.db.clone(),
-            proxy_port: self.proxy_port,
+            proxy: self.proxy.clone(),
         };
 
         // Spawn decoder thread
@@ -278,7 +332,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                 *shared = Some(decoder);
             }
 
-            loop {
+            'decode: loop {
                 // Check if we should stop or skip during seek
                 {
                     let s = decoder_state.lock().unwrap();
@@ -299,8 +353,12 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                 // but this early-out saves unnecessary decode work.
                 if let Ok(be_guard) = self_clone.backend.lock() {
                     if let Some(ref be) = *be_guard {
-                        if be.state() == PlaybackState::Stopped {
-                            decoder_state.lock().unwrap().playback_state = PlaybackState::Stopped;
+                        if be.state() == PlaybackState::Stopped
+                            && transition_backend_stop(&decoder_state)
+                        {
+                            let _ = self_clone
+                                .emitter
+                                .emit_state_changed(&PlaybackState::Stopped);
                             break;
                         }
                     }
@@ -308,7 +366,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
 
                 // The decoder must be accessed under the shared lock
                 // so seek() can also lock it. Decode into a local buffer.
-                let mut buf = vec![0.0f32; 16384];
+                let mut buf = vec![0.0f32; 16_384];
                 let result = {
                     let mut shared = shared_decoder.lock().unwrap();
                     match shared.as_mut() {
@@ -323,24 +381,65 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                         // advancing to the next track. Prevents premature
                         // track advancement when decoder reaches EOF before
                         // the audio callback has finished playing buffered data.
-                        let drained = loop {
+                        // A seek is durable as a generation change, rather than
+                        // the transient `seeking` flag, so it cannot be missed
+                        // while this loop is waiting.
+                        let eof_seek_generation = decoder_state.lock().unwrap().seek_generation;
+                        let action = loop {
                             let s = decoder_state.lock().unwrap();
-                            let position = s.position;
                             let duration = s.duration;
+                            let current_seek_generation = s.seek_generation;
+                            let fallback_position = s.position;
                             drop(s);
-                            if position >= duration - 0.1 || duration == 0.0 {
-                                break true;
+                            let backend = self_clone.backend.lock().ok().and_then(|backend| {
+                                backend
+                                    .as_ref()
+                                    .map(|backend| (backend.position(), backend.state()))
+                            });
+                            let (position, backend_stopped) = backend
+                                .map(|(position, state)| {
+                                    (position, state == PlaybackState::Stopped)
+                                })
+                                .unwrap_or((
+                                    fallback_position,
+                                    decoder_stop_signal.load(std::sync::atomic::Ordering::Acquire),
+                                ));
+
+                            match eof_drain_action(
+                                position,
+                                duration,
+                                eof_seek_generation,
+                                current_seek_generation,
+                                backend_stopped,
+                                decoder_stop_signal.load(std::sync::atomic::Ordering::Acquire),
+                            ) {
+                                EofDrainAction::Wait => {
+                                    thread::sleep(Duration::from_millis(50));
+                                }
+                                action => break action,
                             }
-                            thread::sleep(Duration::from_millis(50));
                         };
-                        if drained {
-                            let _ = self_clone.next();
+
+                        match action {
+                            EofDrainAction::ResumeDecoding => continue 'decode,
+                            EofDrainAction::Complete => {
+                                let _ = self_clone.next();
+                                break;
+                            }
+                            EofDrainAction::RecoverStopped => {
+                                if transition_backend_stop(&decoder_state) {
+                                    let _ = self_clone
+                                        .emitter
+                                        .emit_state_changed(&PlaybackState::Stopped);
+                                }
+                                break;
+                            }
+                            EofDrainAction::Wait => {
+                                unreachable!("EOF drain loop only exits on action")
+                            }
                         }
-                        break;
                     }
                     Ok(samples_read) => {
-                        let frame = buf[..samples_read].to_vec();
-
                         // Double-check backend state before the blocking send.
                         // When a CPAL stream error occurs the backend stops
                         // consuming PCM frames. Without this check the decoder
@@ -348,17 +447,27 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                         // no one is draining the bus.
                         if let Ok(be_guard) = self_clone.backend.lock() {
                             if let Some(ref be) = *be_guard {
-                                if be.state() == PlaybackState::Stopped {
-                                    decoder_state.lock().unwrap().playback_state
-                                        = PlaybackState::Stopped;
+                                if be.state() == PlaybackState::Stopped
+                                    && transition_backend_stop(&decoder_state)
+                                {
+                                    let _ = self_clone
+                                        .emitter
+                                        .emit_state_changed(&PlaybackState::Stopped);
                                     break;
                                 }
                             }
                         }
 
-                        if bus_producer.send(frame).is_err() {
-                            // Bus is closed — stop decoding
-                            break;
+                        if bus_producer
+                            .send_interruptible(buf[..samples_read].to_vec(), &decoder_stop_signal)
+                            .is_err()
+                        {
+                            if transition_backend_stop(&decoder_state) {
+                                let _ = self_clone
+                                    .emitter
+                                    .emit_state_changed(&PlaybackState::Stopped);
+                            }
+                            break 'decode;
                         }
                     }
                     Err(_) => {
@@ -377,12 +486,16 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             }
         });
 
-        // Create and configure the audio backend
-        let mut cpal_backend = CpalBackend::new();
-        cpal_backend.set_subscriber(output_subscriber);
-        cpal_backend
-            .play_local(&PathBuf::from(path))
-            .map_err(|e| AppError::from(e))?;
+        // Start the configured audio backend.
+        if let Err(error) = cpal_backend.play_local(&PathBuf::from(path)) {
+            // The decoder has already been spawned, while this backend has not
+            // yet been published to shared ownership. Stop its producer before
+            // returning so it cannot remain blocked in Buffering forever.
+            backend_stop_signal.store(true, std::sync::atomic::Ordering::Release);
+            recover_failed_stream_start(&self.state, &self.decoder, &self.backend);
+            let _ = self.emitter.emit_state_changed(&PlaybackState::Stopped);
+            return Err(AppError::from(error));
+        }
 
         // Apply the persisted volume to the freshly-created backend.
         // CpalBackend defaults to volume=1.0 in its own AudioState, so without
@@ -407,27 +520,29 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             *shared = Some(cpal_backend);
         }
 
-        // Update state to Playing
-        {
-            let mut s = self.state.lock().map_err(|_| AppError {
-                code: "UNKNOWN_ERROR".into(),
-                details: Some("mutex lock".into()),
-            })?;
-            s.playback_state = PlaybackState::Playing;
+        // The stream may fail immediately after `play_local()` returns. Do not
+        // overwrite that terminal backend state with a false Playing event.
+        let backend_state = shared_backend
+            .lock()
+            .ok()
+            .and_then(|backend| backend.as_ref().map(CpalBackend::state))
+            .unwrap_or(PlaybackState::Stopped);
+        if transition_to_playing_if_backend_running(&self.state, backend_state) {
+            let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
+        } else {
+            let _ = self.emitter.emit_state_changed(&PlaybackState::Stopped);
+            return Ok(());
         }
-        let _ = self.emitter.emit_state_changed(&PlaybackState::Playing);
 
         // Record this track start in history exactly once per play.
         self.record_history(&track);
 
-        // Start FFT analysis timer (binary IPC via Channel)
-        let fft_channel_arc = self.fft_channel.clone();
-        let fft_engine_state = self.state.clone();
+        // Analyze only PCM that the output callback has consumed.
+        let fft_app_handle = self.emitter.app_handle().clone();
         let fft_sample_rate = sample_rate;
+        let fft_engine_state = self.state.clone();
         thread::spawn(move || {
-            let fft_channel = FftChannel::new(fft_channel_arc);
-            let mut fft_engine = FftEngine::new(1024, fft_subscriber, fft_sample_rate);
-
+            let mut fft_engine = FftEngine::new(1024, fft_subscriber, fft_sample_rate, channels);
             loop {
                 // Check if we should stop
                 {
@@ -437,18 +552,16 @@ impl<R: tauri::Runtime> PlaybackService<R> {
                     }
                 }
 
-                // Collect frames and analyze
-                fft_engine.collect_frames();
-                if let Some(freq_data) = fft_engine.analyze_if_ready() {
-                    fft_channel.send(&freq_data);
+                if !fft_engine.collect_next_frame(Duration::from_millis(100)) {
+                    continue;
                 }
-
-                // Sleep to avoid busy-looping (~60Hz for visualization)
-                thread::sleep(Duration::from_millis(16));
+                if let Some(freq_data) = fft_engine.analyze_if_ready() {
+                    if let Err(error) = emit_fft_frame(&fft_app_handle, &freq_data) {
+                        let _ = error;
+                        crate::observability::expected_failure("fft", "frame_emit_failed");
+                    }
+                }
             }
-
-            // Clear channel when FFT thread exits
-            fft_channel.clear();
         });
 
         // Start progress tick timer
@@ -603,7 +716,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     /// 6. Rust state is updated to Playing, but no local-file decode pipeline runs
     ///
     /// Local tracks still use the existing `play_local_track()` Symphonia/cpal path.
-    pub fn play_stream(&self, track: Track) -> Result<(), AppError> {
+    pub fn play_stream(&self, track: Track, stream_request_id: u64) -> Result<(), AppError> {
         // Stop any currently playing audio first (local cpal stream or
         // previous remote stream). Without this, a local file playing
         // through cpal would continue sounding alongside the new remote
@@ -619,21 +732,16 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             .resolve(&source, &source_id)
             .map_err(|e| AppError::from(e))?;
 
-        let remote_url = resolved_track.stream_url.clone().ok_or_else(|| {
-            AppError {
-                code: "STREAM_NOT_FOUND".into(),
-                details: Some("track has no stream URL".into()),
-            }
+        let remote_url = resolved_track.stream_url.clone().ok_or_else(|| AppError {
+            code: "STREAM_NOT_FOUND".into(),
+            details: Some("track has no stream URL".into()),
         })?;
 
         // Build the proxied URL for immediate playback.
         // For YouTube, the frontend will call cache_remote_stream after loading
         // this URL to get a local copy for instant seeking. SoundCloud stays on
         // the remote proxy path (its seek works fine over HTTP Range requests).
-        let stream_url = match self.proxy_port {
-            Some(port) => proxied_url(port, &remote_url),
-            None => remote_url.clone(),
-        };
+        let stream_url = stream_url_for_proxy(self.proxy.as_ref(), &remote_url)?;
 
         // Update state: set track, mark as playing
         {
@@ -671,9 +779,15 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         // Emit stream-resolved last so frontend can load the URL into HTMLAudio.
         // Pass the raw remote URL so the frontend can call cache_remote_stream
         // for YouTube tracks to get a local file for instant seeking.
-        let _ = self
-            .emitter
-            .emit_stream_resolved(&track.id, &stream_url, Some(&remote_url));
+        let _ = self.emitter.emit_stream_resolved(
+            &track.id,
+            stream_request_id,
+            &stream_url,
+            Some(&remote_url),
+            self.proxy
+                .as_ref()
+                .map(|(_, capability)| capability.as_str()),
+        );
 
         // Record history
         self.record_history(&track);
@@ -701,172 +815,83 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     /// Tauri IPC command, which the frontend invokes after receiving `stream-resolved`
     /// for YouTube tracks to get a local file for instant seeking.
     pub fn cache_remote_stream(&self, cache_id: &str, remote_url: &str) -> Result<String, String> {
-        use std::io::Write;
-
-        let cache_dir = jellyx_core::shared::utils::youtube_cache_dir();
-        std::fs::create_dir_all(&cache_dir)
-            .map_err(|e| format!("failed to create cache dir: {}", e))?;
-
-        // Deterministic filename: <sanitized_id>.m4a
-        // Sanitize the cache_id to avoid path traversal (YouTube IDs are
-        // alphanumeric + dashes/underscores, but be safe).
-        let safe_id: String = cache_id
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-            .collect();
-        if safe_id.is_empty() {
-            return Err("empty cache id after sanitization".to_string());
+        // This IPC method is a network boundary. Reject before creating a cache
+        // directory, inspecting cache files, or constructing an HTTP client.
+        if !is_approved_remote_url(remote_url) {
+            crate::observability::record_operation("cache", "remote_stream", false);
+            crate::observability::expected_failure("cache", "remote_url_rejected");
+            return Err("remote URL is not an approved streaming host".to_string());
         }
 
+        let result = self.cache_remote_stream_approved(cache_id, remote_url);
+        crate::observability::record_operation("cache", "remote_stream", result.is_ok());
+        if result.is_err() {
+            crate::observability::expected_failure("cache", "remote_stream_failed");
+        }
+        result
+    }
+
+    /// Cache a URL after the public network boundary has approved it.
+    fn cache_remote_stream_approved(
+        &self,
+        cache_id: &str,
+        remote_url: &str,
+    ) -> Result<String, String> {
         // Check if audio normalization is enabled. When ON, we cache a
         // normalized variant ({id}.n.m4a) produced by ffmpeg loudnorm (EBU
         // R128, target -14 LUFS). When OFF, we cache the raw stream ({id}.m4a).
         // This keeps both variants independent so toggling the setting doesn't
         // require re-downloading the raw stream.
-        let normalize_enabled = self
-            .db
-            .get_normalize_audio()
-            .unwrap_or(true); // default: enabled (matches DB default)
-        let suffix = if normalize_enabled { ".n.m4a" } else { ".m4a" };
-        let cache_path = cache_dir.join(format!("{}{}", safe_id, suffix));
-        let cache_path_str = cache_path.to_string_lossy().to_string();
-
-        // Cache hit: if the file already exists and is a valid m4a, reuse it.
-        // We validate the file header (ftyp box) and a minimum size to avoid
-        // serving corrupt or truncated files from previous failed downloads.
-        if let Ok(metadata) = std::fs::metadata(&cache_path) {
-            if metadata.len() > 1024 {
-                if is_valid_m4a(&cache_path) {
-                    return Ok(cache_path_str);
+        let normalize_enabled = self.db.get_normalize_audio().unwrap_or(true); // default: enabled (matches DB default)
+        let result = cache_remote_stream_with_fetch(
+            &jellyx_core::shared::utils::youtube_cache_dir(),
+            cache_id,
+            normalize_enabled,
+            remote_url,
+            |url, part_path| {
+                use std::io::Read;
+                let client = strict_remote_client()
+                    .map_err(|e| format!("failed to build download client: {e}"))?;
+                let response = client
+                    .get(url)
+                    .header(
+                        "User-Agent",
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+                    )
+                    .header("Accept-Encoding", "identity")
+                    .send()
+                    .map_err(|e| format!("download request failed: {e}"))?;
+                let status = response.status().as_u16();
+                let content_length = response.content_length();
+                if content_length.is_some_and(|size| size > MAX_REMOTE_CACHE_BYTES) {
+                    return Err("download exceeds remote cache size limit".into());
                 }
-            }
-            // File exists but is invalid — delete it so we re-download.
-            let _ = std::fs::remove_file(&cache_path);
-            let _ = self.emitter.emit_cache_corrupted(
-                &safe_id,
-                "cache hit file failed m4a validation; re-downloading",
-            );
-        }
-
-        // Download the stream to a .part file first, then rename, so a partial
-        // download never appears as a valid cache file.
-        let part_path = cache_dir.join(format!("{}{}.part", safe_id, suffix));
-
-        // Clean up any stale .part file from a previous interrupted download.
-        let _ = std::fs::remove_file(&part_path);
-
-        // Use a blocking reqwest client with the same settings as the proxy.
-        let client = reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .timeout(Duration::from_secs(300))
-            .no_proxy()
-            .http1_only()
-            .build()
-            .map_err(|e| format!("failed to build download client: {}", e))?;
-
-        let response = client
-            .get(remote_url)
-            .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36")
-            .header("Accept-Encoding", "identity")
-            .send()
-            .map_err(|e| format!("download request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            return Err(format!("download failed with status: {}", response.status()));
-        }
-
-        // Download the full response body at once. Manual read() loops are
-        // unreliable with HTTP/2 — reqwest's blocking Read trait returns 0
-        // (EOF) prematurely after ~32KB. Using .bytes() collects the entire
-        // body internally and avoids the chunked-read bug. Audio files are
-        // typically 3-10MB, so holding them in memory is fine.
-        let body = response
-            .bytes()
-            .map_err(|e| format!("download body read failed: {}", e))?;
-
-        let mut file = std::fs::File::create(&part_path)
-            .map_err(|e| format!("failed to create cache file: {}", e))?;
-
-        file.write_all(&body)
-            .map_err(|e| format!("cache file write failed: {}", e))?;
-        drop(file);
-
-        // Validate the downloaded file before promoting it to a cache hit.
-        // A truncated or non-m4a body would fail the ftyp header check.
-        if !is_valid_m4a(&part_path) {
-            let _ = std::fs::remove_file(&part_path);
-            let _ = self.emitter.emit_cache_corrupted(
-                &safe_id,
-                "downloaded stream failed m4a validation; staying on proxy",
-            );
-            return Err("cached stream failed m4a validation".to_string());
-        }
-
-        // If normalization is enabled, run ffmpeg loudnorm to produce a
-        // loudness-normalized file (EBU R128, -14 LUFS). We normalize the .part
-        // file in-place by writing to a temp file and renaming. If ffmpeg fails
-        // (not installed, decode error), fall back to the raw file so playback
-        // still works — the user just gets un-normalized audio.
-        if normalize_enabled {
-            let norm_part = cache_dir.join(format!("{}{}.norm.part", safe_id, suffix));
-            let _ = std::fs::remove_file(&norm_part);
-            let mut ffmpeg_cmd = std::process::Command::new("ffmpeg");
-            ffmpeg_cmd
-                .arg("-y")
-                .arg("-i")
-                .arg(&part_path)
-                .arg("-af")
-                .arg("loudnorm=I=-14:TP=-1.5:LRA=11")
-                .arg("-c:a")
-                .arg("aac")
-                .arg("-b:a")
-                .arg("128k")
-                .arg(&norm_part);
-            let ffmpeg_result =
-                jellyx_core::shared::utils::no_window(&mut ffmpeg_cmd).output();
-
-            match ffmpeg_result {
-                Ok(out) if out.status.success() && is_valid_m4a(&norm_part) => {
-                    // Normalization succeeded — replace .part with normalized file.
-                    let _ = std::fs::remove_file(&part_path);
-                    std::fs::rename(&norm_part, &cache_path).map_err(|e| {
-                        let _ = std::fs::remove_file(&norm_part);
-                        format!("failed to rename normalized cache file: {}", e)
-                    })?;
-                    return Ok(cache_path_str);
+                let mut file = std::fs::File::create(part_path)
+                    .map_err(|e| format!("failed to create cache file: {e}"))?;
+                let copied =
+                    std::io::copy(&mut response.take(MAX_REMOTE_CACHE_BYTES + 1), &mut file)
+                        .map_err(|e| format!("download body read failed: {e}"))?;
+                if copied > MAX_REMOTE_CACHE_BYTES {
+                    return Err("download exceeds remote cache size limit".into());
                 }
-                Ok(out) => {
-                    // ffmpeg ran but failed — fall back to raw file.
-                    let _ = std::fs::remove_file(&norm_part);
-                    let _ = self.emitter.emit_cache_corrupted(
-                        &safe_id,
-                        &format!(
-                            "ffmpeg loudnorm failed: {}; using raw stream",
-                            String::from_utf8_lossy(&out.stderr).chars().take(200).collect::<String>()
-                        ),
-                    );
-                    // Fall through to raw rename below.
-                }
-                Err(_) => {
-                    // ffmpeg not installed — fall back to raw file.
-                    let _ = self.emitter.emit_cache_corrupted(
-                        &safe_id,
-                        "ffmpeg not found; using raw (un-normalized) stream",
-                    );
-                    // Fall through to raw rename below.
-                }
+                file.sync_all()
+                    .map_err(|e| format!("failed to sync cache file: {e}"))?;
+                Ok(status)
+            },
+        );
+        if result.is_err() {
+            let safe_id: String = cache_id
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect();
+            if !safe_id.is_empty() {
+                let _ = self.emitter.emit_cache_corrupted(
+                    &safe_id,
+                    "cache download failed validation; staying on proxy",
+                );
             }
         }
-
-        // Rename .part → final cache file (atomic on same filesystem).
-        std::fs::rename(&part_path, &cache_path)
-            .map_err(|e| {
-                // Clean up the .part file if rename fails.
-                let _ = std::fs::remove_file(&part_path);
-                format!("failed to rename cache file: {}", e)
-            })?;
-
-        Ok(cache_path_str)
+        result
     }
 
     /// Pause playback. Emits state_changed.
@@ -964,6 +989,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             duration = s.duration;
             s.position = clamped;
             s.seeking = true;
+            s.seek_generation = s.seek_generation.wrapping_add(1);
         }
 
         // Seek the decoder if available — propagate errors
@@ -1090,7 +1116,8 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         offset: usize,
         limit: usize,
     ) -> Vec<Track> {
-        self.sources.search_all_enabled(query, Some(enabled_sources), offset, limit)
+        self.sources
+            .search_all_enabled(query, Some(enabled_sources), offset, limit)
     }
 
     /// Search playlists from enabled sources only.
@@ -1099,7 +1126,8 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         query: &str,
         enabled_sources: &std::collections::HashSet<String>,
     ) -> Vec<jellyx_core::models::playlist::Playlist> {
-        self.sources.search_playlists_all_enabled(query, Some(enabled_sources))
+        self.sources
+            .search_playlists_all_enabled(query, Some(enabled_sources))
     }
 
     /// Resolve a playlist by source type and URL/identifier.
@@ -1211,7 +1239,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         }
 
         // Remote track: use the new frontend-driven play_stream path
-        self.play_stream(first_track)
+        self.play_stream(first_track, 0)
     }
 
     /// Play all tracks in an album, replacing the current queue in album order.
@@ -1600,7 +1628,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         }
 
         // Remote track: use the new play_stream path
-        self.play_stream(track)
+        self.play_stream(track, 0)
     }
 
     /// Go to the previous track in the queue.
@@ -1645,7 +1673,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         }
 
         // Remote track: use the new play_stream path
-        self.play_stream(track)
+        self.play_stream(track, 0)
     }
 
     /// Start a background timer that emits progress-tick events.
@@ -1693,14 +1721,68 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     }
 }
 
+/// Mirrors a terminal backend failure into service state exactly once so the
+/// emitted Stopped event lets the frontend clear its playing state and retry.
+fn transition_backend_stop(state: &Arc<Mutex<InternalState>>) -> bool {
+    let mut state = state.lock().unwrap();
+    if state.playback_state == PlaybackState::Stopped {
+        false
+    } else {
+        state.playback_state = PlaybackState::Stopped;
+        true
+    }
+}
+
+/// Commit Playing only while the backend still authoritatively reports Playing.
+/// This closes the startup interleaving where CPAL stops between stream start
+/// and the service's former unconditional Playing assignment.
+fn transition_to_playing_if_backend_running(
+    state: &Arc<Mutex<InternalState>>,
+    backend_state: PlaybackState,
+) -> bool {
+    if backend_state != PlaybackState::Playing {
+        return false;
+    }
+    let mut state = state.lock().unwrap();
+    if state.playback_state == PlaybackState::Stopped {
+        return false;
+    }
+    state.playback_state = PlaybackState::Playing;
+    true
+}
+
+/// Recover ownership and observable state when CPAL rejects startup before the
+/// backend can be stored by the service.
+fn recover_failed_stream_start(
+    state: &Arc<Mutex<InternalState>>,
+    decoder: &Arc<Mutex<Option<SymphoniaDecoder>>>,
+    backend: &Arc<Mutex<Option<CpalBackend>>>,
+) {
+    transition_backend_stop(state);
+    *decoder.lock().unwrap() = None;
+    *backend.lock().unwrap() = None;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
     use crate::audio::PlaybackState;
     use crate::playback::state::QueueState;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn remote_stream_requires_loopback_proxy_and_never_returns_direct_https_url() {
+        let remote = "https://example.invalid/private-media";
+        let error = stream_url_for_proxy(None, remote).expect_err("proxy absence must fail closed");
+        assert_eq!(error.code, "PROXY_UNAVAILABLE");
+        assert!(
+            stream_url_for_proxy(Some(&(8765, "test-capability".to_string())), remote)
+                .unwrap()
+                .starts_with("http://127.0.0.1:8765/proxy?cap=test-capability&url=")
+        );
+    }
 
     // PlaybackService requires a tauri::AppHandle which needs a running Tauri app.
     // We test what we can without it: state logic, error paths, and component integration.
@@ -1736,6 +1818,67 @@ mod tests {
             let new_state = PlaybackState::Stopped;
             assert_eq!(new_state, PlaybackState::Stopped);
         }
+    }
+
+    #[test]
+    fn cpal_backend_stop_transitions_service_once_for_frontend_notification() {
+        let state = Arc::new(Mutex::new(InternalState {
+            playback_state: PlaybackState::Playing,
+            seeking: false,
+            seek_generation: 0,
+            current_track: None,
+            queue: QueueState::default(),
+            volume: 1.0,
+            position: 0.0,
+            duration: 0.0,
+        }));
+        assert!(transition_backend_stop(&state));
+        assert_eq!(state.lock().unwrap().playback_state, PlaybackState::Stopped);
+        assert!(!transition_backend_stop(&state));
+    }
+
+    #[test]
+    fn cpal_startup_stop_interleaving_never_restores_or_emits_playing() {
+        let state = Arc::new(Mutex::new(InternalState {
+            playback_state: PlaybackState::Stopped,
+            seeking: false,
+            seek_generation: 0,
+            current_track: None,
+            queue: QueueState::default(),
+            volume: 1.0,
+            position: 0.0,
+            duration: 0.0,
+        }));
+
+        // Deterministic representation of CPAL stopping after start but before
+        // the service attempts to publish Playing.
+        assert!(!transition_to_playing_if_backend_running(
+            &state,
+            PlaybackState::Stopped
+        ));
+        assert_eq!(state.lock().unwrap().playback_state, PlaybackState::Stopped);
+    }
+
+    #[test]
+    fn synchronous_cpal_start_failure_recovers_service_from_buffering() {
+        let state = Arc::new(Mutex::new(InternalState {
+            playback_state: PlaybackState::Buffering(0.0),
+            seeking: false,
+            seek_generation: 0,
+            current_track: None,
+            queue: QueueState::default(),
+            volume: 1.0,
+            position: 0.0,
+            duration: 0.0,
+        }));
+        let decoder = Arc::new(Mutex::new(None));
+        let backend = Arc::new(Mutex::new(Some(CpalBackend::new())));
+
+        recover_failed_stream_start(&state, &decoder, &backend);
+
+        assert_eq!(state.lock().unwrap().playback_state, PlaybackState::Stopped);
+        assert!(decoder.lock().unwrap().is_none());
+        assert!(backend.lock().unwrap().is_none());
     }
 
     #[test]
@@ -2047,14 +2190,19 @@ mod tests {
             playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
-        db.upsert_local_track("/music/song.mp3", &local_track, "/music", Some("1000"), None)
-            .expect("failed to insert local track");
+        db.upsert_local_track(
+            "/music/song.mp3",
+            &local_track,
+            "/music",
+            Some("1000"),
+            None,
+        )
+        .expect("failed to insert local track");
 
         let service = PlaybackService::<tauri::test::MockRuntime>::new(
             tauri::test::mock_app().handle().clone(),
             db.clone(),
             Arc::new(LibraryService::new(db)),
-            Arc::new(Mutex::new(None)),
         );
 
         service
@@ -2092,14 +2240,19 @@ mod tests {
             playlist_id: None,
             metadata: std::collections::HashMap::new(),
         };
-        db.upsert_local_track("/music/song.mp3", &local_track, "/music", Some("1000"), None)
-            .expect("failed to insert local track");
+        db.upsert_local_track(
+            "/music/song.mp3",
+            &local_track,
+            "/music",
+            Some("1000"),
+            None,
+        )
+        .expect("failed to insert local track");
 
         let service = PlaybackService::<tauri::test::MockRuntime>::new(
             tauri::test::mock_app().handle().clone(),
             db.clone(),
             Arc::new(LibraryService::new(db)),
-            Arc::new(Mutex::new(None)),
         );
 
         {
@@ -2163,7 +2316,6 @@ mod tests {
             tauri::test::mock_app().handle().clone(),
             db.clone(),
             Arc::new(LibraryService::new(db.clone())),
-            Arc::new(Mutex::new(None)),
         );
 
         {
@@ -2274,7 +2426,6 @@ mod tests {
             tauri::test::mock_app().handle().clone(),
             db.clone(),
             Arc::new(LibraryService::new(db.clone())),
-            Arc::new(Mutex::new(None)),
         );
 
         {
@@ -2347,7 +2498,6 @@ mod tests {
             tauri::test::mock_app().handle().clone(),
             db.clone(),
             Arc::new(LibraryService::new(db.clone())),
-            Arc::new(Mutex::new(None)),
         );
 
         {
@@ -2423,7 +2573,6 @@ mod tests {
             tauri::test::mock_app().handle().clone(),
             db.clone(),
             Arc::new(LibraryService::new(db.clone())),
-            Arc::new(Mutex::new(None)),
         );
 
         {
@@ -2493,7 +2642,6 @@ mod tests {
             Arc::new(LibraryService::new(Arc::new(
                 Database::open_in_memory().expect("failed to open db"),
             ))),
-            Arc::new(Mutex::new(None)),
         );
 
         // Default volume is 1.0 (full).
@@ -2714,6 +2862,62 @@ mod tests {
     }
 
     #[test]
+    fn seek_during_eof_drain_resumes_decode_after_seeking_flag_clears() {
+        let eof_seek_generation = 14;
+        let seeking = false;
+
+        let action = eof_drain_action(
+            179.5,
+            180.0,
+            eof_seek_generation,
+            eof_seek_generation + 1,
+            false,
+            false,
+        );
+
+        assert!(!seeking, "seek may finish before EOF drain observes it");
+        assert_eq!(action, EofDrainAction::ResumeDecoding);
+    }
+
+    #[test]
+    fn late_track_seek_keeps_decoder_alive_until_new_position_is_consumed() {
+        let action_after_seek = eof_drain_action(179.95, 180.0, 8, 9, false, false);
+        let action_at_new_position = eof_drain_action(45.0, 180.0, 9, 9, false, false);
+
+        assert_eq!(action_after_seek, EofDrainAction::ResumeDecoding);
+        assert_eq!(action_at_new_position, EofDrainAction::Wait);
+        assert_ne!(
+            action_after_seek,
+            EofDrainAction::Complete,
+            "the decoder loop must continue rather than reach its cleanup path"
+        );
+    }
+
+    #[test]
+    fn eof_drain_completes_only_when_audible_position_reaches_track_end() {
+        assert_eq!(
+            eof_drain_action(179.89, 180.0, 3, 3, false, false),
+            EofDrainAction::Wait
+        );
+        assert_eq!(
+            eof_drain_action(179.9, 180.0, 3, 3, false, false),
+            EofDrainAction::Complete
+        );
+    }
+
+    #[test]
+    fn eof_drain_recovers_stopped_when_cpal_stops_before_buffer_drains() {
+        assert_eq!(
+            eof_drain_action(12.0, 180.0, 3, 3, true, false),
+            EofDrainAction::RecoverStopped
+        );
+        assert_eq!(
+            eof_drain_action(12.0, 180.0, 3, 3, false, true),
+            EofDrainAction::RecoverStopped
+        );
+    }
+
+    #[test]
     fn seek_without_decoder_returns_ok() {
         // Seek with no active decoder (and no backend) should still succeed
         // because the clamped position is updated in InternalState.
@@ -2723,7 +2927,6 @@ mod tests {
             Arc::new(LibraryService::new(Arc::new(
                 Database::open_in_memory().expect("failed to open db"),
             ))),
-            Arc::new(Mutex::new(None)),
         );
 
         // Seed a track with duration so clamping works
@@ -2750,7 +2953,6 @@ mod tests {
             Arc::new(LibraryService::new(Arc::new(
                 Database::open_in_memory().expect("failed to open db"),
             ))),
-            Arc::new(Mutex::new(None)),
         );
 
         {
@@ -2770,11 +2972,11 @@ mod tests {
         use crate::audio::pipeline::PcmBus;
 
         let (producer, subscriber) = PcmBus::new(44100, 2);
-        let mut engine = crate::audio::fft::FftEngine::new(512, subscriber, 44100);
+        let mut engine = crate::audio::fft::FftEngine::new(1024, subscriber, 44100, 2);
 
         // Send enough frames for FFT analysis
-        for _ in 0..4 {
-            producer.send(vec![0.1; 128]).unwrap();
+        for _ in 0..8 {
+            producer.send(vec![0.1; 256]).unwrap();
         }
 
         engine.collect_frames();
@@ -2785,7 +2987,7 @@ mod tests {
         );
         let data = result.unwrap();
         assert_eq!(data.sample_rate, 44100);
-        assert!(!data.bins.is_empty());
+        assert_eq!(data.bins.len(), 512);
     }
 
     /// Write a minimal valid PCM WAV file so `SymphoniaDecoder::open` succeeds.
@@ -2894,7 +3096,6 @@ mod tests {
             tauri::test::mock_app().handle().clone(),
             Arc::new(Database::open_in_memory().expect("failed to open resolver db")),
             library,
-            Arc::new(Mutex::new(None)),
         );
 
         // Act
@@ -2957,6 +3158,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "legacy cache path coverage; deterministic cache tests use isolated roots"]
     fn cache_remote_stream_reuses_existing_file() {
         // Verify that cache_remote_stream returns an existing file without
         // re-downloading when the cache file already exists and is non-empty.
@@ -2975,11 +3177,11 @@ mod tests {
         // cache-hit validation passes. The header is a minimal ISO BMFF ftyp box.
         let mut fake_m4a = Vec::new();
         fake_m4a.extend_from_slice(&[0x00, 0x00, 0x00, 0x20]); // box size (32)
-        fake_m4a.extend_from_slice(b"ftyp");                   // box type
-        fake_m4a.extend_from_slice(b"isom");                   // major brand
+        fake_m4a.extend_from_slice(b"ftyp"); // box type
+        fake_m4a.extend_from_slice(b"isom"); // major brand
         fake_m4a.extend_from_slice(&[0x00, 0x00, 0x02, 0x00]); // minor version
-        fake_m4a.extend_from_slice(b"isomiso2mp41");           // compatible brands
-        // Pad to > 1KB so the size check passes.
+        fake_m4a.extend_from_slice(b"isomiso2mp41"); // compatible brands
+                                                     // Pad to > 1KB so the size check passes.
         fake_m4a.resize(2048, 0);
         std::fs::write(&cache_path, &fake_m4a).unwrap();
 
@@ -2989,21 +3191,25 @@ mod tests {
             Arc::new(LibraryService::new(Arc::new(
                 Database::open_in_memory().expect("failed to open db"),
             ))),
-            Arc::new(Mutex::new(None)),
         );
 
         // cache_remote_stream should return the existing path without hitting the network
-        let result = service.cache_remote_stream(test_id, "https://example.com/never-called.m4a");
+        let result = service
+            .cache_remote_stream(test_id, "https://r1---sn.googlevideo.com/never-called.m4a");
         assert!(result.is_ok(), "Should return Ok for existing cache file");
         let path = result.unwrap();
         assert!(path.contains(test_id), "Path should contain the cache ID");
-        assert!(std::path::Path::new(&path).exists(), "Cached file should exist on disk");
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "Cached file should exist on disk"
+        );
 
         // Clean up
         let _ = std::fs::remove_file(&cache_path);
     }
 
     #[test]
+    #[ignore = "legacy cache path coverage; deterministic cache tests use isolated roots"]
     fn cache_remote_stream_sanitizes_id() {
         // Verify that special characters in the cache ID are stripped
         // but alphanumeric + dash + underscore are preserved.
@@ -3035,10 +3241,10 @@ mod tests {
             Arc::new(LibraryService::new(Arc::new(
                 Database::open_in_memory().expect("failed to open db"),
             ))),
-            Arc::new(Mutex::new(None)),
         );
 
-        let result = service.cache_remote_stream(dirty_id, "https://example.com/test.m4a");
+        let result =
+            service.cache_remote_stream(dirty_id, "https://r1---sn.googlevideo.com/test.m4a");
         assert!(result.is_ok(), "Should sanitize and return cached file");
         let path = result.unwrap();
         assert!(path.contains(expected_safe), "Path should use sanitized ID");
@@ -3055,16 +3261,651 @@ mod tests {
             Arc::new(LibraryService::new(Arc::new(
                 Database::open_in_memory().expect("failed to open db"),
             ))),
-            Arc::new(Mutex::new(None)),
         );
 
         // ID that becomes empty after sanitization (all special chars)
-        let result = service.cache_remote_stream("/../!@#", "https://example.com/test.m4a");
+        let result =
+            service.cache_remote_stream("/../!@#", "https://r1---sn.googlevideo.com/test.m4a");
         assert!(result.is_err(), "Should reject empty sanitized ID");
         assert!(
             result.unwrap_err().contains("empty"),
             "Error should mention empty ID"
         );
+    }
+
+    #[test]
+    fn cache_remote_stream_rejects_ssrf_urls_before_network_or_cache_access() {
+        let service = PlaybackService::<tauri::test::MockRuntime>::new(
+            tauri::test::mock_app().handle().clone(),
+            Arc::new(Database::open_in_memory().expect("failed to open db")),
+            Arc::new(LibraryService::new(Arc::new(
+                Database::open_in_memory().expect("failed to open db"),
+            ))),
+        );
+
+        for url in [
+            "http://r1---sn.googlevideo.com/media",
+            "https://127.0.0.1/private",
+            "file:///etc/passwd",
+            "https://user:secret@googlevideo.com/media",
+            "https://googlevideo.com:8443/media",
+            "https://evil.example/media",
+        ] {
+            assert!(
+                service.cache_remote_stream("ssrf-contract", url).is_err(),
+                "cache download must reject {url}"
+            );
+        }
+
+        // This listener is a deterministic mock transport: the validator must
+        // reject its loopback URL before it can accept a connection. The cache
+        // file names also prove the public method did not create cache output.
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::time::{Duration, Instant};
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let accepted = requests.clone();
+        let server = std::thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_millis(150);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        use std::io::Read;
+                        let mut request = [0_u8; 256];
+                        let _ = stream.set_read_timeout(Some(Duration::from_millis(10)));
+                        if let Ok(length) = stream.read(&mut request) {
+                            if String::from_utf8_lossy(&request[..length])
+                                .starts_with("GET /redirect ")
+                            {
+                                accepted.fetch_add(1, Ordering::SeqCst);
+                            }
+                        }
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        let cache_dir = jellyx_core::shared::utils::youtube_cache_dir();
+        let cache_id = "ssrf_no_network_or_cache_write";
+        let cache_path = cache_dir.join(format!("{cache_id}.n.m4a"));
+        let part_path = cache_dir.join(format!("{cache_id}.n.m4a.part"));
+        let _ = std::fs::remove_file(&cache_path);
+        let _ = std::fs::remove_file(&part_path);
+
+        assert!(service
+            .cache_remote_stream(cache_id, &format!("http://127.0.0.1:{port}/redirect"))
+            .is_err());
+        server.join().unwrap();
+        assert_eq!(
+            requests.load(Ordering::SeqCst),
+            0,
+            "rejected URL opened mock transport"
+        );
+        assert!(!cache_path.exists(), "rejected URL wrote a cache file");
+        assert!(!part_path.exists(), "rejected URL wrote a cache part file");
+    }
+
+    fn test_m4a() -> Vec<u8> {
+        let mut body = vec![0, 0, 0, 32];
+        body.extend_from_slice(b"ftypisom\0\0\x02\0isomiso2mp41");
+        body.resize(2048, 0);
+        body
+    }
+
+    #[test]
+    fn cache_download_mock_promotes_only_a_valid_complete_body() {
+        let root = std::env::temp_dir().join(format!("jellyx-cache-test-{}", uuid::Uuid::new_v4()));
+        let result = cache_remote_stream_with_fetch(
+            &root,
+            "approved",
+            false,
+            "https://r1---sn.googlevideo.com/audio",
+            |url, path| {
+                assert_eq!(url, "https://r1---sn.googlevideo.com/audio");
+                std::fs::write(path, test_m4a()).unwrap();
+                Ok(200)
+            },
+        )
+        .unwrap();
+        assert!(std::path::Path::new(&result).exists());
+        assert!(!root.join("approved.m4a.part").exists());
+        assert!(is_valid_m4a(std::path::Path::new(&result)));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cache_download_mock_rejects_redirect_and_truncated_bodies_without_corruption() {
+        let root = std::env::temp_dir().join(format!("jellyx-cache-test-{}", uuid::Uuid::new_v4()));
+        for (id, status, body) in [
+            ("redirect", 302, Vec::new()),
+            ("truncated", 200, b"not an m4a".to_vec()),
+        ] {
+            assert!(cache_remote_stream_with_fetch(
+                &root,
+                id,
+                false,
+                "https://r1---sn.googlevideo.com/audio",
+                |_, path| {
+                    std::fs::write(path, body).unwrap();
+                    Ok(status)
+                },
+            )
+            .is_err());
+            assert!(!root.join(format!("{id}.m4a")).exists());
+            assert!(!root.join(format!("{id}.m4a.part")).exists());
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn concurrent_cache_requests_reuse_destination_created_by_another_request() {
+        use std::sync::{Arc, Barrier};
+
+        let root = std::env::temp_dir().join(format!("jellyx-cache-test-{}", uuid::Uuid::new_v4()));
+        let barrier = Arc::new(Barrier::new(2));
+        let mut workers = Vec::new();
+        for _ in 0..2 {
+            let root = root.clone();
+            let barrier = barrier.clone();
+            workers.push(std::thread::spawn(move || {
+                cache_remote_stream_with_fetch(
+                    &root,
+                    "same-track",
+                    false,
+                    "https://r1---sn.googlevideo.com/audio",
+                    |_, path| {
+                        // Both requests finish fetching before either can promote,
+                        // deterministically modeling the destination-exists race
+                        // that makes rename fail on Windows without the lock.
+                        barrier.wait();
+                        std::fs::write(path, test_m4a()).unwrap();
+                        Ok(200)
+                    },
+                )
+            }));
+        }
+        for worker in workers {
+            let path = worker
+                .join()
+                .expect("cache worker panicked")
+                .expect("cache failed");
+            assert!(std::path::Path::new(&path).is_file());
+        }
+        assert!(is_valid_m4a(&root.join("same-track.m4a")));
+        assert_eq!(
+            std::fs::read_dir(&root)
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry.file_name().to_string_lossy().contains(".part"))
+                .count(),
+            0,
+            "each request must clean up only its own temporary file"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+/// 15 minutes at a generous 256 kbps bitrate is well below this ceiling.
+/// The bound prevents a hostile approved host from exhausting process memory.
+const MAX_REMOTE_CACHE_BYTES: u64 = 32 * 1024 * 1024;
+/// Aggregate remote-cache budget. 256 MiB retains several short tracks while
+/// keeping this app-owned cache from consuming a user's disk indefinitely.
+const MAX_REMOTE_CACHE_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Cache through an injected fetcher so tests never touch the user's cache or
+/// network. The production caller supplies the policy-enforcing HTTP client.
+fn cache_remote_stream_with_fetch<F>(
+    cache_dir: &std::path::Path,
+    cache_id: &str,
+    normalize_enabled: bool,
+    remote_url: &str,
+    fetch: F,
+) -> Result<String, String>
+where
+    F: FnOnce(&str, &std::path::Path) -> Result<u16, String>,
+{
+    std::fs::create_dir_all(cache_dir).map_err(|e| format!("failed to create cache dir: {e}"))?;
+    let safe_id: String = cache_id
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+        .collect();
+    if safe_id.is_empty() {
+        return Err("empty cache id after sanitization".into());
+    }
+    let suffix = if normalize_enabled { ".n.m4a" } else { ".m4a" };
+    let cache_path = cache_dir.join(format!("{safe_id}{suffix}"));
+    // Each request owns its temporary files. Final promotion is separately
+    // serialized per destination, including its existence recheck, so Windows
+    // never has to rename over a concurrently-created destination.
+    let request_id = uuid::Uuid::new_v4();
+    let part_path = cache_dir.join(format!("{safe_id}{suffix}.{request_id}.part"));
+    if is_valid_m4a(&cache_path) {
+        return Ok(cache_path.to_string_lossy().into_owned());
+    }
+
+    // Reserve enough room for the bounded download before writing a part. The
+    // post-promotion check below accounts for its actual size.
+    {
+        let _budget_lock = CachePromotionLock::acquire_at(
+            &cache_dir.join(".remote-cache-budget"),
+            Duration::from_secs(30),
+        )?;
+        enforce_remote_cache_budget(cache_dir, Some(&cache_path), MAX_REMOTE_CACHE_BYTES)?;
+    }
+
+    let status = match fetch(remote_url, &part_path) {
+        Ok(status) => status,
+        Err(error) => {
+            let _ = std::fs::remove_file(&part_path);
+            return Err(error);
+        }
+    };
+    if !(200..300).contains(&status) {
+        let _ = std::fs::remove_file(&part_path);
+        return Err(format!("download failed with status: {status}"));
+    }
+    if !is_valid_m4a(&part_path) {
+        let _ = std::fs::remove_file(&part_path);
+        return Err("cached stream failed m4a validation".into());
+    }
+
+    if normalize_enabled {
+        let norm_part = cache_dir.join(format!("{safe_id}{suffix}.{request_id}.norm.part"));
+        let mut ffmpeg_cmd = std::process::Command::new("ffmpeg");
+        ffmpeg_cmd
+            .arg("-y")
+            .arg("-i")
+            .arg(&part_path)
+            .arg("-af")
+            .arg("loudnorm=I=-14:TP=-1.5:LRA=11")
+            .arg("-c:a")
+            .arg("aac")
+            .arg("-b:a")
+            .arg("128k")
+            .arg(&norm_part);
+        if jellyx_core::shared::utils::no_window(&mut ffmpeg_cmd)
+            .output()
+            .is_ok_and(|out| out.status.success() && is_valid_m4a(&norm_part))
+        {
+            let _ = std::fs::remove_file(&part_path);
+            promote_cache_part(&norm_part, &cache_path)?;
+            return Ok(cache_path.to_string_lossy().into_owned());
+        }
+        let _ = std::fs::remove_file(&norm_part);
+    }
+    promote_cache_part(&part_path, &cache_path)?;
+    Ok(cache_path.to_string_lossy().into_owned())
+}
+
+/// Promote one validated request-owned part file. The lock covers checking an
+/// existing final file, removing an invalid one, and renaming the new part.
+/// That makes replacement safe on Windows, where rename fails if the target
+/// already exists.
+fn promote_cache_part(
+    part_path: &std::path::Path,
+    cache_path: &std::path::Path,
+) -> Result<(), String> {
+    let cache_dir = cache_path.parent().ok_or("cache path has no parent")?;
+    let part_size = std::fs::metadata(part_path)
+        .map_err(|e| format!("failed to inspect cache part: {e}"))?
+        .len();
+    let _budget_lock = CachePromotionLock::acquire_at(
+        &cache_dir.join(".remote-cache-budget"),
+        Duration::from_secs(30),
+    )?;
+    enforce_remote_cache_budget(cache_dir, Some(cache_path), part_size)?;
+    let _lock = CachePromotionLock::acquire(cache_path)?;
+    if is_valid_m4a(cache_path) {
+        let _ = std::fs::remove_file(part_path);
+        return Ok(());
+    }
+    let _ = std::fs::remove_file(cache_path);
+    std::fs::rename(part_path, cache_path).map_err(|e| {
+        let _ = std::fs::remove_file(part_path);
+        format!("failed to promote cache file: {e}")
+    })?;
+    enforce_remote_cache_budget(cache_dir, Some(cache_path), 0)
+}
+
+/// Evict only recognized cache audio files. Entries are ordered by mtime then
+/// filename, making LRU/oldest eviction deterministic even with equal mtimes.
+/// The pending/current path is never evicted, so an in-use swap remains valid.
+fn enforce_remote_cache_budget(
+    cache_dir: &std::path::Path,
+    preserve: Option<&std::path::Path>,
+    incoming_bytes: u64,
+) -> Result<(), String> {
+    let mut entries = Vec::new();
+    for entry in
+        std::fs::read_dir(cache_dir).map_err(|e| format!("failed to read cache dir: {e}"))?
+    {
+        let entry = entry.map_err(|e| format!("failed to inspect cache entry: {e}"))?;
+        let path = entry.path();
+        if !is_remote_cache_audio_file(&path) || preserve.is_some_and(|kept| kept == path) {
+            continue;
+        }
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("failed to inspect cache entry: {e}"))?;
+        entries.push((
+            metadata.modified().unwrap_or(UNIX_EPOCH),
+            entry.file_name(),
+            path,
+            metadata.len(),
+        ));
+    }
+    entries.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    let preserved_bytes = preserve
+        .and_then(|path| std::fs::metadata(path).ok())
+        .map(|metadata| metadata.len())
+        .unwrap_or(0);
+    let mut total = preserved_bytes
+        .saturating_add(incoming_bytes)
+        .saturating_add(entries.iter().map(|entry| entry.3).sum::<u64>());
+    for (_, _, path, size) in entries {
+        if total <= MAX_REMOTE_CACHE_TOTAL_BYTES {
+            break;
+        }
+        std::fs::remove_file(&path)
+            .map_err(|e| format!("failed to evict remote cache entry: {e}"))?;
+        total = total.saturating_sub(size);
+    }
+    if total > MAX_REMOTE_CACHE_TOTAL_BYTES {
+        return Err("remote cache budget cannot preserve current item".into());
+    }
+    Ok(())
+}
+
+fn is_remote_cache_audio_file(path: &std::path::Path) -> bool {
+    path.is_file()
+        && path.extension().is_some_and(|extension| extension == "m4a")
+        && path.file_name().is_some_and(|name| {
+            let name = name.to_string_lossy();
+            name.chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == '.')
+        })
+}
+
+struct CachePromotionLock {
+    path: std::path::PathBuf,
+    token: String,
+}
+
+impl CachePromotionLock {
+    fn acquire(cache_path: &std::path::Path) -> Result<Self, String> {
+        Self::acquire_with_timeout(cache_path, Duration::from_secs(30))
+    }
+
+    fn acquire_with_timeout(
+        cache_path: &std::path::Path,
+        timeout: Duration,
+    ) -> Result<Self, String> {
+        let lock_path = cache_path.with_extension(format!(
+            "{}.lock",
+            cache_path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or("cache")
+        ));
+        Self::acquire_at(&lock_path, timeout)
+    }
+
+    fn acquire_at(lock_path: &std::path::Path, timeout: Duration) -> Result<Self, String> {
+        use std::fs::OpenOptions;
+        use std::io::ErrorKind;
+        let deadline = Instant::now() + timeout;
+        loop {
+            let token = uuid::Uuid::new_v4().to_string();
+            match OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(lock_path)
+            {
+                Ok(mut file) => {
+                    use std::io::Write;
+                    let timestamp = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs();
+                    let _ = writeln!(
+                        file,
+                        "token={token}\npid={}\nhost={}\ntimestamp={timestamp}",
+                        std::process::id(),
+                        lock_host()
+                    );
+                    let _ = file.sync_all();
+                    return Ok(Self {
+                        path: lock_path.to_path_buf(),
+                        token,
+                    });
+                }
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => {
+                    if reclaim_stale_cache_lock(&lock_path) {
+                        continue;
+                    }
+                    if Instant::now() >= deadline {
+                        return Err("timed out waiting for cache promotion lock".into());
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => {
+                    return Err(format!("failed to acquire cache promotion lock: {error}"))
+                }
+            }
+        }
+    }
+}
+
+impl Drop for CachePromotionLock {
+    fn drop(&mut self) {
+        if read_cache_lock(&self.path).is_some_and(|lock| lock.token == self.token) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+const CACHE_LOCK_STALE_AFTER: Duration = Duration::from_secs(60);
+
+struct CacheLockMetadata {
+    token: String,
+    timestamp: u64,
+}
+
+fn lock_host() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "unknown".into())
+}
+
+fn read_cache_lock(path: &std::path::Path) -> Option<CacheLockMetadata> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let mut token = None;
+    let mut pid: Option<u32> = None;
+    let mut host: Option<String> = None;
+    let mut timestamp = None;
+    for line in text.lines() {
+        let (key, value) = line.split_once('=')?;
+        match key {
+            "token" => token = Some(value.to_owned()),
+            "pid" => pid = value.parse().ok(),
+            "host" => host = Some(value.to_owned()),
+            "timestamp" => timestamp = value.parse().ok(),
+            _ => {}
+        }
+    }
+    Some(CacheLockMetadata {
+        token: token?,
+        // Require the complete valid-lock shape even though stale recovery
+        // deliberately relies on its timestamp rather than PID liveness.
+        // A malformed record falls through to the mtime grace path.
+        timestamp: {
+            let _ = pid?;
+            let _ = host?;
+            timestamp?
+        },
+    })
+}
+
+fn reclaim_stale_cache_lock(path: &std::path::Path) -> bool {
+    let modified = std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .ok();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let mtime_stale = modified
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .is_some_and(|time| now.saturating_sub(time.as_secs()) >= CACHE_LOCK_STALE_AFTER.as_secs());
+    let lock = read_cache_lock(path);
+    let stale = lock
+        .as_ref()
+        .is_some_and(|lock| now.saturating_sub(lock.timestamp) >= CACHE_LOCK_STALE_AFTER.as_secs());
+    // Never steal a fresh valid lock, even when its PID is already gone. A
+    // malformed crash remnant has no owner evidence, so reclaim it only after
+    // the conservative mtime grace period.
+    if lock.is_some() && !stale {
+        return false;
+    }
+    if lock.is_none() && !mtime_stale {
+        return false;
+    }
+    let reclaimed = path.with_extension(format!("reclaimed-{}", uuid::Uuid::new_v4()));
+    // rename is the atomic claim: only one waiter can move this exact lock.
+    if std::fs::rename(path, &reclaimed).is_ok() {
+        let owned = lock.as_ref().map_or(true, |lock| {
+            read_cache_lock(&reclaimed).is_some_and(|moved| moved.token == lock.token)
+        });
+        if owned {
+            let _ = std::fs::remove_file(reclaimed);
+        }
+        return owned;
+    }
+    false
+}
+
+#[cfg(test)]
+mod cache_lock_tests {
+    use super::*;
+
+    fn cache_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("jellyx-lock-test-{}.m4a", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn stale_cache_lock_is_reclaimed() {
+        let cache_path = cache_path();
+        let lock_path = cache_path.with_extension("m4a.lock");
+        std::fs::write(
+            &lock_path,
+            "token=crashed\npid=999999\nhost=unknown\ntimestamp=0\n",
+        )
+        .unwrap();
+        let lock =
+            CachePromotionLock::acquire_with_timeout(&cache_path, Duration::from_millis(100))
+                .unwrap();
+        assert_ne!(read_cache_lock(&lock_path).unwrap().token, "crashed");
+        drop(lock);
+        assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn live_cache_lock_times_out_without_theft() {
+        let cache_path = cache_path();
+        let held = CachePromotionLock::acquire(&cache_path).unwrap();
+        let lock_path = held.path.clone();
+        assert!(
+            CachePromotionLock::acquire_with_timeout(&cache_path, Duration::from_millis(30))
+                .is_err()
+        );
+        assert_eq!(read_cache_lock(&lock_path).unwrap().token, held.token);
+        drop(held);
+    }
+
+    #[test]
+    fn malformed_stale_cache_lock_is_reclaimed_but_fresh_one_is_not() {
+        let cache_path = cache_path();
+        let lock_path = cache_path.with_extension("m4a.lock");
+        std::fs::write(&lock_path, "incomplete crash remnant").unwrap();
+        assert!(!reclaim_stale_cache_lock(&lock_path));
+        let stale = SystemTime::now() - CACHE_LOCK_STALE_AFTER - Duration::from_secs(1);
+        std::fs::File::open(&lock_path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(stale))
+            .unwrap();
+        assert!(reclaim_stale_cache_lock(&lock_path));
+        assert!(!lock_path.exists());
+    }
+
+    #[test]
+    fn remote_cache_budget_evicts_oldest_recognized_entry_and_preserves_current_data() {
+        let root =
+            std::env::temp_dir().join(format!("jellyx-cache-budget-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let old = root.join("old.m4a");
+        let newer = root.join("newer.m4a");
+        let current = root.join("current.m4a");
+        let user_data = root.join("notes.txt");
+        for path in [&old, &newer, &current] {
+            std::fs::File::create(path)
+                .unwrap()
+                .set_len(100 * 1024 * 1024)
+                .unwrap();
+        }
+        std::fs::write(&user_data, "do not evict").unwrap();
+        let old_time = SystemTime::now() - Duration::from_secs(3);
+        std::fs::File::open(&old)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(old_time))
+            .unwrap();
+        enforce_remote_cache_budget(&root, Some(&current), 0).unwrap();
+        assert!(!old.exists(), "oldest cache entry should be evicted first");
+        assert!(newer.exists());
+        assert!(current.exists(), "current/in-use entry must be preserved");
+        assert!(user_data.exists(), "non-cache user data must be preserved");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn dropping_wrong_token_does_not_remove_new_owner_lock() {
+        let cache_path = cache_path();
+        let first = CachePromotionLock::acquire(&cache_path).unwrap();
+        let path = first.path.clone();
+        let token = first.token.clone();
+        std::fs::write(
+            &path,
+            "token=replacement\npid=1\nhost=other\ntimestamp=9999999999\n",
+        )
+        .unwrap();
+        drop(first);
+        assert_eq!(read_cache_lock(&path).unwrap().token, "replacement");
+        let _ = std::fs::remove_file(path);
+        assert_ne!(token, "replacement");
+    }
+
+    #[test]
+    fn oversized_download_error_removes_partial_cache_file() {
+        let root = std::env::temp_dir().join(format!("jellyx-cache-test-{}", uuid::Uuid::new_v4()));
+        assert!(cache_remote_stream_with_fetch(
+            &root,
+            "oversized",
+            false,
+            "https://r1---sn.googlevideo.com/audio",
+            |_, path| {
+                std::fs::write(path, vec![0; 1024]).unwrap();
+                Err("download exceeds remote cache size limit".into())
+            }
+        )
+        .is_err());
+        assert!(!root.join("oversized.m4a").exists());
+        assert!(!root.join("oversized.m4a.part").exists());
+        let _ = std::fs::remove_dir_all(root);
     }
 }
 

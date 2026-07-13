@@ -12,6 +12,7 @@ mod audio;
 mod errors;
 mod ipc;
 mod library;
+mod observability;
 mod persistence;
 mod playback;
 mod sources;
@@ -23,7 +24,7 @@ fn main() {
     // when executing Svelte 5's compiled output — the WebKitWebProcess aborts
     // inside libjavascriptcoregtk during microtask execution. Disabling the JIT
     // forces the interpreter, which is stable. This is a WebKitGTK bug, not a
-    // This is a WebKitGTK bug, not a Jellyx code issue (the crash reproduces at a clean repo HEAD).
+    // Jellyx code issue; it reproduces at a clean repository HEAD.
     // Only needed in debug/dev builds; release builds run fine with the JIT.
     #[cfg(all(target_os = "linux", debug_assertions))]
     if std::env::var("JSC_useJIT").is_err() {

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { frequencyData, modoCineActive, visualizerMode, currentTrack } from '../stores/player';
-  import { createFftChannel } from '@services/events';
   import type { FrequencyData } from '@shared/types/models';
   import { resolveVisualizerMode, type VisualizerModeEntry } from '../visualizers/registry';
   import type { VisualizerTheme } from '../visualizers/types';
@@ -10,7 +9,6 @@
   let canvas: HTMLCanvasElement;
   let overlayEl: HTMLDivElement | null = null;
   let rafId: number | null = null;
-  let unlisten: (() => void) | null = null;
 
   // ── Auto-hide overlay chrome ────────────────────────────────────
   /** Whether the overlay chrome (close button + selector) is currently visible.
@@ -92,12 +90,7 @@
   let activeMode: VisualizerModeEntry = resolveVisualizerMode($visualizerMode);
   $: activeMode = resolveVisualizerMode($visualizerMode);
 
-  onMount(async () => {
-    // Subscribe to binary FFT stream via Tauri Channel
-    unlisten = await createFftChannel((data: FrequencyData) => {
-      frequencyData.set(data);
-    });
-
+  onMount(() => {
     // Initial canvas sizing
     handleResize();
 
@@ -196,10 +189,6 @@
     if (rafId !== null) {
       cancelAnimationFrame(rafId);
       rafId = null;
-    }
-    if (unlisten) {
-      unlisten();
-      unlisten = null;
     }
     if (keydownHandler) {
       window.removeEventListener('keydown', keydownHandler);

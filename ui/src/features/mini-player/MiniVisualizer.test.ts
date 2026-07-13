@@ -6,7 +6,7 @@ import type { FrequencyData } from '@shared/types/models';
 import * as events from '@services/events';
 
 vi.mock('@services/events', () => ({
-  createFftChannel: vi.fn().mockResolvedValue(vi.fn()),
+  onFftFrame: vi.fn().mockResolvedValue(vi.fn()),
 }));
 
 describe('MiniVisualizer', () => {
@@ -55,17 +55,12 @@ describe('MiniVisualizer', () => {
     cancelRafSpy.mockRestore();
   });
 
-  it('creates an FFT channel on mount and cleans it up on destroy', async () => {
-    const fftSpy = vi.mocked(events.createFftChannel);
+  it('does not create an FFT listener because player bootstrap owns it', async () => {
+    const fftSpy = vi.mocked(events.onFftFrame);
 
-    const { unmount } = render(MiniVisualizer);
+    render(MiniVisualizer);
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(fftSpy).toHaveBeenCalled();
-
-    const unlistenSpy = await fftSpy.mock.results[0].value;
-    unmount();
-
-    expect(unlistenSpy).toHaveBeenCalled();
+    expect(fftSpy).not.toHaveBeenCalled();
   });
 });

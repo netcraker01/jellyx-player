@@ -14,6 +14,7 @@ import type { Track } from '@shared/types/models';
 const mocks = vi.hoisted(() => ({
   playStream: vi.fn(),
   playLocal: vi.fn(),
+  invalidateStreamRequests: vi.fn(),
   addToQueueWithTrack: vi.fn(),
   playNextWithTrack: vi.fn(),
   push: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@services/commands', () => ({
   playStream: mocks.playStream,
   playLocal: mocks.playLocal,
+  invalidateStreamRequests: mocks.invalidateStreamRequests,
   addToQueueWithTrack: mocks.addToQueueWithTrack,
   playNextWithTrack: mocks.playNextWithTrack,
 }));
@@ -85,6 +87,7 @@ describe('playTrack', () => {
 
     expect(mocks.playLocal).toHaveBeenCalledWith('/music/track.mp3');
     expect(mocks.playStream).not.toHaveBeenCalled();
+    expect(mocks.invalidateStreamRequests).toHaveBeenCalled();
   });
 
   it('prefers playLocal when both streamUrl and localPath are present', async () => {

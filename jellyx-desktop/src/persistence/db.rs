@@ -14,12 +14,20 @@ use std::sync::Mutex;
 use rusqlite::{params, Connection};
 
 use crate::errors::types::PersistenceError;
-use jellyx_core::models::track::Track;
-use crate::persistence::models::{ArtistFavorite, HistoryEntry, LocalTrackEntry, PlaylistTrackEntry, SourceSetting, UserPlaylist, WatchedFolder};
+use crate::persistence::models::{
+    ArtistFavorite, HistoryEntry, LocalTrackEntry, PlaylistTrackEntry, SourceSetting, UserPlaylist,
+    WatchedFolder,
+};
 use crate::updater::prefs::UpdatePrefs;
+use jellyx_core::models::track::Track;
 
 /// Current schema version — increment when adding migrations.
-const SCHEMA_VERSION: u32 = 7;
+const SCHEMA_VERSION: u32 = 8;
+const SCHEMA_VERSION_V6: u32 = 6;
+const SCHEMA_VERSION_V7: u32 = 7;
+const SCHEMA_VERSION_V8: u32 = 8;
+/// Singleton row key for settings tables that intentionally contain one row.
+const SETTINGS_SINGLETON_ID: i64 = 1;
 
 /// Default history query limit.
 const HISTORY_LIMIT: u32 = 100;
@@ -27,7 +35,8 @@ const HISTORY_LIMIT: u32 = 100;
 /// Column list for `user_playlists` SELECT statements, kept in sync with
 /// [`row_to_playlist`]. Used by every playlist-reading query so the column
 /// set is consistent across methods.
-const PLAYLIST_COLUMNS: &str = "id, title, kind, source_folder_path, parent_playlist_id, created_at, updated_at";
+const PLAYLIST_COLUMNS: &str =
+    "id, title, kind, source_folder_path, parent_playlist_id, created_at, updated_at";
 
 /// Map a `user_playlists` row into a [`UserPlaylist`]. Column order MUST match
 /// [`PLAYLIST_COLUMNS`].
@@ -186,13 +195,20 @@ impl Database {
                     value TEXT NOT NULL
                 );
 
-                CREATE TABLE IF NOT EXISTS update_prefs (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                 CREATE TABLE IF NOT EXISTS update_prefs (
+                     -- A singleton row; SETTINGS_SINGLETON_ID is used by Rust queries.
+                     id INTEGER PRIMARY KEY CHECK (id = 1),
                     skipped_version TEXT,
                     remind_later_at TEXT,
                     last_check_at TEXT,
-                    detected_channel TEXT
-                );
+                     detected_channel TEXT
+                 );
+
+                 CREATE TABLE IF NOT EXISTS telemetry_prefs (
+                     -- Explicit opt-in only; absent rows are treated as disabled.
+                     id INTEGER PRIMARY KEY CHECK (id = 1),
+                     enabled INTEGER NOT NULL DEFAULT 0
+                 );
                 ",
         )
         .map_err(|e| {
@@ -239,7 +255,7 @@ impl Database {
             .and_then(|v| v.parse().ok())
             .unwrap_or(0);
 
-        let needs_v6 = current < 6
+        let needs_v6 = current < SCHEMA_VERSION_V6
             || !Self::column_exists(&conn, "local_tracks", "subfolder_path")
             || !Self::column_exists(&conn, "user_playlists", "kind")
             || !Self::column_exists(&conn, "user_playlists", "source_folder_path")
@@ -247,9 +263,10 @@ impl Database {
             || !Self::column_exists(&conn, "artist_favorites", "source")
             || !Self::column_exists(&conn, "artist_favorites", "source_artist_ref");
 
-        let needs_v7 = current < 7 || !Self::table_exists(&conn, "update_prefs");
+        let needs_v7 = current < SCHEMA_VERSION_V7 || !Self::table_exists(&conn, "update_prefs");
+        let needs_v8 = current < SCHEMA_VERSION_V8 || !Self::table_exists(&conn, "telemetry_prefs");
 
-        if current >= SCHEMA_VERSION && !needs_v6 && !needs_v7 {
+        if current >= SCHEMA_VERSION && !needs_v6 && !needs_v7 && !needs_v8 {
             return Ok(());
         }
 
@@ -263,6 +280,11 @@ impl Database {
         // Idempotent: only creates the table if it doesn't already exist.
         if needs_v7 {
             Self::migrate_to_v7(&conn)?;
+        }
+
+        // v7 → v8: persist an explicit, default-off remote telemetry choice.
+        if needs_v8 {
+            Self::migrate_to_v8(&conn)?;
         }
 
         // Record the new schema version.
@@ -288,13 +310,16 @@ impl Database {
         definition: &str,
     ) -> Result<(), PersistenceError> {
         if !Self::column_exists(conn, table, column) {
-            conn.execute(&format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition), [])
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!(
-                        "failed to add column {}.{}: {}",
-                        table, column, e
-                    ))
-                })?;
+            conn.execute(
+                &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition),
+                [],
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to add column {}.{}: {}",
+                    table, column, e
+                ))
+            })?;
         }
         Ok(())
     }
@@ -342,18 +367,8 @@ impl Database {
             "kind",
             "TEXT NOT NULL DEFAULT 'manual'",
         )?;
-        Self::add_column_if_missing(
-            conn,
-            "user_playlists",
-            "source_folder_path",
-            "TEXT",
-        )?;
-        Self::add_column_if_missing(
-            conn,
-            "user_playlists",
-            "parent_playlist_id",
-            "TEXT",
-        )?;
+        Self::add_column_if_missing(conn, "user_playlists", "source_folder_path", "TEXT")?;
+        Self::add_column_if_missing(conn, "user_playlists", "parent_playlist_id", "TEXT")?;
 
         // Backfill existing playlists to kind='manual' (the DEFAULT already
         // covers new rows, but rows created before the column existed get the
@@ -363,7 +378,10 @@ impl Database {
             [],
         )
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to backfill user_playlists.kind: {}", e))
+            PersistenceError::DatabaseError(format!(
+                "failed to backfill user_playlists.kind: {}",
+                e
+            ))
         })?;
 
         // Helpful indexes for folder-as-playlist queries.
@@ -381,7 +399,10 @@ impl Database {
             [],
         )
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create parent_playlist index: {}", e))
+            PersistenceError::DatabaseError(format!(
+                "failed to create parent_playlist index: {}",
+                e
+            ))
         })?;
 
         // artist_favorites rebuild. SQLite cannot change a PRIMARY KEY in
@@ -424,12 +445,7 @@ impl Database {
                 ))
             })?;
         } else {
-            Self::add_column_if_missing(
-                conn,
-                "artist_favorites",
-                "source_artist_ref",
-                "TEXT",
-            )?;
+            Self::add_column_if_missing(conn, "artist_favorites", "source_artist_ref", "TEXT")?;
         }
 
         Ok(())
@@ -456,6 +472,20 @@ impl Database {
         Ok(())
     }
 
+    /// v7 → v8 migration. No row is seeded, so consent is false until the
+    /// user actively enables it in Settings.
+    fn migrate_to_v8(conn: &Connection) -> Result<(), PersistenceError> {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS telemetry_prefs (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                enabled INTEGER NOT NULL DEFAULT 0
+            );",
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to create telemetry_prefs (v8): {}", e))
+        })
+    }
+
     // ── Update Prefs ──────────────────────────────────────────────────
 
     /// Read the persisted updater prefs. Returns `UpdatePrefs::default()`
@@ -467,8 +497,8 @@ impl Database {
 
         let result = conn.query_row(
             "SELECT skipped_version, remind_later_at, last_check_at, detected_channel
-             FROM update_prefs WHERE id = 1",
-            [],
+             FROM update_prefs WHERE id = ?1",
+            params![SETTINGS_SINGLETON_ID],
             |row| {
                 Ok(UpdatePrefs {
                     skipped_version: row.get(0)?,
@@ -498,8 +528,9 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO update_prefs
                 (id, skipped_version, remind_later_at, last_check_at, detected_channel)
-             VALUES (1, ?1, ?2, ?3, ?4)",
+             VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
+                SETTINGS_SINGLETON_ID,
                 prefs.skipped_version,
                 prefs.remind_later_at,
                 prefs.last_check_at,
@@ -510,6 +541,42 @@ impl Database {
             PersistenceError::DatabaseError(format!("failed to save update_prefs: {}", e))
         })?;
 
+        Ok(())
+    }
+
+    /// Returns false unless the user has explicitly persisted consent.
+    pub fn get_telemetry_enabled(&self) -> Result<bool, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+        let enabled = conn.query_row(
+            "SELECT enabled FROM telemetry_prefs WHERE id = ?1",
+            params![SETTINGS_SINGLETON_ID],
+            |row| row.get::<_, i64>(0),
+        );
+        match enabled {
+            Ok(value) => Ok(value != 0),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+            Err(e) => Err(PersistenceError::DatabaseError(format!(
+                "failed to read telemetry preference: {}",
+                e
+            ))),
+        }
+    }
+
+    /// Persist the user's explicit telemetry choice. This is never enabled by
+    /// migration or by a configured DSN.
+    pub fn set_telemetry_enabled(&self, enabled: bool) -> Result<(), PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+        conn.execute(
+            "INSERT OR REPLACE INTO telemetry_prefs (id, enabled) VALUES (?1, ?2)",
+            params![SETTINGS_SINGLETON_ID, i64::from(enabled)],
+        )
+        .map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to save telemetry preference: {}", e))
+        })?;
         Ok(())
     }
 
@@ -1229,7 +1296,11 @@ impl Database {
     }
 
     /// Internal helper: create a manual playlist.
-    fn create_playlist_with_kind(&self, title: &str, kind: &str) -> Result<UserPlaylist, PersistenceError> {
+    fn create_playlist_with_kind(
+        &self,
+        title: &str,
+        kind: &str,
+    ) -> Result<UserPlaylist, PersistenceError> {
         let id = uuid::Uuid::new_v4().to_string();
 
         let conn = self.conn.lock().map_err(|e| {
@@ -1266,13 +1337,14 @@ impl Database {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
 
-        let rows = conn.execute(
-            "UPDATE user_playlists SET title = ?1, updated_at = datetime('now') WHERE id = ?2",
-            params![title, id],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to rename playlist: {}", e))
-        })?;
+        let rows = conn
+            .execute(
+                "UPDATE user_playlists SET title = ?1, updated_at = datetime('now') WHERE id = ?2",
+                params![title, id],
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to rename playlist: {}", e))
+            })?;
 
         if rows == 0 {
             return Err(PersistenceError::DatabaseError(format!(
@@ -1318,10 +1390,7 @@ impl Database {
                 PLAYLIST_COLUMNS
             ))
             .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare playlists query: {}",
-                    e
-                ))
+                PersistenceError::DatabaseError(format!("failed to prepare playlists query: {}", e))
             })?;
 
         let playlists = stmt
@@ -1350,16 +1419,11 @@ impl Database {
             params![id],
             row_to_playlist,
         )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to get playlist: {}", e))
-        })
+        .map_err(|e| PersistenceError::DatabaseError(format!("failed to get playlist: {}", e)))
     }
 
     /// Get recent playlists, ordered by updated_at DESC.
-    pub fn get_recent_playlists(
-        &self,
-        limit: u32,
-    ) -> Result<Vec<UserPlaylist>, PersistenceError> {
+    pub fn get_recent_playlists(&self, limit: u32) -> Result<Vec<UserPlaylist>, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
@@ -1483,10 +1547,7 @@ impl Database {
         let playlists = stmt
             .query_map(params![parent_id], row_to_playlist)
             .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to query child playlists: {}",
-                    e
-                ))
+                PersistenceError::DatabaseError(format!("failed to query child playlists: {}", e))
             })?
             .filter_map(|e| e.ok())
             .collect();
@@ -1554,10 +1615,7 @@ impl Database {
             if e.to_string().contains("FOREIGN KEY") {
                 PersistenceError::DatabaseError(format!("playlist not found: {}", playlist_id))
             } else {
-                PersistenceError::DatabaseError(format!(
-                    "failed to add track to playlist: {}",
-                    e
-                ))
+                PersistenceError::DatabaseError(format!("failed to add track to playlist: {}", e))
             }
         })?;
 
@@ -1589,10 +1647,7 @@ impl Database {
             params![playlist_id],
         )
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to clear playlist tracks: {}",
-                e
-            ))
+            PersistenceError::DatabaseError(format!("failed to clear playlist tracks: {}", e))
         })?;
 
         Ok(())
@@ -1613,10 +1668,7 @@ impl Database {
             params![playlist_id, position],
         )
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to remove track from playlist: {}",
-                e
-            ))
+            PersistenceError::DatabaseError(format!("failed to remove track from playlist: {}", e))
         })?;
 
         // Reindex positions
@@ -1630,10 +1682,7 @@ impl Database {
             params![playlist_id],
         )
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to reindex playlist tracks: {}",
-                e
-            ))
+            PersistenceError::DatabaseError(format!("failed to reindex playlist tracks: {}", e))
         })?;
 
         Ok(())
@@ -1740,10 +1789,7 @@ impl Database {
     }
 
     /// Count tracks in a playlist.
-    pub fn count_playlist_tracks(
-        &self,
-        playlist_id: &str,
-    ) -> Result<u32, PersistenceError> {
+    pub fn count_playlist_tracks(&self, playlist_id: &str) -> Result<u32, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
@@ -1755,10 +1801,7 @@ impl Database {
                 |row| row.get(0),
             )
             .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to count playlist tracks: {}",
-                    e
-                ))
+                PersistenceError::DatabaseError(format!("failed to count playlist tracks: {}", e))
             })?;
 
         Ok(count)
@@ -1811,24 +1854,17 @@ impl Database {
         })?;
 
         match source {
-            Some(src) => {
-                conn.execute(
-                    "DELETE FROM artist_favorites WHERE artist_id = ?1 AND source = ?2",
-                    params![artist_id, src],
-                )
-            }
-            None => {
-                conn.execute(
-                    "DELETE FROM artist_favorites WHERE artist_id = ?1",
-                    params![artist_id],
-                )
-            }
+            Some(src) => conn.execute(
+                "DELETE FROM artist_favorites WHERE artist_id = ?1 AND source = ?2",
+                params![artist_id, src],
+            ),
+            None => conn.execute(
+                "DELETE FROM artist_favorites WHERE artist_id = ?1",
+                params![artist_id],
+            ),
         }
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to remove artist favorite: {}",
-                e
-            ))
+            PersistenceError::DatabaseError(format!("failed to remove artist favorite: {}", e))
         })?;
 
         Ok(())
@@ -1861,10 +1897,7 @@ impl Database {
             ),
         }
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to check artist favorite: {}",
-                e
-            ))
+            PersistenceError::DatabaseError(format!("failed to check artist favorite: {}", e))
         })?;
 
         Ok(count > 0)
@@ -1897,10 +1930,7 @@ impl Database {
                 })
             })
             .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to query artist favorites: {}",
-                    e
-                ))
+                PersistenceError::DatabaseError(format!("failed to query artist favorites: {}", e))
             })?
             .filter_map(|e| e.ok())
             .collect();
@@ -1927,7 +1957,8 @@ impl Database {
             Ok(val) => Ok(val == "1" || val == "true"),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(true), // default: enabled
             Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get normalize_audio: {}", e
+                "failed to get normalize_audio: {}",
+                e
             ))),
         }
     }
@@ -2012,10 +2043,7 @@ impl Database {
                 })
             })
             .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to query source settings: {}",
-                    e
-                ))
+                PersistenceError::DatabaseError(format!("failed to query source settings: {}", e))
             })?
             .filter_map(|e| e.ok())
             .collect();
@@ -2024,11 +2052,7 @@ impl Database {
     }
 
     /// Set whether a source is enabled.
-    pub fn set_source_enabled(
-        &self,
-        source: &str,
-        enabled: bool,
-    ) -> Result<(), PersistenceError> {
+    pub fn set_source_enabled(&self, source: &str, enabled: bool) -> Result<(), PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
@@ -2039,17 +2063,16 @@ impl Database {
             params![source, enabled as i64],
         )
         .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to set source enabled: {}",
-                e
-            ))
+            PersistenceError::DatabaseError(format!("failed to set source enabled: {}", e))
         })?;
 
         Ok(())
     }
 
     /// Get the set of currently enabled source names.
-    pub fn get_enabled_sources(&self) -> Result<std::collections::HashSet<String>, PersistenceError> {
+    pub fn get_enabled_sources(
+        &self,
+    ) -> Result<std::collections::HashSet<String>, PersistenceError> {
         let settings = self.get_source_settings()?;
         Ok(settings
             .into_iter()
@@ -2096,11 +2119,19 @@ mod tests {
     }
 
     #[test]
+    fn telemetry_consent_is_default_off_and_persisted_only_when_selected() {
+        let db = Database::open_in_memory().unwrap();
+        assert!(!db.get_telemetry_enabled().unwrap());
+        db.set_telemetry_enabled(true).unwrap();
+        assert!(db.get_telemetry_enabled().unwrap());
+        db.set_telemetry_enabled(false).unwrap();
+        assert!(!db.get_telemetry_enabled().unwrap());
+    }
+
+    #[test]
     fn repairs_missing_playlist_and_artist_columns_even_when_version_is_current() {
-        let path = std::env::temp_dir().join(format!(
-            "jellyx-schema-repair-{}.db",
-            uuid::Uuid::new_v4()
-        ));
+        let path =
+            std::env::temp_dir().join(format!("jellyx-schema-repair-{}.db", uuid::Uuid::new_v4()));
 
         {
             let conn = Connection::open(&path).unwrap();
@@ -2166,7 +2197,11 @@ mod tests {
         let conn = db.conn.lock().unwrap();
         assert!(Database::column_exists(&conn, "user_playlists", "kind"));
         assert!(Database::column_exists(&conn, "artist_favorites", "source"));
-        assert!(Database::column_exists(&conn, "artist_favorites", "source_artist_ref"));
+        assert!(Database::column_exists(
+            &conn,
+            "artist_favorites",
+            "source_artist_ref"
+        ));
         drop(conn);
 
         let _ = std::fs::remove_file(path);
@@ -2252,7 +2287,11 @@ mod tests {
         .unwrap();
 
         let conn = db.conn.lock().unwrap();
-        assert!(Database::column_exists(&conn, "artist_favorites", "source_artist_ref"));
+        assert!(Database::column_exists(
+            &conn,
+            "artist_favorites",
+            "source_artist_ref"
+        ));
         drop(conn);
 
         let _ = std::fs::remove_file(path);
@@ -2672,7 +2711,10 @@ mod tests {
         let pl = db.create_playlist("Empty").unwrap();
 
         let thumbs = db.get_playlist_thumbnails(&pl.id).unwrap();
-        assert!(thumbs.is_empty(), "Empty playlist should have no thumbnails");
+        assert!(
+            thumbs.is_empty(),
+            "Empty playlist should have no thumbnails"
+        );
     }
 
     #[test]

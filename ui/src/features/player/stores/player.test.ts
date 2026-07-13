@@ -6,20 +6,36 @@
  * at the IPC boundary (fix for local playback clamping to max).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { playTrack, setVolume, volume } from './player';
+import {
+  playTrack,
+  setVolume,
+  volume,
+  shouldAcceptStreamResolution,
+} from './player';
 import { Source } from '@shared/types/models';
-import type { Track } from '@shared/types/models';
+import type { FrequencyData, Track } from '@shared/types/models';
 
 const mocks = vi.hoisted(() => ({
   playStream: vi.fn(),
   playLocal: vi.fn(),
+  isLatestStreamRequest: vi.fn((_requestId: number) => true),
+  invalidateStreamRequests: vi.fn(),
   push: vi.fn(),
   setVolumeCmd: vi.fn(),
+  onFftFrame: vi.fn().mockResolvedValue(() => {}),
+  onTrackChanged: vi.fn().mockResolvedValue(() => {}),
+  onStateChanged: vi.fn().mockResolvedValue(() => {}),
+  onQueueUpdated: vi.fn().mockResolvedValue(() => {}),
+  onProgressTick: vi.fn().mockResolvedValue(() => {}),
+  onBufferingProgress: vi.fn().mockResolvedValue(() => {}),
+  onStreamResolved: vi.fn().mockResolvedValue(() => {}),
 }));
 
 vi.mock('@services/commands', () => ({
   playStream: mocks.playStream,
   playLocal: mocks.playLocal,
+  isLatestStreamRequest: mocks.isLatestStreamRequest,
+  invalidateStreamRequests: mocks.invalidateStreamRequests,
   pause: vi.fn(),
   resume: vi.fn(),
   next: vi.fn(),
@@ -36,10 +52,13 @@ vi.mock('@services/commands', () => ({
 }));
 
 vi.mock('@services/events', () => ({
-  onTrackChanged: vi.fn(),
-  onStateChanged: vi.fn(),
-  onQueueUpdated: vi.fn(),
-  onProgressTick: vi.fn(),
+  onFftFrame: mocks.onFftFrame,
+  onTrackChanged: mocks.onTrackChanged,
+  onStateChanged: mocks.onStateChanged,
+  onQueueUpdated: mocks.onQueueUpdated,
+  onProgressTick: mocks.onProgressTick,
+  onBufferingProgress: mocks.onBufferingProgress,
+  onStreamResolved: mocks.onStreamResolved,
 }));
 
 vi.mock('@shared/stores/notifications', () => ({
@@ -101,6 +120,142 @@ describe('player store > playTrack', () => {
 
     expect(mocks.playLocal).toHaveBeenCalledWith('/music/track.mp3');
     expect(mocks.playStream).not.toHaveBeenCalled();
+    expect(mocks.invalidateStreamRequests).toHaveBeenCalled();
+  });
+});
+
+describe('stream resolution correlation', () => {
+  it('rejects an older same-track resolution after replay', () => {
+    mocks.isLatestStreamRequest.mockImplementation((requestId: number) => requestId === 2);
+    const older = { trackId: remoteTrack.id, streamRequestId: 1, streamUrl: 'http://proxy/old' };
+    const newer = { ...older, streamRequestId: 2, streamUrl: 'http://proxy/new' };
+
+    expect(shouldAcceptStreamResolution(remoteTrack, older)).toBe(false);
+    expect(shouldAcceptStreamResolution(remoteTrack, newer)).toBe(true);
+  });
+});
+
+describe('player event bootstrap FFT ownership', () => {
+  function prepareBootstrapMocks(): void {
+    vi.resetModules();
+    vi.clearAllMocks();
+    mocks.onFftFrame.mockResolvedValue(() => {});
+    mocks.onTrackChanged.mockResolvedValue(() => {});
+    mocks.onStateChanged.mockResolvedValue(() => {});
+    mocks.onQueueUpdated.mockResolvedValue(() => {});
+    mocks.onProgressTick.mockResolvedValue(() => {});
+    mocks.onBufferingProgress.mockResolvedValue(() => {});
+    mocks.onStreamResolved.mockResolvedValue(() => {});
+    mocks.isLatestStreamRequest.mockReturnValue(true);
+  }
+
+  it('starts one local listener at bootstrap, publishes frames without a visualizer, and gates stale sources', async () => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    let onFrame: ((data: { bins: Float32Array; sampleRate: number; peak: number }) => void) | undefined;
+    mocks.onFftFrame.mockImplementation(async (callback) => {
+      onFrame = callback;
+      return vi.fn();
+    });
+
+    const {
+      frequencyData: bootstrapFrequencyData,
+      initPlayerEvents: bootstrapPlayerEvents,
+      publishFftFrame: publishBootstrapFrame,
+      selectFftSource: selectBootstrapSource,
+    } = await import('./player');
+
+    await bootstrapPlayerEvents();
+    await bootstrapPlayerEvents();
+
+    expect(mocks.onFftFrame).toHaveBeenCalledTimes(1);
+    const localFrame = { bins: new Float32Array([0.2]), sampleRate: 44_100, peak: 0.2 };
+    onFrame?.(localFrame);
+
+    let value: FrequencyData | null = null;
+    const unsubscribe = bootstrapFrequencyData.subscribe((frame) => { value = frame; });
+    expect(value).toBe(localFrame);
+
+    selectBootstrapSource('remote');
+    onFrame?.(localFrame);
+    expect(value).toBeNull();
+
+    const remoteFrame = { bins: new Float32Array([0.8]), sampleRate: 44_100, peak: 0.8 };
+    publishBootstrapFrame('remote', remoteFrame);
+    expect(value).toBe(remoteFrame);
+
+    selectBootstrapSource('local');
+    publishBootstrapFrame('remote', remoteFrame);
+    expect(value).toBeNull();
+    unsubscribe();
+  });
+
+  it('retries initialization after the first FFT listener attempt rejects', async () => {
+    prepareBootstrapMocks();
+    mocks.onFftFrame.mockRejectedValueOnce(new Error('FFT unavailable'));
+    const { initPlayerEvents } = await import('./player');
+
+    await expect(initPlayerEvents()).rejects.toThrow('FFT unavailable');
+    await initPlayerEvents();
+
+    expect(mocks.onFftFrame).toHaveBeenCalledTimes(2);
+    expect(mocks.onTrackChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('shares one in-flight initialization across concurrent callers', async () => {
+    prepareBootstrapMocks();
+    let resolveListener!: (unlisten: () => void) => void;
+    mocks.onFftFrame.mockImplementationOnce(() => new Promise((resolve) => { resolveListener = resolve; }));
+    const { initPlayerEvents } = await import('./player');
+
+    const first = initPlayerEvents();
+    const second = initPlayerEvents();
+    await Promise.resolve();
+    expect(mocks.onFftFrame).toHaveBeenCalledTimes(1);
+    resolveListener(() => {});
+    await Promise.all([first, second]);
+
+    expect(mocks.onFftFrame).toHaveBeenCalledTimes(1);
+    expect(mocks.onTrackChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans partial setup before retrying so listeners are not duplicated', async () => {
+    prepareBootstrapMocks();
+    const stopListener = vi.fn();
+    const stopTrackChanged = vi.fn();
+    mocks.onFftFrame.mockResolvedValue(stopListener);
+    mocks.onTrackChanged.mockResolvedValue(stopTrackChanged);
+    mocks.onStateChanged.mockRejectedValueOnce(new Error('state listener unavailable'));
+    const { initPlayerEvents } = await import('./player');
+
+    await expect(initPlayerEvents()).rejects.toThrow('state listener unavailable');
+    await initPlayerEvents();
+
+    expect(stopListener).toHaveBeenCalledTimes(1);
+    expect(stopTrackChanged).toHaveBeenCalledTimes(1);
+    expect(mocks.onFftFrame).toHaveBeenCalledTimes(2);
+    expect(mocks.onTrackChanged).toHaveBeenCalledTimes(2);
+    expect(mocks.onStateChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it('clears isPlaying when the backend propagates Stopped after a stream failure', async () => {
+    prepareBootstrapMocks();
+    let onStateChanged: ((state: string) => void) | undefined;
+    mocks.onStateChanged.mockImplementation(async (callback) => {
+      onStateChanged = callback;
+      return () => {};
+    });
+    const { initPlayerEvents, isPlaying } = await import('./player');
+    await initPlayerEvents();
+
+    onStateChanged?.('Playing');
+    let playing = false;
+    const unsubscribe = isPlaying.subscribe((value) => { playing = value; });
+    expect(playing).toBe(true);
+
+    onStateChanged?.('Stopped');
+    expect(playing).toBe(false);
+    unsubscribe();
   });
 });
 

@@ -11,12 +11,39 @@
     previousTrack,
   } from '@features/player/stores/player';
   import { miniPlayerScale, resolveMiniPlayerSkin, resolveMiniPlayerSkinScale, resolveMiniPlayerWindowSize, selectedMiniPlayerSkinId } from './skins';
+  import { updateMiniWindowSize } from './nativeWindow';
   import MiniVisualizer from './MiniVisualizer.svelte';
 
   $: skin = resolveMiniPlayerSkin($selectedMiniPlayerSkinId);
   $: skinSize = resolveMiniPlayerWindowSize(skin, $miniPlayerScale);
   $: skinScale = resolveMiniPlayerSkinScale(skin, $miniPlayerScale);
   $: progressPct = $progress.duration > 0 ? Math.min(100, Math.max(0, ($progress.position / $progress.duration) * 100)) : 0;
+
+  let latestRequestedSize: typeof skinSize | null = null;
+  let resizeInFlight: Promise<void> | null = null;
+
+  function queueMiniWindowSize(size: typeof skinSize): void {
+    latestRequestedSize = size;
+    if (resizeInFlight) return;
+
+    const drainResizeQueue = async (): Promise<void> => {
+      while (latestRequestedSize) {
+        const requestedSize = latestRequestedSize;
+        latestRequestedSize = null;
+        await updateMiniWindowSize(requestedSize).catch(() => undefined);
+      }
+    };
+
+    resizeInFlight = drainResizeQueue().finally(() => {
+      resizeInFlight = null;
+      if (latestRequestedSize) queueMiniWindowSize(latestRequestedSize);
+    });
+  }
+
+  // Resize the native window whenever scale or skin changes (preserves position).
+  $: if (skinSize) {
+    queueMiniWindowSize(skinSize);
+  }
 
   function formatTime(seconds: number): string {
     if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
@@ -93,7 +120,7 @@
     height: 100vh;
     display: grid;
     place-items: center;
-    background: radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.3), transparent 45%), #111827;
+    background: transparent;
     font-family: Inter, system-ui, sans-serif;
   }
 

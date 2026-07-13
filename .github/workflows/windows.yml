@@ -81,6 +81,22 @@ jobs:
         run: npm ci
         working-directory: ui
 
+      - name: Validate Rust migration and desktop contracts
+        run: cargo test --workspace
+
+      - name: Validate release workflow contracts
+        run: python scripts/test-release-workflow.py
+
+      - name: Validate UI contracts (forbid focused tests)
+        run: npm test && npm run check
+        working-directory: ui
+
+      - name: Install deterministic icon validator dependency
+        run: python -m pip install --disable-pip-version-check -r scripts/requirements-windows-icons.txt
+
+      - name: Validate Windows icon assets
+        run: python scripts/test-windows-icons.py
+
       - name: Install tauri-cli
         run: cargo install tauri-cli --locked --force
 
@@ -100,11 +116,21 @@ jobs:
             }
           }
 
-      # ---- Build both MSI and NSIS in one pass ----
-      # Tauri's bundler can produce both formats in a single invocation.
-      # Using --bundles msi,nsis builds the app once and packages it twice.
-      - name: Build MSI and NSIS
-        run: cargo tauri build --bundles msi,nsis
+      # ---- Build every artifact with its own embedded install channel ----
+      - name: Build MSI
+        env:
+          JELLYX_INSTALL_CHANNEL: windows-msi
+        run: cargo tauri build --bundles msi
+
+      - name: Build NSIS
+        env:
+          JELLYX_INSTALL_CHANNEL: windows-nsis
+        run: cargo tauri build --bundles nsis
+
+      - name: Build portable executable
+        env:
+          JELLYX_INSTALL_CHANNEL: windows-portable
+        run: cargo build --release -p jellyx-desktop
 
       # ---- Locate portable .exe (no installer) ----
       - name: Locate portable exe
@@ -340,7 +366,7 @@ jobs:
           Write-Host "  • MSI  → for winget and managed installs"
           Write-Host "  • NSIS → recommended for direct user installs"
           Write-Host ""
-          Write-Host "For winget manifests, you need:"
+          Write-Host "For a published release, winget manifests need:"
           Write-Host "  1. SHA256:      see .sha256 file in MSI artifact"
           Write-Host "  2. ProductCode: see msi-metadata.txt in MSI artifact"
           Write-Host "  3. UpgradeCode: see msi-metadata.txt in MSI artifact"

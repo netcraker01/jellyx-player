@@ -9,9 +9,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::errors::types::AppError;
-use jellyx_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::persistence::models::{PlaylistTrackEntry, UserPlaylist};
+use jellyx_core::models::track::Track;
 
 /// Fallback artist name when a track has no artist metadata.
 const UNKNOWN_ARTIST: &str = "Unknown Artist";
@@ -62,15 +62,14 @@ impl PlaylistService {
 
     /// Get all child playlists of a parent playlist.
     pub fn get_child_playlists(&self, parent_id: &str) -> Result<Vec<UserPlaylist>, AppError> {
-        self.db.get_child_playlists(parent_id).map_err(AppError::from)
+        self.db
+            .get_child_playlists(parent_id)
+            .map_err(AppError::from)
     }
 
     /// Delete all playlists generated from a watched folder (cascade).
     #[allow(dead_code)]
-    pub fn delete_playlists_by_source_folder(
-        &self,
-        folder_path: &str,
-    ) -> Result<u64, AppError> {
+    pub fn delete_playlists_by_source_folder(&self, folder_path: &str) -> Result<u64, AppError> {
         self.db
             .delete_playlists_by_source_folder(folder_path)
             .map_err(AppError::from)
@@ -116,12 +115,16 @@ impl PlaylistService {
 
     /// Count tracks in a playlist.
     pub fn count_playlist_tracks(&self, playlist_id: &str) -> Result<u32, AppError> {
-        self.db.count_playlist_tracks(playlist_id).map_err(AppError::from)
+        self.db
+            .count_playlist_tracks(playlist_id)
+            .map_err(AppError::from)
     }
 
     /// Get up to 4 thumbnail URLs from a playlist's tracks.
     pub fn get_playlist_thumbnails(&self, playlist_id: &str) -> Result<Vec<String>, AppError> {
-        self.db.get_playlist_thumbnails(playlist_id).map_err(AppError::from)
+        self.db
+            .get_playlist_thumbnails(playlist_id)
+            .map_err(AppError::from)
     }
 
     // ── Artist Playlist Generation ──────────────────────────────────────
@@ -153,7 +156,10 @@ impl PlaylistService {
             } else {
                 trimmed_artist.to_string()
             };
-            by_artist.entry(artist).or_default().push(entry.track.clone());
+            by_artist
+                .entry(artist)
+                .or_default()
+                .push(entry.track.clone());
         }
 
         // Load existing playlists once and index their IDs by title for O(1) lookup.
@@ -184,8 +190,10 @@ impl PlaylistService {
             // Fetch the tracks already in this playlist so we only append the
             // missing ones. This keeps re-runs cheap and avoids duplicates.
             let existing_tracks = self.db.get_playlist_tracks(&playlist.id)?;
-            let existing_ids: HashSet<&str> =
-                existing_tracks.iter().map(|e| e.track.id.as_str()).collect();
+            let existing_ids: HashSet<&str> = existing_tracks
+                .iter()
+                .map(|e| e.track.id.as_str())
+                .collect();
 
             let mut added_any = false;
             for track in tracks {
@@ -264,20 +272,20 @@ impl PlaylistService {
             .unwrap_or_else(|| watched_folder_path.to_string());
 
         // Look up any existing folder playlists for this watched folder.
-        let existing = self.db.get_playlists_by_source_folder(watched_folder_path)?;
-        let parent_playlist: UserPlaylist = if let Some(parent) = existing
-            .iter()
-            .find(|p| p.parent_playlist_id.is_none())
-        {
-            parent.clone()
-        } else {
-            self.db.create_folder_playlist(
-                &parent_name,
-                "folder",
-                Some(watched_folder_path),
-                None,
-            )?
-        };
+        let existing = self
+            .db
+            .get_playlists_by_source_folder(watched_folder_path)?;
+        let parent_playlist: UserPlaylist =
+            if let Some(parent) = existing.iter().find(|p| p.parent_playlist_id.is_none()) {
+                parent.clone()
+            } else {
+                self.db.create_folder_playlist(
+                    &parent_name,
+                    "folder",
+                    Some(watched_folder_path),
+                    None,
+                )?
+            };
 
         // Index existing children by title so we can reuse them idempotently.
         let existing_children_by_title: HashMap<String, UserPlaylist> = existing
@@ -419,13 +427,7 @@ impl PlaylistService {
         artist_name: &str,
         thumbnail: Option<&str>,
     ) -> Result<(), AppError> {
-        self.add_artist_favorite_with_source(
-            artist_id,
-            "local",
-            artist_name,
-            thumbnail,
-            None,
-        )
+        self.add_artist_favorite_with_source(artist_id, "local", artist_name, thumbnail, None)
     }
 
     /// Add an artist to favorites with an explicit source dimension.
@@ -442,13 +444,7 @@ impl PlaylistService {
         source_artist_ref: Option<&str>,
     ) -> Result<(), AppError> {
         self.db
-            .add_artist_favorite(
-                artist_id,
-                source,
-                artist_name,
-                thumbnail,
-                source_artist_ref,
-            )
+            .add_artist_favorite(artist_id, source, artist_name, thumbnail, source_artist_ref)
             .map_err(AppError::from)
     }
 
@@ -485,17 +481,15 @@ impl PlaylistService {
     pub fn get_all_artist_favorites(
         &self,
     ) -> Result<Vec<crate::persistence::models::ArtistFavorite>, AppError> {
-        self.db
-            .get_all_artist_favorites()
-            .map_err(AppError::from)
+        self.db.get_all_artist_favorites().map_err(AppError::from)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jellyx_core::models::source::Source;
     use crate::persistence::db::Database;
+    use jellyx_core::models::source::Source;
     use std::collections::HashMap;
 
     /// Build a local Track with the given id, artist, and file path.
@@ -531,14 +525,8 @@ mod tests {
         folder: &str,
         subfolder: &str,
     ) {
-        db.upsert_local_track(
-            file_path,
-            track,
-            folder,
-            Some("1000"),
-            Some(subfolder),
-        )
-        .unwrap();
+        db.upsert_local_track(file_path, track, folder, Some("1000"), Some(subfolder))
+            .unwrap();
     }
 
     #[test]
@@ -546,10 +534,30 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
 
-        seed_local_track(&db, &local_track("t1", "Daft Punk", "/music/a.mp3"), "/music/a.mp3", "/music");
-        seed_local_track(&db, &local_track("t2", "Daft Punk", "/music/b.mp3"), "/music/b.mp3", "/music");
-        seed_local_track(&db, &local_track("t3", "Queen", "/music/c.mp3"), "/music/c.mp3", "/music");
-        seed_local_track(&db, &local_track("t4", "Queen", "/music/d.mp3"), "/music/d.mp3", "/music");
+        seed_local_track(
+            &db,
+            &local_track("t1", "Daft Punk", "/music/a.mp3"),
+            "/music/a.mp3",
+            "/music",
+        );
+        seed_local_track(
+            &db,
+            &local_track("t2", "Daft Punk", "/music/b.mp3"),
+            "/music/b.mp3",
+            "/music",
+        );
+        seed_local_track(
+            &db,
+            &local_track("t3", "Queen", "/music/c.mp3"),
+            "/music/c.mp3",
+            "/music",
+        );
+        seed_local_track(
+            &db,
+            &local_track("t4", "Queen", "/music/d.mp3"),
+            "/music/d.mp3",
+            "/music",
+        );
 
         let svc = PlaylistService::new(Arc::new(db));
         let created = svc.generate_artist_playlists().unwrap();
@@ -578,8 +586,18 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
 
-        seed_local_track(&db, &local_track("t1", "Daft Punk", "/music/a.mp3"), "/music/a.mp3", "/music");
-        seed_local_track(&db, &local_track("t2", "Queen", "/music/c.mp3"), "/music/c.mp3", "/music");
+        seed_local_track(
+            &db,
+            &local_track("t1", "Daft Punk", "/music/a.mp3"),
+            "/music/a.mp3",
+            "/music",
+        );
+        seed_local_track(
+            &db,
+            &local_track("t2", "Queen", "/music/c.mp3"),
+            "/music/c.mp3",
+            "/music",
+        );
 
         let svc = PlaylistService::new(Arc::new(db));
 
@@ -589,7 +607,11 @@ mod tests {
 
         // Second run: no new tracks, so nothing should be touched.
         let second = svc.generate_artist_playlists().unwrap();
-        assert_eq!(second.len(), 0, "idempotent re-run should not create or modify playlists");
+        assert_eq!(
+            second.len(),
+            0,
+            "idempotent re-run should not create or modify playlists"
+        );
 
         // Total playlist count stays at 2.
         let all = svc.get_all_playlists().unwrap();
@@ -601,21 +623,40 @@ mod tests {
         let db = Arc::new(Database::open_in_memory().unwrap());
         db.insert_watched_folder("/music").unwrap();
 
-        seed_local_track(&db, &local_track("t1", "Daft Punk", "/music/a.mp3"), "/music/a.mp3", "/music");
+        seed_local_track(
+            &db,
+            &local_track("t1", "Daft Punk", "/music/a.mp3"),
+            "/music/a.mp3",
+            "/music",
+        );
 
         let svc = PlaylistService::new(db.clone());
         let first = svc.generate_artist_playlists().unwrap();
         assert_eq!(first.len(), 1);
 
         // Add a new Daft Punk track after the first generation.
-        seed_local_track(&db, &local_track("t2", "Daft Punk", "/music/b.mp3"), "/music/b.mp3", "/music");
+        seed_local_track(
+            &db,
+            &local_track("t2", "Daft Punk", "/music/b.mp3"),
+            "/music/b.mp3",
+            "/music",
+        );
 
         // Re-run: the existing Daft Punk playlist should be reused and the new
         // track appended. The playlist should be reported as touched.
         let second = svc.generate_artist_playlists().unwrap();
-        assert_eq!(second.len(), 1, "existing playlist with new tracks should be touched");
+        assert_eq!(
+            second.len(),
+            1,
+            "existing playlist with new tracks should be touched"
+        );
 
-        let pl = svc.get_all_playlists().unwrap().into_iter().find(|p| p.title == "Daft Punk").unwrap();
+        let pl = svc
+            .get_all_playlists()
+            .unwrap()
+            .into_iter()
+            .find(|p| p.title == "Daft Punk")
+            .unwrap();
         let tracks = svc.get_playlist_tracks(&pl.id).unwrap();
         assert_eq!(tracks.len(), 2, "both tracks should now be in the playlist");
     }
@@ -626,7 +667,10 @@ mod tests {
         let svc = PlaylistService::new(Arc::new(db));
 
         let created = svc.generate_artist_playlists().unwrap();
-        assert!(created.is_empty(), "empty local library should produce no playlists");
+        assert!(
+            created.is_empty(),
+            "empty local library should produce no playlists"
+        );
     }
 
     #[test]
@@ -635,11 +679,26 @@ mod tests {
         db.insert_watched_folder("/music").unwrap();
 
         // Track with empty artist string → should become "Unknown Artist".
-        seed_local_track(&db, &local_track("t1", "", "/music/a.mp3"), "/music/a.mp3", "/music");
+        seed_local_track(
+            &db,
+            &local_track("t1", "", "/music/a.mp3"),
+            "/music/a.mp3",
+            "/music",
+        );
         // Track with whitespace-only artist → also "Unknown Artist".
-        seed_local_track(&db, &local_track("t2", "   ", "/music/b.mp3"), "/music/b.mp3", "/music");
+        seed_local_track(
+            &db,
+            &local_track("t2", "   ", "/music/b.mp3"),
+            "/music/b.mp3",
+            "/music",
+        );
         // A normal artist.
-        seed_local_track(&db, &local_track("t3", "Queen", "/music/c.mp3"), "/music/c.mp3", "/music");
+        seed_local_track(
+            &db,
+            &local_track("t3", "Queen", "/music/c.mp3"),
+            "/music/c.mp3",
+            "/music",
+        );
 
         let svc = PlaylistService::new(Arc::new(db));
         let created = svc.generate_artist_playlists().unwrap();
@@ -651,7 +710,10 @@ mod tests {
         assert!(titles.contains(&"Queen".to_string()));
 
         // Unknown Artist playlist should have 2 tracks.
-        let unknown = created.iter().find(|p| p.title == "Unknown Artist").unwrap();
+        let unknown = created
+            .iter()
+            .find(|p| p.title == "Unknown Artist")
+            .unwrap();
         let tracks = svc.get_playlist_tracks(&unknown.id).unwrap();
         assert_eq!(tracks.len(), 2);
     }
@@ -713,7 +775,10 @@ mod tests {
             .collect();
         assert_eq!(children.len(), 2, "should have 2 children");
         for child in &children {
-            assert_eq!(child.parent_playlist_id.as_deref(), Some(parent.id.as_str()));
+            assert_eq!(
+                child.parent_playlist_id.as_deref(),
+                Some(parent.id.as_str())
+            );
             assert_eq!(child.kind, "folder");
             assert_eq!(child.source_folder_path.as_deref(), Some("/music/Rock"));
         }
@@ -758,7 +823,11 @@ mod tests {
         let created = svc.generate_folder_playlists("/music/Singles").unwrap();
 
         // Only the parent, no children.
-        assert_eq!(created.len(), 1, "should create only parent with no subfolders");
+        assert_eq!(
+            created.len(),
+            1,
+            "should create only parent with no subfolders"
+        );
         assert_eq!(created[0].title, "Singles");
         assert_eq!(created[0].kind, "folder");
 
@@ -841,7 +910,10 @@ mod tests {
         db.insert_watched_folder("/music/Empty").unwrap();
         let svc = PlaylistService::new(db);
         let created = svc.generate_folder_playlists("/music/Empty").unwrap();
-        assert!(created.is_empty(), "empty folder should produce no playlists");
+        assert!(
+            created.is_empty(),
+            "empty folder should produce no playlists"
+        );
     }
 
     // ── Synchronization tests: folder playlists track scanner state ──
@@ -924,7 +996,10 @@ mod tests {
             .expect("child should exist");
         let tracks = svc.get_playlist_tracks(&child.id).unwrap();
         assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].track.local_path.as_deref(), Some("/music/Rock/Album1/old.mp3"));
+        assert_eq!(
+            tracks[0].track.local_path.as_deref(),
+            Some("/music/Rock/Album1/old.mp3")
+        );
 
         // Simulate a rename: scanner deletes the old row and upserts the new one.
         db.delete_local_track_by_path("/music/Rock/Album1/old.mp3")
@@ -965,8 +1040,11 @@ mod tests {
 
         // User creates a manual playlist and adds a track to it.
         let manual = svc.create_playlist("My Mix").unwrap();
-        svc.add_track_to_playlist(&manual.id, &local_track("m1", "Queen", "/music/Rock/Album1/a1.mp3"))
-            .unwrap();
+        svc.add_track_to_playlist(
+            &manual.id,
+            &local_track("m1", "Queen", "/music/Rock/Album1/a1.mp3"),
+        )
+        .unwrap();
 
         let _ = svc.generate_folder_playlists("/music/Rock").unwrap();
 
@@ -1153,7 +1231,11 @@ mod tests {
         .unwrap();
 
         let all = db.get_all_artist_favorites().unwrap();
-        assert_eq!(all.len(), 1, "same (artist_id, source) should not duplicate");
+        assert_eq!(
+            all.len(),
+            1,
+            "same (artist_id, source) should not duplicate"
+        );
         assert_eq!(all[0].thumbnail.as_deref(), Some("thumb-a"));
         assert_eq!(all[0].artist_name, "Daft Punk");
     }

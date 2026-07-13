@@ -7,10 +7,10 @@
 use std::sync::Arc;
 
 use crate::errors::types::SourceError;
-use jellyx_core::models::source::Source;
-use jellyx_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::sources::SourceResolver;
+use jellyx_core::models::source::Source;
+use jellyx_core::models::track::Track;
 
 /// Resolver for local file tracks stored in the SQLite database.
 pub struct LocalResolver {
@@ -29,7 +29,12 @@ impl SourceResolver for LocalResolver {
         Source::Local
     }
 
-    fn search(&self, query: &str, _offset: usize, _limit: usize) -> Result<Vec<Track>, SourceError> {
+    fn search(
+        &self,
+        query: &str,
+        _offset: usize,
+        _limit: usize,
+    ) -> Result<Vec<Track>, SourceError> {
         self.db
             .search_local_tracks(query)
             .map_err(|e| SourceError::NetworkError(format!("local search failed: {:?}", e)))

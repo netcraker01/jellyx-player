@@ -1,0 +1,55 @@
+name: Release Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published tag to revoke from updater visibility (for example v0.4.1)
+        required: true
+        type: string
+      confirmation:
+        description: Type REVOKE_PUBLIC_RELEASE to mark the release as a draft
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-confirmation:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Reject an incorrect confirmation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          test "$CONFIRMATION" = "REVOKE_PUBLIC_RELEASE" || {
+            echo "Confirmation must be REVOKE_PUBLIC_RELEASE" >&2
+            exit 1
+          }
+
+  revoke-updater-visibility:
+    needs: validate-confirmation
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Mark the published release as a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' | grep -qx false
+          gh release edit "$RELEASE_TAG" --draft
+
+      - name: Confirm updater visibility is revoked
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          test "$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')" = true
+
+# This workflow never deletes a release or assets. Deletion requires an explicit
+# maintainer command after incident review; see docs/operations.md.

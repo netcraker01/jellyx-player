@@ -36,7 +36,7 @@ vi.mock('@features/player/stores/player', () => ({
 }));
 
 vi.mock('@services/events', () => ({
-  createFftChannel: vi.fn().mockResolvedValue(() => {}),
+  onFftFrame: vi.fn().mockResolvedValue(() => {}),
 }));
 
 vi.mock('@shared/utils/assetUrl', () => ({

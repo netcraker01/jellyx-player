@@ -8,6 +8,7 @@ pub mod audio;
 pub mod errors;
 pub mod ipc;
 pub mod library;
+pub mod observability;
 pub mod persistence;
 pub mod playback;
 pub mod sources;

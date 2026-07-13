@@ -7,23 +7,27 @@ import * as commands from '@services/commands';
 import { notifications } from '@shared/stores/notifications';
 import { t } from '@i18n';
 import { stopRemote } from '@features/player/stores/remotePlayer';
+import { prepareLocalFft, selectFftSource } from '@features/player/stores/player';
 import type { Track } from '@shared/types/models';
 
 /** Play a track, dispatching to the correct backend command by source. */
 export async function playTrack(track: Track): Promise<void> {
   try {
     if (track.localPath) {
+      commands.invalidateStreamRequests();
       // Stop any active remote (browser) playback before starting local.
       // The Rust stop() inside play_local_track emits 'Stopped' which
       // triggers stopRemote() in the frontend, but the state changes to
       // 'Buffering' so fast that the 'Stopped' event can be missed,
       // leaving the browser audio element playing alongside cpal.
       stopRemote();
+      await prepareLocalFft();
       await commands.playLocal(track.localPath);
     } else {
       // Remote track (YouTube, SoundCloud) — use playStream for HTTP streaming.
       // playStream calls stop() on the Rust side which drops any active
       // cpal stream, and stopRemote() handles the browser audio element.
+      selectFftSource('remote');
       await commands.playStream(track);
     }
   } catch (e) {

@@ -1,15 +1,21 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { t, locale, switchLocale } from '@i18n';
-  import { getVersion, getSourceSettings, setSourceEnabled, getAudioSettings } from '@services/commands';
-  import type { SourceSetting } from '@services/commands';
+  import { getVersion, getSourceSettings, setSourceEnabled, getAudioSettings, getTelemetrySettings, setTelemetryEnabled, getFailureDiagnostics } from '@services/commands';
+  import type { SourceSetting, FailureDiagnostics } from '@services/commands';
   import { normalizeAudio, toggleNormalizeAudio, cinematicMode, toggleCinematicMode, cinematicIntensity, setCinematicIntensity } from '@features/player/stores/player';
-  import { Library, Languages, Plug, Volume2, Monitor, Github, ExternalLink, Palette } from 'lucide-svelte';
+  import { Library, Languages, Plug, Volume2, Monitor, Github, ExternalLink, Palette, Activity } from 'lucide-svelte';
   import { MINI_PLAYER_SCALE_BOUNDS, MINI_PLAYER_SKINS, activateMiniPlayerSkin, miniPlayerScale, selectedMiniPlayerSkinId, setMiniPlayerScale } from '@features/mini-player/skins';
 
   let version = '';
   let versionError: string | null = null;
   let sourceSettings: SourceSetting[] = [];
+  let telemetryEnabled = false;
+  let telemetryRevision = 0;
+  let telemetryWrite = Promise.resolve();
+  let diagnostics: FailureDiagnostics | null = null;
+  let diagnosticsLoading = false;
+  let diagnosticsError = false;
 
   // Linux-only: title bar toggle. Uses navigator.userAgent for platform
   // detection — sufficient for a UI-only visibility gate.
@@ -30,7 +36,28 @@
       });
 
     loadSourceSettings();
+    const loadRevision = telemetryRevision;
+    getTelemetrySettings()
+      .then((settings) => {
+        if (telemetryRevision === loadRevision) telemetryEnabled = settings.enabled;
+      })
+      .catch(() => {
+        if (telemetryRevision === loadRevision) telemetryEnabled = false;
+      });
+    void refreshDiagnostics();
   });
+
+  async function refreshDiagnostics() {
+    diagnosticsLoading = true;
+    diagnosticsError = false;
+    try {
+      diagnostics = await getFailureDiagnostics();
+    } catch {
+      diagnosticsError = true;
+    } finally {
+      diagnosticsLoading = false;
+    }
+  }
 
   async function loadSourceSettings() {
     try {
@@ -60,6 +87,23 @@
       await toggleNormalizeAudio(newVal);
     } catch {
       // Rollback handled by toggleNormalizeAudio
+    }
+  }
+
+  async function handleTelemetryToggle() {
+    const previous = telemetryEnabled;
+    const next = !telemetryEnabled;
+    const toggleRevision = ++telemetryRevision;
+    telemetryEnabled = next;
+    // Tauri commands can complete out of order. Serialize writes in user-action
+    // order so persisted consent always matches the latest toggle.
+    telemetryWrite = telemetryWrite
+      .catch(() => undefined)
+      .then(() => setTelemetryEnabled(next));
+    try {
+      await telemetryWrite;
+    } catch {
+      if (telemetryRevision === toggleRevision) telemetryEnabled = previous;
     }
   }
 
@@ -135,6 +179,45 @@
         <span class="toggle-slider"></span>
       </label>
     </div>
+  </section>
+
+  <section class="settings-section" aria-label={$t('settings.diagnostics_title')}>
+    <div class="section-header">
+      <Activity size={20} />
+      <h2>{$t('settings.diagnostics_title')}</h2>
+    </div>
+    <p class="section-desc">{$t('settings.diagnostics_desc')}</p>
+    {#if diagnostics}
+      <div class="setting-row">
+        <span class="setting-label">{$t('settings.diagnostics_events_last_hour')}</span>
+        <span class="setting-value">{diagnostics.eventsLastHour}</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">{$t('settings.diagnostics_error_rate')}</span>
+        <span class="setting-value">{diagnostics.errorRatePercent.toFixed(1)}%</span>
+      </div>
+    {:else if diagnosticsError}
+      <p class="section-desc">{$t('settings.diagnostics_unavailable')}</p>
+    {/if}
+    <button class="diagnostics-refresh" type="button" on:click={refreshDiagnostics} disabled={diagnosticsLoading}>
+      {diagnosticsLoading ? $t('settings.diagnostics_refreshing') : $t('settings.diagnostics_refresh')}
+    </button>
+  </section>
+
+  <section class="settings-section">
+    <div class="section-header">
+      <Plug size={20} />
+      <h2>{$t('settings.privacy')}</h2>
+    </div>
+    <p class="section-desc">{$t('settings.telemetry_desc')}</p>
+    <div class="setting-row">
+      <span class="setting-label">{$t('settings.telemetry')}</span>
+      <label class="toggle">
+        <input type="checkbox" checked={telemetryEnabled} on:change={handleTelemetryToggle} aria-label={$t('settings.telemetry')} />
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+    <p class="section-desc">{$t('settings.telemetry_details')}</p>
   </section>
 
   <section class="settings-section">
@@ -463,6 +546,15 @@
   .activate-skin:disabled {
     cursor: default;
     opacity: 0.65;
+  }
+
+  .diagnostics-refresh {
+    border: 1px solid var(--border-color, #1f2937);
+    border-radius: 6px;
+    background: var(--bg-elevated, #1f2937);
+    color: var(--text-primary, #e0e0e0);
+    padding: 0.4rem 0.7rem;
+    cursor: pointer;
   }
 
   select {

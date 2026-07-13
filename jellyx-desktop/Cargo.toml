@@ -1,6 +1,6 @@
 [package]
 name = "jellyx-desktop"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 license = "AGPL-3.0"
 description = "A desktop background music player for people who work with music on."
@@ -48,3 +48,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 sha2 = "0.10"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 percent-encoding = "2"
+sentry = "0.48.4"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"

@@ -268,14 +268,14 @@ fn download_yt_dlp() -> Result<String, SourceError> {
     let output = jellyx_core::shared::utils::no_window(&mut verify_cmd)
         .output()
         .map_err(|e| {
-        SourceError::DependencyMissing(format!(
-            "Downloaded yt-dlp at '{}' but failed to execute it: {}. \
+            SourceError::DependencyMissing(format!(
+                "Downloaded yt-dlp at '{}' but failed to execute it: {}. \
              The download may be corrupted. Try deleting '{}' and restarting.",
-            dest.display(),
-            e,
-            dest.display()
-        ))
-    })?;
+                dest.display(),
+                e,
+                dest.display()
+            ))
+        })?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -291,7 +291,11 @@ fn download_yt_dlp() -> Result<String, SourceError> {
     }
 
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    eprintln!("[jellyx] yt-dlp {} downloaded successfully to {}", version, dest.display());
+    eprintln!(
+        "[jellyx] yt-dlp {} downloaded successfully to {}",
+        version,
+        dest.display()
+    );
 
     Ok(dest.to_string_lossy().to_string())
 }
@@ -359,7 +363,11 @@ mod tests {
             }
             Err(SourceError::DependencyMissing(msg)) => {
                 // Expected when yt-dlp is not available and download fails
-                assert!(msg.contains("yt-dlp"), "Error message should mention yt-dlp: {}", msg);
+                assert!(
+                    msg.contains("yt-dlp"),
+                    "Error message should mention yt-dlp: {}",
+                    msg
+                );
             }
             Err(_) => panic!("Unexpected error type"),
         }
@@ -376,23 +384,38 @@ mod tests {
     #[test]
     fn bundled_candidates_are_not_empty() {
         let candidates = bundled_yt_dlp_candidates();
-        assert!(!candidates.is_empty(), "Should generate at least one candidate path");
+        assert!(
+            !candidates.is_empty(),
+            "Should generate at least one candidate path"
+        );
     }
 
     #[test]
     fn managed_bin_dir_is_valid() {
         // managed_bin_dir should return a valid path on any supported platform
         let result = managed_bin_dir();
-        assert!(result.is_ok(), "Should be able to determine managed bin dir");
+        assert!(
+            result.is_ok(),
+            "Should be able to determine managed bin dir"
+        );
         let dir = result.unwrap();
-        assert!(dir.to_string_lossy().contains("jellyx"), "Managed dir should contain 'jellyx'");
-        assert!(dir.to_string_lossy().contains("bin"), "Managed dir should contain 'bin'");
+        assert!(
+            dir.to_string_lossy().contains("jellyx"),
+            "Managed dir should contain 'jellyx'"
+        );
+        assert!(
+            dir.to_string_lossy().contains("bin"),
+            "Managed dir should contain 'bin'"
+        );
     }
 
     #[test]
     fn managed_bin_path_is_valid() {
         let result = managed_bin_path();
-        assert!(result.is_ok(), "Should be able to determine managed bin path");
+        assert!(
+            result.is_ok(),
+            "Should be able to determine managed bin path"
+        );
         let path = result.unwrap();
         let path_str = path.to_string_lossy();
         assert!(
@@ -409,12 +432,20 @@ mod tests {
         // On other platforms, it returns an error — that's fine
         match result {
             Ok(url) => {
-                assert!(url.starts_with("https://github.com/yt-dlp/yt-dlp/releases/"), "URL should be from GitHub: {}", url);
+                assert!(
+                    url.starts_with("https://github.com/yt-dlp/yt-dlp/releases/"),
+                    "URL should be from GitHub: {}",
+                    url
+                );
                 assert!(url.contains("yt-dlp"), "URL should contain yt-dlp: {}", url);
             }
             Err(SourceError::DependencyMissing(msg)) => {
                 // Only expected on unsupported platforms
-                assert!(msg.contains("Unsupported platform"), "Error should mention unsupported platform: {}", msg);
+                assert!(
+                    msg.contains("Unsupported platform"),
+                    "Error should mention unsupported platform: {}",
+                    msg
+                );
             }
             Err(_) => panic!("Unexpected error type"),
         }

@@ -61,10 +61,11 @@ Jellyx uses a single unified release workflow: `.github/workflows/release.yml`. 
 
 ```bash
 # 1. Bump the version in jellyx-desktop/Cargo.toml, jellyx-desktop/tauri.conf.json, and ui/package.json
-# 2. Commit and tag
+# 2. Merge to protected main, then tag its current immutable head
 git tag v0.2.0
 git push origin v0.2.0
-# That's it. CI builds everything and attaches it to the GitHub Release.
+# The tag must exactly match Cargo's `v<version>` and point at current `origin/main`.
+# The workflow rejects stale main heads and incomplete required checks.
 ```
 
 ### What happens on tag push
@@ -75,7 +76,7 @@ Pushing a `v*` tag triggers three parallel jobs:
 |---|---|---|
 | **linux** | `ubuntu-22.04` | AppImage (`NO_STRIP=1`), `.deb`, `.rpm` |
 | **windows** | `windows-latest` | MSI, NSIS `setup.exe`, portable `jellyx.exe` |
-| **macos** | `macos-14` + `macos-13` | DMG for Apple Silicon + Intel |
+| **macos** | `macos-14` | ARM64 (Apple Silicon) DMG |
 
 Each job builds its artifacts, generates a `.sha256` checksum file alongside each, uploads them as workflow artifacts (30-day retention), and attaches them to the GitHub Release for the tag.
 
@@ -84,10 +85,13 @@ Each job builds its artifacts, generates a `.sha256` checksum file alongside eac
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `release.yml` | `v*` tag push | Full release: build + attach to GitHub Release |
+| `validate-candidate.yml` | PRs and pushes to `main` | Required least-privilege validation gate; no publishing |
 | `windows.yml` | push to `main`, PRs | Windows CI validation (artifacts only, no release) |
-| `macos-dmg.yml` | push to `main`, PRs | macOS CI validation (artifacts only, no release) |
+| `macos-dmg.yml` | PRs to `main`, manual runs, reusable `release.yml` call | ARM64 macOS build; CI artifacts alone, or staged for `release.yml` publication |
 
 The CI workflows do **not** run on tags — only `release.yml` does, so there is no duplicate-build race on release.
+
+Branch protection is configured externally and is intentionally not changed by this repository. When it is enabled or updated, require the current check named exactly `Validate candidate`. Require branches to be up to date. `release.yml` reads that configured set and fails closed unless every required check succeeded for the exact current `main` SHA.
 
 After a release, follow the per-channel checklist in [`docs/packaging.md`](packaging.md) to update Flatpak/AUR/Homebrew/winget manifests with the new version and checksums.
 

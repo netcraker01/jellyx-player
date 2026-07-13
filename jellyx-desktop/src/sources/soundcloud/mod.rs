@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
-use super::SourceResolver;
 use super::yt_dlp;
+use super::SourceResolver;
 use crate::errors::types::SourceError;
 use jellyx_core::models::source::Source;
 use jellyx_core::models::track::Track;
@@ -58,9 +58,7 @@ impl SoundCloudResolver {
     /// Cached after first check — avoids ~100-300ms subprocess spawn per resolve.
     /// On first call, triggers auto-download if no yt-dlp is found.
     fn check_yt_dlp() -> Result<(), SourceError> {
-        let available = *YT_DLP_AVAILABLE.get_or_init(|| {
-            yt_dlp::check_yt_dlp().is_ok()
-        });
+        let available = *YT_DLP_AVAILABLE.get_or_init(|| yt_dlp::check_yt_dlp().is_ok());
 
         if available {
             Ok(())
@@ -122,7 +120,8 @@ impl SoundCloudResolver {
                 arr.iter()
                     .filter_map(|t| {
                         let url = t.get("url")?.as_str()?.to_string().into();
-                        let width: Option<u32> = t.get("width").and_then(|w| w.as_u64()).map(|w| w as u32);
+                        let width: Option<u32> =
+                            t.get("width").and_then(|w| w.as_u64()).map(|w| w as u32);
                         Some((url, width))
                     })
                     .max_by_key(|(_, w)| *w)
@@ -266,10 +265,7 @@ impl SourceResolver for SoundCloudResolver {
         let mut lines = stdout.lines().filter(|l| !l.trim().is_empty());
 
         // First line: the resolved stream URL (--print %(url)s)
-        let stream_url = lines.next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let stream_url = lines.next().unwrap_or("").trim().to_string();
 
         if stream_url.is_empty() {
             return Err(SourceError::ResolveError(
@@ -278,8 +274,7 @@ impl SourceResolver for SoundCloudResolver {
         }
 
         // Find the JSON line: it's the first line that starts with '{'
-        let json_line = lines.find(|l| l.trim().starts_with('{'))
-            .unwrap_or("");
+        let json_line = lines.find(|l| l.trim().starts_with('{')).unwrap_or("");
 
         let mut track = Self::parse_track_from_json(json_line).unwrap_or_else(|| Track {
             id: Uuid::new_v4().to_string(),
@@ -300,10 +295,13 @@ impl SourceResolver for SoundCloudResolver {
 
         // Store in cache for instant replays within the TTL window.
         if let Ok(mut cache) = resolve_cache().lock() {
-            cache.insert(id.to_string(), CacheEntry {
-                track: track.clone(),
-                cached_at: Instant::now(),
-            });
+            cache.insert(
+                id.to_string(),
+                CacheEntry {
+                    track: track.clone(),
+                    cached_at: Instant::now(),
+                },
+            );
         }
 
         Ok(track)
@@ -327,7 +325,10 @@ mod tests {
     fn soundcloud_resolver_parse_valid_json() {
         let json = r#"{"id":"1234567","title":"Ambient Mix","artist":"DJ Chill","duration":3600.0,"thumbnail":"https://i1.sndcdn.com/artwork.jpg","url":"https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1234567","webpage_url":"https://soundcloud.com/djchill/ambient-mix"}"#;
         let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
-        assert_eq!(track.source_id, "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1234567");
+        assert_eq!(
+            track.source_id,
+            "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1234567"
+        );
         assert_eq!(track.title, "Ambient Mix");
         assert_eq!(track.artist, "DJ Chill");
         assert_eq!(track.duration, Some(3600.0));
@@ -361,7 +362,10 @@ mod tests {
         // "url" (API URL) should be source_id when present
         let json = r#"{"id":12345,"title":"Track","url":"https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A12345","webpage_url":"https://soundcloud.com/artist/track"}"#;
         let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
-        assert_eq!(track.source_id, "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A12345");
+        assert_eq!(
+            track.source_id,
+            "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A12345"
+        );
     }
 
     #[test]
@@ -377,9 +381,18 @@ mod tests {
 
     #[test]
     fn soundcloud_resolver_format_prefers_http_over_hls() {
-        assert!(SOUNDCLOUD_AUDIO_FORMAT.contains("protocol=https"), "Format should prefer HTTPS direct streams");
-        assert!(SOUNDCLOUD_AUDIO_FORMAT.contains("protocol=http"), "Format should fallback to HTTP direct streams");
-        assert!(SOUNDCLOUD_AUDIO_FORMAT.ends_with("bestaudio"), "Format should fallback to bestaudio");
+        assert!(
+            SOUNDCLOUD_AUDIO_FORMAT.contains("protocol=https"),
+            "Format should prefer HTTPS direct streams"
+        );
+        assert!(
+            SOUNDCLOUD_AUDIO_FORMAT.contains("protocol=http"),
+            "Format should fallback to HTTP direct streams"
+        );
+        assert!(
+            SOUNDCLOUD_AUDIO_FORMAT.ends_with("bestaudio"),
+            "Format should fallback to bestaudio"
+        );
     }
 
     #[test]
@@ -411,6 +424,9 @@ mod tests {
         // Neither thumbnails array nor thumbnail string
         let json = r#"{"id":"123","title":"Test Track","uploader":"Artist","duration":180.0}"#;
         let track = SoundCloudResolver::parse_track_from_json(json).unwrap();
-        assert!(track.thumbnail.is_none(), "Should be None when no thumbnail data");
+        assert!(
+            track.thumbnail.is_none(),
+            "Should be None when no thumbnail data"
+        );
     }
 }

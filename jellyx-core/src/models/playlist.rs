@@ -68,7 +68,10 @@ mod tests {
         assert_eq!(deserialized.source, Source::YouTube);
         assert_eq!(deserialized.source_id, "yt-playlist-123");
         assert_eq!(deserialized.title, "My Playlist");
-        assert_eq!(deserialized.thumbnail, Some("https://img.test/pl.jpg".to_string()));
+        assert_eq!(
+            deserialized.thumbnail,
+            Some("https://img.test/pl.jpg".to_string())
+        );
         assert_eq!(deserialized.track_count, 1);
         assert_eq!(deserialized.tracks.len(), 1);
         assert_eq!(deserialized.tracks[0].id, "track-1");
@@ -86,8 +89,14 @@ mod tests {
             tracks: vec![],
         };
         let json = serde_json::to_string(&playlist).unwrap();
-        assert!(json.contains("\"sourceId\""), "source_id should be camelCase");
-        assert!(json.contains("\"trackCount\""), "track_count should be camelCase");
+        assert!(
+            json.contains("\"sourceId\""),
+            "source_id should be camelCase"
+        );
+        assert!(
+            json.contains("\"trackCount\""),
+            "track_count should be camelCase"
+        );
         assert!(
             !json.contains("\"thumbnail\""),
             "None thumbnail should be absent from JSON"

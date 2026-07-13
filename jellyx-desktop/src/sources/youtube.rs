@@ -10,8 +10,8 @@ use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
-use super::SourceResolver;
 use super::yt_dlp;
+use super::SourceResolver;
 use crate::errors::types::SourceError;
 use jellyx_core::models::playlist::Playlist;
 use jellyx_core::models::source::Source;
@@ -57,9 +57,7 @@ impl YouTubeResolver {
     /// Cached after first check — avoids ~100-300ms subprocess spawn per resolve.
     /// On first call, triggers auto-download if no yt-dlp is found.
     fn check_yt_dlp() -> Result<(), SourceError> {
-        let available = *YT_DLP_AVAILABLE.get_or_init(|| {
-            yt_dlp::check_yt_dlp().is_ok()
-        });
+        let available = *YT_DLP_AVAILABLE.get_or_init(|| yt_dlp::check_yt_dlp().is_ok());
 
         if available {
             Ok(())
@@ -70,7 +68,7 @@ impl YouTubeResolver {
             ))
         }
     }
- 
+
     /// Parse a single yt-dlp JSON line into a Track.
     fn parse_track_from_json(json_str: &str) -> Option<Track> {
         let value: serde_json::Value = serde_json::from_str(json_str).ok()?;
@@ -202,7 +200,11 @@ impl YouTubeResolver {
     ///   line 0: playlist metadata (with `_type: "playlist"` and `entries` array)
     ///   lines 1+: individual entry metadata (each with `_type: "video"` or absent)
     fn parse_playlist_dump(stdout: &str) -> Result<Playlist, SourceError> {
-        let lines: Vec<&str> = stdout.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        let lines: Vec<&str> = stdout
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
         if lines.is_empty() {
             return Err(SourceError::ResolveError(
                 "Empty yt-dlp playlist output".to_string(),
@@ -234,9 +236,20 @@ impl YouTubeResolver {
 
         let (source_id, title, thumbnail) = if first_type == "playlist" {
             // Non-flat mode: first entry is playlist metadata, rest are videos.
-            let source_id = first.get("id").and_then(|v| v.as_str()).unwrap_or("unknown").to_string();
-            let title = first.get("title").and_then(|v| v.as_str()).unwrap_or("Untitled Playlist").to_string();
-            let thumbnail = first.get("thumbnail").and_then(|v| v.as_str()).map(|s| s.to_string());
+            let source_id = first
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let title = first
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("Untitled Playlist")
+                .to_string();
+            let thumbnail = first
+                .get("thumbnail")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             (source_id, title, thumbnail)
         } else {
             // Flat mode: all entries are videos. Extract playlist metadata
@@ -264,7 +277,11 @@ impl YouTubeResolver {
 
         // Parse tracks from entries. In non-flat mode, skip the first entry
         // (playlist metadata). In flat mode, all entries are videos.
-        let track_entries = if first_type == "playlist" { &entries[1..] } else { &entries[..] };
+        let track_entries = if first_type == "playlist" {
+            &entries[1..]
+        } else {
+            &entries[..]
+        };
 
         let mut tracks = Vec::new();
         for entry in track_entries {
@@ -390,10 +407,7 @@ impl SourceResolver for YouTubeResolver {
         let mut lines = stdout.lines().filter(|l| !l.trim().is_empty());
 
         // First line: the resolved stream URL (--print %(url)s)
-        let stream_url = lines.next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
+        let stream_url = lines.next().unwrap_or("").trim().to_string();
 
         if stream_url.is_empty() {
             return Err(SourceError::ResolveError(
@@ -402,8 +416,7 @@ impl SourceResolver for YouTubeResolver {
         }
 
         // Find the JSON line: it's the first line that starts with '{'
-        let json_line = lines.find(|l| l.trim().starts_with('{'))
-            .unwrap_or("");
+        let json_line = lines.find(|l| l.trim().starts_with('{')).unwrap_or("");
 
         let mut track = Self::parse_track_from_json(json_line).unwrap_or_else(|| Track {
             id: Uuid::new_v4().to_string(),
@@ -424,10 +437,13 @@ impl SourceResolver for YouTubeResolver {
 
         // Store in cache for instant replays within the TTL window.
         if let Ok(mut cache) = resolve_cache().lock() {
-            cache.insert(id.to_string(), CacheEntry {
-                track: track.clone(),
-                cached_at: Instant::now(),
-            });
+            cache.insert(
+                id.to_string(),
+                CacheEntry {
+                    track: track.clone(),
+                    cached_at: Instant::now(),
+                },
+            );
         }
 
         Ok(track)
@@ -587,9 +603,18 @@ mod tests {
 
     #[test]
     fn youtube_resolver_format_prefers_m4a_aac() {
-        assert!(YOUTUBE_AUDIO_FORMAT.contains("ext=m4a"), "Format should prefer m4a extension");
-        assert!(YOUTUBE_AUDIO_FORMAT.contains("acodec^=mp4a"), "Format should fallback to mp4a codec");
-        assert!(YOUTUBE_AUDIO_FORMAT.ends_with("bestaudio"), "Format should fallback to bestaudio");
+        assert!(
+            YOUTUBE_AUDIO_FORMAT.contains("ext=m4a"),
+            "Format should prefer m4a extension"
+        );
+        assert!(
+            YOUTUBE_AUDIO_FORMAT.contains("acodec^=mp4a"),
+            "Format should fallback to mp4a codec"
+        );
+        assert!(
+            YOUTUBE_AUDIO_FORMAT.ends_with("bestaudio"),
+            "Format should fallback to bestaudio"
+        );
     }
 
     #[test]
@@ -598,10 +623,16 @@ mod tests {
         let playlist = YouTubeResolver::parse_playlist_from_json(json).unwrap();
         assert_eq!(playlist.source_id, "PLrAXtmErZgOei3XmJLpYCyoF7RjRlS1MF");
         assert_eq!(playlist.title, "Test Playlist");
-        assert_eq!(playlist.thumbnail, Some("https://img.test/pl.jpg".to_string()));
+        assert_eq!(
+            playlist.thumbnail,
+            Some("https://img.test/pl.jpg".to_string())
+        );
         assert_eq!(playlist.source, Source::YouTube);
         assert_eq!(playlist.tracks.len(), 2);
-        assert_eq!(playlist.tracks[0].playlist_id, Some("PLrAXtmErZgOei3XmJLpYCyoF7RjRlS1MF".to_string()));
+        assert_eq!(
+            playlist.tracks[0].playlist_id,
+            Some("PLrAXtmErZgOei3XmJLpYCyoF7RjRlS1MF".to_string())
+        );
     }
 
     #[test]
@@ -642,7 +673,10 @@ mod tests {
         assert_eq!(playlist.tracks.len(), 2);
         assert_eq!(playlist.tracks[0].source_id, "v1");
         assert_eq!(playlist.tracks[1].source_id, "v2");
-        assert_eq!(playlist.tracks[0].playlist_id, Some("PLrAXtmErZgOei3XmJLpYCyoF7RjRlS1MF".to_string()));
+        assert_eq!(
+            playlist.tracks[0].playlist_id,
+            Some("PLrAXtmErZgOei3XmJLpYCyoF7RjRlS1MF".to_string())
+        );
         assert_eq!(playlist.track_count, 2);
     }
 
@@ -650,7 +684,8 @@ mod tests {
     fn youtube_resolver_parse_playlist_dump_filters_non_video_entries() {
         let playlist_json = r#"{"_type":"playlist","id":"PLtest","title":"Mixed Playlist","thumbnail":"https://img.test/pl.jpg"}"#;
         let video_json = r#"{"id":"v1","title":"Song One","artist":"Artist A","duration":200.0}"#;
-        let non_video_json = r#"{"id":"pl1","title":"Nested Playlist","_type":"playlist","duration":0}"#;
+        let non_video_json =
+            r#"{"id":"pl1","title":"Nested Playlist","_type":"playlist","duration":0}"#;
 
         let stdout = format!("{}\n{}\n{}", playlist_json, video_json, non_video_json);
         let playlist = YouTubeResolver::parse_playlist_dump(&stdout).unwrap();

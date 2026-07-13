@@ -111,3 +111,10 @@ pub struct SourceSetting {
 pub struct AudioSettings {
     pub normalize_audio: bool,
 }
+
+/// Explicit user consent for the optional, remote failure telemetry service.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TelemetrySettings {
+    pub enabled: bool,
+}

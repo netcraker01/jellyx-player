@@ -1,0 +1,70 @@
+name: Candidate validation
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-candidate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-candidate:
+    name: Validate candidate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check Rust workspace
+        run: cargo check --workspace
+
+      - name: Test Rust workspace
+        run: cargo test --workspace
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.3.0
+
+      - name: Install UI dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: ui
+
+      - name: Test UI
+        run: pnpm test
+        working-directory: ui
+
+      - name: Check UI
+        run: pnpm run check
+        working-directory: ui
+
+      - name: Build UI
+        run: pnpm run build
+        working-directory: ui
+
+      - name: Validate release workflow contracts
+        run: python scripts/test-release-workflow.py
+
+      - name: Install icon validator dependency
+        run: python -m pip install --disable-pip-version-check -r scripts/requirements-windows-icons.txt
+
+      - name: Validate icon assets
+        run: python scripts/test-windows-icons.py

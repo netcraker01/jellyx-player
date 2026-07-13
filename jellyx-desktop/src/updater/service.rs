@@ -83,7 +83,8 @@ impl UpdateService {
         };
 
         if let Err(e) = self.prefs.set_last_check(&now_iso_utc()) {
-            eprintln!("update check: failed to persist last_check_at: {:?}", e);
+            let _ = e;
+            crate::observability::expected_failure("updater", "persist_last_check_failed");
         }
 
         if !is_newer(&self.current_version, &latest.version) {
@@ -111,7 +112,8 @@ impl UpdateService {
         };
 
         if let Err(e) = self.prefs.set_last_check(&now_iso_utc()) {
-            eprintln!("update check (manual): failed to persist last_check_at: {:?}", e);
+            let _ = e;
+            crate::observability::expected_failure("updater", "persist_last_check_failed");
         }
         if !is_newer(&self.current_version, &latest.version) {
             return Ok(None);

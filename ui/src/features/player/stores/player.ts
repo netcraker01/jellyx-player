@@ -94,6 +94,35 @@ export const normalizeAudio = writable(true);
 /** Latest frequency data from the Rust FFT engine (null until first event). */
 export const frequencyData = writable<FrequencyData | null>(null);
 
+/** The playback pipeline currently allowed to publish FFT frames. */
+export type FftSource = 'local' | 'remote';
+
+// Local playback is the default because its Rust channel is established during
+// bootstrap. Switching sources clears the old frame and prevents in-flight
+// callbacks from a previous pipeline from repainting the visualizer.
+let activeFftSource: FftSource = 'local';
+
+/** Select the only playback pipeline permitted to update frequencyData. */
+export function selectFftSource(source: FftSource): void {
+  if (activeFftSource === source) return;
+  activeFftSource = source;
+  frequencyData.set(null);
+}
+
+/** Publish a frame only when it belongs to the active playback pipeline. */
+export function publishFftFrame(source: FftSource, data: FrequencyData): void {
+  if (activeFftSource === source) {
+    frequencyData.set(data);
+  }
+}
+
+/** Clear the shared frame only when the stopped pipeline is still active. */
+export function clearFftSource(source: FftSource): void {
+  if (activeFftSource === source) {
+    frequencyData.set(null);
+  }
+}
+
 /** Whether the Winamp-style fullscreen visualizer overlay is active.
  *
  *  This is the VISUALIZER toggle — independent from `cinematicMode` (the
@@ -207,23 +236,64 @@ export function setCinematicIntensity(value: number): void {
 // ── Event Initialization ──────────────────────────────────────────
 
 let initialized = false;
+let playerEventsStarting: Promise<void> | null = null;
+let fftListenerUnlisten: (() => void) | null = null;
+let fftListenerStarting: Promise<void> | null = null;
+
+/**
+ * Subscribe to Rust FFT events. The Rust engine emits "fft-frame" events
+ * at ~60fps via `webview.emit()`. Events have no ordering guarantees —
+ * if a frame is lost, the next one arrives normally (no Channel stall).
+ */
+async function ensureLocalFftListener(): Promise<void> {
+  if (fftListenerUnlisten) return;
+  if (fftListenerStarting) return fftListenerStarting;
+
+  fftListenerStarting = events.onFftFrame((data: FrequencyData) => {
+    publishFftFrame('local', data);
+  }).then((unlisten) => {
+    fftListenerUnlisten = unlisten;
+  }).finally(() => {
+    fftListenerStarting = null;
+  });
+
+  return fftListenerStarting;
+}
+
+/** Prepare the local FFT event listener for a new playback. */
+export async function prepareLocalFft(): Promise<void> {
+  selectFftSource('local');
+  await ensureLocalFftListener();
+}
 
 /**
  * Initialize player event subscriptions.
  * Call once from main.ts at app bootstrap.
  * Registers listeners for all playback events from Rust.
  */
-export async function initPlayerEvents(): Promise<void> {
-  if (initialized) return;
-  initialized = true;
+async function initializePlayerEvents(): Promise<void> {
+  const unlisten = [] as Array<() => void>;
 
-  // Track changed — update current track
-  await events.onTrackChanged((track: Track) => {
+  try {
+
+    // The FFT stream belongs to playback, not to either visualizer view. Start
+    // it before any component mounts so local files update the shared store even
+    // while the player is on another route or in the mini-player window.
+    await ensureLocalFftListener();
+
+    // Track changed — update current track
+    unlisten.push(await events.onTrackChanged((track: Track) => {
+    if (track.localPath) {
+      // Handles backend-driven queue advancement as well as explicit UI play.
+      prepareLocalFft().catch(() => {});
+    } else {
+      selectFftSource('remote');
+    }
     currentTrack.set(track);
-  });
+    }));
 
   // State changed — update isPlaying and isBuffering
-  await events.onStateChanged((state: string) => {
+    unlisten.push(await events.onStateChanged((state: string) => {
     isPlaying.set(state === 'Playing');
     if (state === 'Playing') {
       isBuffering.set(false);
@@ -239,62 +309,93 @@ export async function initPlayerEvents(): Promise<void> {
     // Stop remote playback when Rust signals stopped
     if (state === 'Stopped') {
       stopRemote();
+      clearFftSource('local');
     }
-  });
+    }));
 
   // Queue updated — update full queue snapshot and derived mode state
-  await events.onQueueUpdated((state: QueueState) => {
+    unlisten.push(await events.onQueueUpdated((state: QueueState) => {
     queueState.set(state);
     shuffle.set(state.shuffle);
     repeatMode.set(state.repeatMode);
-  });
+    }));
 
   // Progress tick — update position and duration (skip if remote active,
   // since remotePlayer updates progress directly from HTMLAudio)
-  await events.onProgressTick((tick: events.ProgressTick) => {
+    unlisten.push(await events.onProgressTick((tick: events.ProgressTick) => {
     if (!get(remoteActive)) {
       progress.set({ position: tick.position, duration: tick.duration });
     }
-  });
+    }));
 
   // Buffering progress — update buffering percentage for remote tracks
-  await events.onBufferingProgress((payload: events.BufferingProgressEvent) => {
+    unlisten.push(await events.onBufferingProgress((payload: events.BufferingProgressEvent) => {
     isBuffering.set(true);
     bufferingProgress.set(payload.progress);
-  });
+    }));
 
   // Stream resolved — remote playback URL ready; load into HTMLAudio
-  await events.onStreamResolved((payload: events.StreamResolvedEvent) => {
+    unlisten.push(await events.onStreamResolved((payload: events.StreamResolvedEvent) => {
     const track = get(currentTrack);
-    if (track && track.id === payload.trackId) {
-      loadRemoteStream(track, payload.streamUrl, payload.remoteUrl).catch((e) => {
+    if (track && shouldAcceptStreamResolution(track, payload)) {
+      loadRemoteStream(track, payload.streamUrl, payload.remoteUrl, payload.proxyCapability).catch((e) => {
         const msg = e instanceof Error ? e.message : String(e);
         notifications.push({ type: 'error', title: 'Remote Playback Error', message: msg, dismissible: true });
       });
     }
-  });
+    }));
 
   // Load persisted audio normalization setting.
   // Normalization is applied in the backend during cache download (ffmpeg
   // loudnorm), so we only need to persist the setting here. The next track
   // load will cache the normalized variant automatically.
-  try {
-    const settings = await commands.getAudioSettings();
-    normalizeAudio.set(settings.normalizeAudio);
-    // Apply to local (Rust) audio backend immediately
-    await commands.setPlaybackNormalizeAudio(settings.normalizeAudio);
-  } catch {
-    // Defaults to enabled — leave the store's default (true)
-  }
+    try {
+      const settings = await commands.getAudioSettings();
+      normalizeAudio.set(settings.normalizeAudio);
+      // Apply to local (Rust) audio backend immediately
+      await commands.setPlaybackNormalizeAudio(settings.normalizeAudio);
+    } catch {
+      // Defaults to enabled — leave the store's default (true)
+    }
 
   // Sync the persisted volume to the Rust backend's InternalState so the first
   // local track plays at the user's chosen level instead of the backend's 1.0
   // default. The command clamps to 0.0-1.0; divide the 0-100 UI value here.
-  try {
-    await commands.setVolume(get(volume) / 100);
-  } catch {
-    // Backend unavailable — volume applies on next track start via the store.
+    try {
+      await commands.setVolume(get(volume) / 100);
+    } catch {
+      // Backend unavailable — volume applies on next track start via the store.
+    }
+
+    initialized = true;
+  } catch (error) {
+    for (const stopListening of unlisten) stopListening();
+    if (fftListenerUnlisten) {
+      fftListenerUnlisten();
+      fftListenerUnlisten = null;
+    }
+    throw error;
   }
+}
+
+/** Reject late resolver events, including a replay of the same track id. */
+export function shouldAcceptStreamResolution(
+  track: Track | null,
+  payload: events.StreamResolvedEvent,
+): boolean {
+  return !!track
+    && track.id === payload.trackId
+    && commands.isLatestStreamRequest(payload.streamRequestId);
+}
+
+export async function initPlayerEvents(): Promise<void> {
+  if (initialized) return;
+  if (!playerEventsStarting) {
+    playerEventsStarting = initializePlayerEvents().finally(() => {
+      playerEventsStarting = null;
+    });
+  }
+  return playerEventsStarting;
 }
 
 // ── Actions ────────────────────────────────────────────────────────
@@ -303,9 +404,13 @@ export async function initPlayerEvents(): Promise<void> {
 export async function playTrack(track: Track): Promise<void> {
   try {
     if (track.localPath) {
+      commands.invalidateStreamRequests();
+      stopRemote();
+      await prepareLocalFft();
       await commands.playLocal(track.localPath);
     } else {
       // Remote track (YouTube, SoundCloud) — use play_stream for HTTP streaming
+      selectFftSource('remote');
       await commands.playStream(track);
     }
   } catch (e) {

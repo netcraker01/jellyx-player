@@ -500,7 +500,9 @@ mod tests {
     #[test]
     fn decode_next_preserves_full_audio_with_small_buffer() {
         let Some(path) = generate_test_flac("smallbuf") else {
-            eprintln!("skipping decode_next_preserves_full_audio_with_small_buffer: ffmpeg unavailable");
+            eprintln!(
+                "skipping decode_next_preserves_full_audio_with_small_buffer: ffmpeg unavailable"
+            );
             return;
         };
 
@@ -552,7 +554,9 @@ mod tests {
     #[test]
     fn decode_next_small_buffer_matches_large_buffer_total() {
         let Some(path) = generate_test_flac("match") else {
-            eprintln!("skipping decode_next_small_buffer_matches_large_buffer_total: ffmpeg unavailable");
+            eprintln!(
+                "skipping decode_next_small_buffer_matches_large_buffer_total: ffmpeg unavailable"
+            );
             return;
         };
 

@@ -22,9 +22,9 @@ use crate::ipc::dto::{
     normalize_album_id, normalize_artist_id, AlbumDetail, AlbumSummary, ArtistDetail,
     ArtistSummary, GroupedSearchResult, HomeSnapshot, RecommendationItem, SearchFilter,
 };
-use jellyx_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::persistence::models::{HistoryEntry, LocalTrackEntry};
+use jellyx_core::models::track::Track;
 /// Service providing library operations (favorites, history).
 ///
 /// Owns an `Arc<Database>` shared reference so it can be cheaply cloned
@@ -476,7 +476,9 @@ mod tests {
         svc.db.insert_watched_folder(_folder).unwrap();
         for t in tracks {
             let path = t.local_path.as_ref().unwrap();
-            svc.db.upsert_local_track(path, t, _folder, None, None).unwrap();
+            svc.db
+                .upsert_local_track(path, t, _folder, None, None)
+                .unwrap();
         }
     }
 

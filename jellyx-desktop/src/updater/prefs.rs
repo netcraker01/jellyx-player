@@ -115,7 +115,10 @@ impl UpdatePrefsService {
     }
 
     /// Persist the detected install channel (called once at startup).
-    pub fn set_detected_channel(&self, channel: InstallChannel) -> Result<UpdatePrefs, PersistenceError> {
+    pub fn set_detected_channel(
+        &self,
+        channel: InstallChannel,
+    ) -> Result<UpdatePrefs, PersistenceError> {
         let mut prefs = self.get()?;
         prefs.detected_channel = Some(channel.as_str().to_string());
         self.save(&prefs)?;
@@ -224,9 +227,14 @@ mod tests {
         // Incremental updates.
         let after_skip = svc.set_skipped_version("v0.4.0").expect("set skip");
         assert_eq!(after_skip.skipped_version.as_deref(), Some("v0.4.0"));
-        assert_eq!(after_skip.last_check_at.as_deref(), Some("2026-07-07T10:00:00Z"));
+        assert_eq!(
+            after_skip.last_check_at.as_deref(),
+            Some("2026-07-07T10:00:00Z")
+        );
 
-        let after_channel = svc.set_detected_channel(InstallChannel::Flatpak).expect("set channel");
+        let after_channel = svc
+            .set_detected_channel(InstallChannel::Flatpak)
+            .expect("set channel");
         assert_eq!(after_channel.detected_channel.as_deref(), Some("flatpak"));
     }
 
@@ -234,7 +242,12 @@ mod tests {
     fn now_iso_utc_is_z_suffixed() {
         let ts = now_iso_utc();
         assert!(ts.ends_with('Z'), "expected Z suffix, got {}", ts);
-        assert_eq!(ts.len(), 20, "expected YYYY-MM-DDTHH:MM:SSZ (20 chars), got {}", ts);
+        assert_eq!(
+            ts.len(),
+            20,
+            "expected YYYY-MM-DDTHH:MM:SSZ (20 chars), got {}",
+            ts
+        );
     }
 
     #[test]
