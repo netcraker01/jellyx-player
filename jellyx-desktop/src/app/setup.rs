@@ -452,7 +452,7 @@ fn offer_legacy_cleanup_after_verified_import(app: &tauri::App, migration: Legac
     app.dialog()
         .message(message)
         .title(title)
-        .buttons(MessageDialogButtons::OkCancelCustom(accept, cancel))
+        .buttons(MessageDialogButtons::OkCancelCustom(accept.to_string(), cancel.to_string()))
         .show(move |accepted| {
             if accepted {
                 if let Err(error) = remove_legacy_installation(&installation) {
