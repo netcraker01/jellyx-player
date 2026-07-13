@@ -3144,12 +3144,29 @@ mod tests {
 
         // If audio output is available the call succeeds; otherwise we still
         // verified the critical queue state.
+        //
+        // In headless CI, CPAL may fail with a variety of device-invalidation
+        // messages (e.g. "The requested device is no longer available",
+        // "No suitable output device found"). Both `AudioError::DeviceError`
+        // and `AudioError::NoAudioDevice` map to `AppError.code == "DEVICE_NOT_FOUND"`,
+        // so any device-level failure surfaces under that code regardless of the
+        // exact CPAL message. `UnsupportedFormat` (device present but no matching
+        // config) maps to `"PLAYBACK_ERROR"` with details `"unsupported format"`.
+        //
+        // Accept any device-not-found / audio-output error variant without
+        // matching an exact CPAL message, but reject generic decode errors
+        // (also `"PLAYBACK_ERROR"`) so a real decode failure still fails the
+        // test deterministically.
         if let Err(ref e) = result {
+            let is_device_error = e.code == "DEVICE_NOT_FOUND";
+            let is_format_error = e.code == "PLAYBACK_ERROR"
+                && e
+                    .details
+                    .as_deref()
+                    .is_some_and(|d| d.contains("unsupported format"));
             assert!(
-                e.code == "NO_AUDIO_DEVICE"
-                    || e.code == "DEVICE_ERROR"
-                    || e.code == "UNSUPPORTED_FORMAT",
-                "Expected audio-output error in headless environment, got {:?}",
+                is_device_error || is_format_error,
+                "Expected an audio-output error in headless environment, got {:?}",
                 e
             );
         }

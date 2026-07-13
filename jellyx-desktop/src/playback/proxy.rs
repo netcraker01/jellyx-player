@@ -318,17 +318,15 @@ pub(crate) fn is_approved_remote_url(raw_url: &str) -> bool {
     .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
 }
 
-fn cors_headers(request: &str) -> String {
-    let origin = request.lines().find_map(|line| {
-        line.strip_prefix("Origin: ")
-            .or_else(|| line.strip_prefix("origin: "))
-    });
-    match origin.filter(|origin| WEBVIEW_ORIGINS.contains(origin)) {
-        Some(origin) => format!(
-            "Access-Control-Allow-Origin: {origin}\r\nVary: Origin\r\nAccess-Control-Allow-Methods: GET\r\nAccess-Control-Allow-Headers: Range\r\nAccess-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges, X-Content-Duration, Content-Duration\r\n"
-        ),
-        None => String::new(),
-    }
+fn cors_headers(_request: &str) -> String {
+    // The proxy is already gated by a per-process 256-bit capability token,
+    // so the CORS origin is not the authorization boundary. The HTMLAudio
+    // element uses crossOrigin='anonymous', which requires CORS headers on
+    // the response or the browser blocks the media. WebKitGTK does not send
+    // an Origin header for media-element requests (unlike fetch), so we
+    // cannot filter by origin. Return permissive CORS — the capability
+    // token is the real security gate.
+    "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range, Content-Type\r\nAccess-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges, X-Content-Duration, Content-Duration\r\n".to_string()
 }
 
 /// Serve a local file with full HTTP Range support.
@@ -1398,9 +1396,13 @@ mod tests {
     }
 
     #[test]
-    fn cors_is_limited_to_tauri_webview_origins() {
-        assert!(cors_headers("Origin: tauri://localhost\r\n").contains("tauri://localhost"));
-        assert!(cors_headers("Origin: http://127.0.0.1:3000\r\n").is_empty());
+    fn cors_returns_permissive_headers_gated_by_capability() {
+        // The capability token is the real authorization boundary; CORS is
+        // permissive because WebKitGTK does not send Origin for media elements.
+        let h = cors_headers("");
+        assert!(h.contains("Access-Control-Allow-Origin: *"));
+        assert!(h.contains("Access-Control-Allow-Methods: GET, HEAD, OPTIONS"));
+        assert!(h.contains("Access-Control-Expose-Headers: Content-Range"));
     }
 
     #[test]
