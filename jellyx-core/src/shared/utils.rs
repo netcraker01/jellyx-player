@@ -802,7 +802,7 @@ fn durable_sync_file(file: &File) -> io::Result<()> {
 
     // std::fs cannot fsync directory handles on Windows. Flush the durable
     // marker and staged files directly through the Windows API instead.
-    if unsafe { FlushFileBuffers(file.as_raw_handle() as isize) } == 0 {
+    if unsafe { FlushFileBuffers(file.as_raw_handle() as *mut core::ffi::c_void) } == 0 {
         return Err(io::Error::last_os_error());
     }
     Ok(())
