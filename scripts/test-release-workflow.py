@@ -3,6 +3,7 @@
 
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 
 
@@ -64,13 +65,17 @@ if 'tags: ["v*"]' in macos:
     raise SystemExit("macos-dmg.yml must not independently publish tag releases")
 
 version = "0.4.1"
-body = subprocess.run(
+_body_result = subprocess.run(
     ["bash", str(ROOT / "scripts/generate-release-body.sh"), version, f"v{version}"],
     cwd=ROOT,
-    check=True,
+    check=False,
     text=True,
     capture_output=True,
-).stdout
+)
+if _body_result.returncode != 0:
+    sys.stderr.write(_body_result.stderr)
+    raise SystemExit(f"generate-release-body.sh failed (exit {_body_result.returncode})")
+body = _body_result.stdout
 expected_assets = (
     f"Jellyx.Player_{version}_amd64.AppImage",
     f"Jellyx.Player_{version}_amd64.deb",
