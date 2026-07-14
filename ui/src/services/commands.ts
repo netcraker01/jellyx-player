@@ -216,8 +216,25 @@ export function playStream(track: Track): Promise<void> {
   return invokeCommand<void>('play_stream', { track, streamRequestId });
 }
 
+/**
+ * Check if a stream-resolved event should be accepted.
+ *
+ * Frontend-initiated requests use incrementing IDs from playStream().
+ * Backend-initiated auto-advance (next/previous/replace_queue) uses its own
+ * counter starting at 2. When a backend ID arrives, we accept it if it
+ * matches the current track AND sync our counter forward so any stale
+ * frontend-initiated resolutions are properly rejected afterwards.
+ */
 export function isLatestStreamRequest(streamRequestId: number): boolean {
-  return streamRequestId !== 0 && streamRequestId === latestStreamRequestId;
+  if (streamRequestId === 0) return false;
+  if (streamRequestId === latestStreamRequestId) return true;
+  // Backend-originated IDs (from auto-advance) are always > 1 and don't
+  // collide with frontend IDs (which start at 1). Accept and sync forward.
+  if (streamRequestId > 1 && streamRequestId > latestStreamRequestId) {
+    latestStreamRequestId = streamRequestId;
+    return true;
+  }
+  return false;
 }
 
 export function invalidateStreamRequests(): void {
