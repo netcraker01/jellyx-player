@@ -267,6 +267,11 @@ export function resolveTrack(source: string, id: string): Promise<Track> {
   return invokeCommand<Track>('resolve_track', { source, id });
 }
 
+/** Pre-resolve the next track's stream URL for instant playback. */
+export function prefetchNextStream(): Promise<void> {
+  return invokeCommand<void>('prefetch_next_stream');
+}
+
 // ── User Playlist commands ────────────────────────────────────────
 
 export function createPlaylist(title: string): Promise<UserPlaylist> {

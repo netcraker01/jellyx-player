@@ -33,6 +33,19 @@ pub trait SourceResolver: Send + Sync {
     /// with stream_url populated.
     fn resolve(&self, id: &str) -> Result<Track, SourceError>;
 
+    /// Resolve only the stream URL for a track, skipping metadata extraction.
+    ///
+    /// Used by playback paths that already have the full Track metadata and
+    /// only need the playable stream URL. The default implementation delegates
+    /// to `resolve()` and extracts `stream_url`; resolvers should override this
+    /// with a lighter-weight command (e.g. `--print %(url)s`) when possible.
+    fn resolve_stream_url(&self, id: &str) -> Result<String, SourceError> {
+        let track = self.resolve(id)?;
+        track
+            .stream_url
+            .ok_or_else(|| SourceError::ResolveError("no stream URL".into()))
+    }
+
     /// Search for playlists matching the given query.
     /// Default implementation returns an empty list — resolvers that
     /// support playlists should override this method.
@@ -153,6 +166,19 @@ impl SourceRegistry {
         for resolver in &self.resolvers {
             if resolver.source_type() == *source {
                 return resolver.resolve(id);
+            }
+        }
+        Err(SourceError::UnsupportedSource)
+    }
+
+    /// Resolve only the stream URL for a track by source type and identifier.
+    ///
+    /// Routes to the first resolver matching the given source type. This is the
+    /// fast path used by `play_stream()` when the Track metadata is already known.
+    pub fn resolve_stream_url(&self, source: &Source, id: &str) -> Result<String, SourceError> {
+        for resolver in &self.resolvers {
+            if resolver.source_type() == *source {
+                return resolver.resolve_stream_url(id);
             }
         }
         Err(SourceError::UnsupportedSource)

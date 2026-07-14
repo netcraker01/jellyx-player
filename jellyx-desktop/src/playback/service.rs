@@ -745,19 +745,17 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         // stream loaded by the browser.
         self.stop()?;
 
-        // Resolve the stream URL for this track's source
+        // Resolve the stream URL for this track's source. Use the lightweight
+        // resolve_stream_url path: play_stream already has the Track metadata, so
+        // we only need the playable URL. This avoids the 50-200ms cost of full
+        // metadata extraction that `--dump-json` incurs.
         let source = track.source.clone();
         let source_id = track.source_id.clone();
 
-        let resolved_track = self
+        let remote_url = self
             .sources
-            .resolve(&source, &source_id)
+            .resolve_stream_url(&source, &source_id)
             .map_err(|e| AppError::from(e))?;
-
-        let remote_url = resolved_track.stream_url.clone().ok_or_else(|| AppError {
-            code: "STREAM_NOT_FOUND".into(),
-            details: Some("track has no stream URL".into()),
-        })?;
 
         // Build the proxied URL for immediate playback.
         // For YouTube, the frontend will call cache_remote_stream after loading
@@ -1288,6 +1286,41 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             details: Some("mutex lock".into()),
         })?;
         Ok(s.current_track.clone())
+    }
+
+    /// Peek at the next track in the queue without advancing.
+    ///
+    /// Returns None if the queue is empty or no next track exists. Applies the
+    /// same shuffle/repeat logic as `next()` but without mutating state. Used by
+    /// `prefetch_next` to pre-resolve the upcoming track's stream URL.
+    pub fn peek_next_track(&self) -> Option<Track> {
+        let s = self.state.lock().ok()?;
+        if s.queue.tracks.is_empty() {
+            return None;
+        }
+
+        // compute_next_index needs a mutable borrow of the queue to update
+        // played_indices when shuffle is enabled. Clone the queue, run the
+        // computation on the clone, and return the index — this avoids mutating
+        // the real queue state while still respecting shuffle/repeat logic.
+        let mut queue_clone = s.queue.clone();
+        let next_index = Self::compute_next_index(&mut queue_clone)?;
+        s.queue.tracks.get(next_index).cloned()
+    }
+
+    /// Pre-resolve the next track's stream URL in the background cache.
+    ///
+    /// Called by the frontend when the current track is near ending. Only
+    /// prefetches remote tracks (local tracks don't need source resolution).
+    pub fn prefetch_next(&self) -> Result<(), AppError> {
+        if let Some(next_track) = self.peek_next_track() {
+            if next_track.local_path.is_none() {
+                let _ = self
+                    .sources
+                    .resolve_stream_url(&next_track.source, &next_track.source_id);
+            }
+        }
+        Ok(())
     }
 
     /// Remove a track from the queue by ID and emit a full queue snapshot.

@@ -1023,6 +1023,20 @@ pub async fn resolve_track(
     })?
 }
 
+/// Pre-resolve the next track's stream URL so play_stream() hits the cache.
+///
+/// Offloaded to `spawn_blocking` because source resolution may invoke yt-dlp.
+#[tauri::command]
+pub async fn prefetch_next_stream(state: tauri::State<'_, AppState>) -> Result<(), AppError> {
+    let playback = state.playback.clone();
+    tokio::task::spawn_blocking(move || playback.prefetch_next())
+        .await
+        .map_err(|e| AppError {
+            code: "INTERNAL_ERROR".into(),
+            details: Some(format!("prefetch_next_stream task join error: {}", e)),
+        })?
+}
+
 // ── Source Settings commands ──────────────────────────────────────────
 
 /// Get all source settings (YouTube, SoundCloud), defaulting to enabled.

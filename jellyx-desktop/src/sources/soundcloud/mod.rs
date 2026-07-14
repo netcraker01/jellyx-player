@@ -306,6 +306,101 @@ impl SourceResolver for SoundCloudResolver {
 
         Ok(track)
     }
+
+    fn resolve_stream_url(&self, id: &str) -> Result<String, SourceError> {
+        Self::check_yt_dlp()?;
+
+        // Check cache first — same cache as resolve()
+        if let Ok(cache) = resolve_cache().lock() {
+            if let Some(entry) = cache.get(id) {
+                if entry.cached_at.elapsed() < RESOLVE_CACHE_TTL {
+                    if let Some(url) = &entry.track.stream_url {
+                        return Ok(url.clone());
+                    }
+                }
+            }
+        }
+
+        // Build SoundCloud URL if it's not already a full URL
+        let url = if id.starts_with("http") {
+            id.to_string()
+        } else {
+            format!("https://soundcloud.com/{}", id)
+        };
+
+        // Lightweight resolve: only ask yt-dlp for the stream URL, skipping the
+        // full metadata extraction that `--dump-json` performs.
+        let output = yt_dlp::yt_dlp_command()?
+            .arg(&url)
+            .arg("--format")
+            .arg(SOUNDCLOUD_AUDIO_FORMAT)
+            .arg("--print")
+            .arg("%(url)s")
+            .arg("--no-download")
+            .arg("--no-playlist")
+            .arg("--no-warnings")
+            .arg("--no-progress")
+            .arg("--socket-timeout")
+            .arg("10")
+            .arg("--retries")
+            .arg("1")
+            .output()
+            .map_err(|e| SourceError::NetworkError(e.to_string()))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let err_msg = stderr.trim();
+            // Detect DRM-protected tracks and provide a user-friendly message
+            if err_msg.contains("DRM protected") {
+                return Err(SourceError::ResolveError(
+                    "This track is DRM-protected and cannot be played. SoundCloud restricts some tracks.".to_string(),
+                ));
+            }
+            return Err(SourceError::ResolveError(format!(
+                "yt-dlp resolve failed: {}",
+                err_msg
+            )));
+        }
+
+        let stream_url = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
+
+        if stream_url.is_empty() {
+            return Err(SourceError::ResolveError(
+                "No stream URL returned by yt-dlp".to_string(),
+            ));
+        }
+
+        // Cache the resolved URL so play_stream and prefetch_next can share it.
+        if let Ok(mut cache) = resolve_cache().lock() {
+            cache.insert(
+                id.to_string(),
+                CacheEntry {
+                    track: Track {
+                        id: String::new(),
+                        source: Source::SoundCloud,
+                        source_id: id.to_string(),
+                        title: String::new(),
+                        artist: String::new(),
+                        album: None,
+                        duration: None,
+                        thumbnail: None,
+                        stream_url: Some(stream_url.clone()),
+                        local_path: None,
+                        playlist_id: None,
+                        metadata: HashMap::new(),
+                    },
+                    cached_at: Instant::now(),
+                },
+            );
+        }
+
+        Ok(stream_url)
+    }
 }
 
 #[cfg(test)]

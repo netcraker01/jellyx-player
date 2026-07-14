@@ -40,6 +40,7 @@ import { notifications } from '@shared/stores/notifications';
 import { t } from '@i18n';
 import {
   cacheRemoteStream,
+  prefetchNextStream,
   reportRemoteAudioPlaybackFailure,
   reportRemoteAudioPlaybackRuntimeFailure,
   reportRemoteAudioPlaybackSuccess,
@@ -344,6 +345,10 @@ function getAudio(): HTMLAudioElement {
     // getByteFrequencyData returns all zeros.
     audioEl.crossOrigin = 'anonymous';
 
+    // Prefetch state for the remote audio element. Reset on each new track load
+    // via `loadRemoteStream` below.
+    let prefetchedNext = false;
+
     // Sync timeupdate → progress store, and drive MSE segment prefetching
     audioEl.addEventListener('timeupdate', () => {
       const el = audioEl;
@@ -355,6 +360,18 @@ function getAudio(): HTMLAudioElement {
       const safeDuration = Number.isFinite(dur) && dur > 0 ? dur : trackDuration;
       const safePosition = streamOffset + (Number.isFinite(el.currentTime) ? el.currentTime : 0);
       progress.set({ position: safePosition, duration: safeDuration });
+
+      // Prefetch the next track's stream URL when the current remote track is
+      // near ending. This ensures the upcoming track resolves before auto-advance
+      // and play_stream() hits the cache instead of paying the full yt-dlp cost.
+      if (safeDuration > 0 && safePosition > 0 && safePosition >= safeDuration - 10) {
+        if (!prefetchedNext) {
+          prefetchedNext = true;
+          prefetchNextStream().catch(() => {});
+        }
+      } else {
+        prefetchedNext = false;
+      }
     });
 
     // Sync play → isPlaying store

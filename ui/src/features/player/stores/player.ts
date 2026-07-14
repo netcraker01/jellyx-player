@@ -321,11 +321,26 @@ async function initializePlayerEvents(): Promise<void> {
     repeatMode.set(state.repeatMode);
     }));
 
+  // Prefetch next track — listen to all progress updates regardless of source.
+  // Remote progress is updated directly by remotePlayer, but progress ticks still
+  // carry the current duration/position from Rust and are a safe trigger for
+  // pre-resolving the next track near the end of the current one.
+  let prefetchedNext = false;
+
   // Progress tick — update position and duration (skip if remote active,
   // since remotePlayer updates progress directly from HTMLAudio)
     unlisten.push(await events.onProgressTick((tick: events.ProgressTick) => {
     if (!get(remoteActive)) {
       progress.set({ position: tick.position, duration: tick.duration });
+    }
+
+    if (tick.duration > 0 && tick.position > 0 && tick.position >= tick.duration - 10) {
+      if (!prefetchedNext) {
+        prefetchedNext = true;
+        commands.prefetchNextStream().catch(() => {});
+      }
+    } else {
+      prefetchedNext = false;
     }
     }));
 
