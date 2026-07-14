@@ -686,16 +686,21 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
 /// `MoveFileExW` safely publishes an absent target (and handles a target that
 /// appears after the existence check) with write-through durability.
 ///
-/// `ReplaceFileW` can fail with `ERROR_SHARING_VIOLATION` (os error 32) when a
-/// transient handle (antivirus, search indexer) briefly holds the destination
-/// on Windows CI runners. The replacement is retried a bounded number of times
-/// with short backoff so durable marker transitions remain atomic without
-/// weakening the production migration contract.
+/// `ReplaceFileW` can fail with `ERROR_SHARING_VIOLATION` (os error 32) or
+/// `ERROR_ACCESS_DENIED` (os error 5) when a transient handle (antivirus,
+/// search indexer) briefly holds the destination on Windows CI runners. The
+/// replacement is retried a bounded number of times with short backoff so
+/// durable marker transitions remain atomic without weakening the production
+/// migration contract.
+///
+/// Windows CI runners exhibit heavier antivirus/indexer contention than
+/// development machines: 10 attempts at 50ms (500ms total) tolerates the
+/// observed transient hold times without weakening durability semantics.
 #[cfg(windows)]
-const SHARING_VIOLATION_RETRY_LIMIT: u32 = 5;
+const SHARING_VIOLATION_RETRY_LIMIT: u32 = 10;
 
 #[cfg(windows)]
-const SHARING_VIOLATION_BACKOFF: Duration = Duration::from_millis(25);
+const SHARING_VIOLATION_BACKOFF: Duration = Duration::from_millis(50);
 
 #[cfg(windows)]
 fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<()> {
@@ -834,10 +839,29 @@ fn durable_sync_file(file: &File) -> io::Result<()> {
 
     // std::fs cannot fsync directory handles on Windows. Flush the durable
     // marker and staged files directly through the Windows API instead.
-    if unsafe { FlushFileBuffers(file.as_raw_handle() as *mut core::ffi::c_void) } == 0 {
-        return Err(io::Error::last_os_error());
+    //
+    // `FlushFileBuffers` can fail with `ERROR_ACCESS_DENIED` (os error 5) or
+    // `ERROR_SHARING_VIOLATION` (os error 32) when a transient handle
+    // (antivirus, search indexer) briefly holds the file on Windows CI
+    // runners. Retry a bounded number of times with short backoff so durable
+    // syncs remain robust under antivirus/indexer contention.
+    const FLUSH_RETRY_LIMIT: u32 = 10;
+    const FLUSH_BACKOFF: Duration = Duration::from_millis(50);
+
+    let mut attempt = 0;
+    loop {
+        if unsafe { FlushFileBuffers(file.as_raw_handle() as *mut core::ffi::c_void) } != 0 {
+            return Ok(());
+        }
+        let error = io::Error::last_os_error();
+        let is_transient = matches!(error.raw_os_error(), Some(5) | Some(32));
+        if is_transient && attempt < FLUSH_RETRY_LIMIT {
+            attempt += 1;
+            std::thread::sleep(FLUSH_BACKOFF);
+            continue;
+        }
+        return Err(error);
     }
-    Ok(())
 }
 
 #[cfg(not(windows))]
@@ -855,6 +879,35 @@ fn sync_directory(_directory: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Unwrap a migration result with a context message explaining the
+    /// failure. On Windows CI runners, transient antivirus/indexer file
+    /// locks can surface as os errors 5 (ACCESS_DENIED) or 32
+    /// (SHARING_VIOLATION); the message makes the root cause visible in
+    /// the test output instead of a bare `unwrap` panic.
+    fn expect_migration(
+        result: io::Result<LegacyMigration>,
+        expected: LegacyMigration,
+        context: &str,
+    ) -> LegacyMigration {
+        match result {
+            Ok(value) => {
+                assert_eq!(value, expected, "{context} returned unexpected status");
+                value
+            }
+            Err(error) => panic!("{context} failed: {error}"),
+        }
+    }
+
+    /// Unwrap a promotion-marker write with a context message. Mirrors
+    /// `expect_migration`: surfaces the underlying os error (often a
+    /// transient Windows antivirus/indexer lock) instead of a bare
+    /// `unwrap` panic.
+    fn expect_marker_write(result: io::Result<()>, context: &str) {
+        if let Err(error) = result {
+            panic!("{context} failed: {error}");
+        }
+    }
 
     #[test]
     fn youtube_cache_dir_ends_with_jellyx_youtube_cache() {
@@ -906,9 +959,10 @@ mod tests {
         std::fs::write(helix_dir.join("art").join("cover.png"), "fake art").unwrap();
 
         let jellyx_dir = tmp.join("jellyx");
-        assert_eq!(
-            migrate_legacy_data(&helix_dir, &jellyx_dir).unwrap(),
-            LegacyMigration::Imported
+        expect_migration(
+            migrate_legacy_data(&helix_dir, &jellyx_dir),
+            LegacyMigration::Imported,
+            "migration_copies_helix_db_to_jellyx_db",
         );
 
         // Assertions: new path populated, old path preserved.
@@ -939,13 +993,15 @@ mod tests {
             "legacy-playlist",
         );
         let jellyx_dir = tmp.join("jellyx");
-        assert_eq!(
-            migrate_legacy_data(&helix_dir, &jellyx_dir).unwrap(),
-            LegacyMigration::Imported
+        expect_migration(
+            migrate_legacy_data(&helix_dir, &jellyx_dir),
+            LegacyMigration::Imported,
+            "migration_is_idempotent (first run)",
         );
-        assert_eq!(
-            migrate_legacy_data(&helix_dir, &jellyx_dir).unwrap(),
-            LegacyMigration::AlreadyImported
+        expect_migration(
+            migrate_legacy_data(&helix_dir, &jellyx_dir),
+            LegacyMigration::AlreadyImported,
+            "migration_is_idempotent (second run)",
         );
 
         assert!(jellyx_dir.join("jellyx.db").exists());
@@ -989,9 +1045,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            migrate_legacy_data(&helix_dir, &jellyx_dir).unwrap(),
-            LegacyMigration::Imported
+        expect_migration(
+            migrate_legacy_data(&helix_dir, &jellyx_dir),
+            LegacyMigration::Imported,
+            "migration_imports_when_jellyx_already_exists",
         );
         assert_eq!(
             read_test_setting(&jellyx_dir.join("jellyx.db")),
@@ -1027,9 +1084,10 @@ mod tests {
         fs::write(jellyx_dir.join("art").join("shared.png"), "current").unwrap();
         fs::write(helix_dir.join("art").join("legacy-only.png"), "imported").unwrap();
 
-        assert_eq!(
-            migrate_legacy_data(&helix_dir, &jellyx_dir).unwrap(),
-            LegacyMigration::Imported
+        expect_migration(
+            migrate_legacy_data(&helix_dir, &jellyx_dir),
+            LegacyMigration::Imported,
+            "migration_preserves_current_assets_and_imports_missing_legacy_assets",
         );
         assert_eq!(
             fs::read_to_string(jellyx_dir.join("art/shared.png")).unwrap(),
@@ -1075,7 +1133,11 @@ mod tests {
             fs::write(path, "legacy data").unwrap();
         }
 
-        migrate_legacy_data(&legacy, &current).unwrap();
+        expect_migration(
+            migrate_legacy_data(&legacy, &current),
+            LegacyMigration::Imported,
+            "migration_imports_only_allowlisted_legacy_data_files",
+        );
 
         for (path, should_import) in cases {
             assert_eq!(
@@ -1162,9 +1224,10 @@ mod tests {
         create_test_database(&current.join("jellyx.db"), "current", "current");
 
         assert!(require_regular_database_file(&legacy.join("helix.db")).is_err());
-        assert_eq!(
-            migrate_legacy_data(&legacy, &current).unwrap(),
-            LegacyMigration::FailedUsingExistingData
+        expect_migration(
+            migrate_legacy_data(&legacy, &current),
+            LegacyMigration::FailedUsingExistingData,
+            "migration_fails_when_legacy_db_is_a_symlink",
         );
         assert!(
             fs::symlink_metadata(legacy.join("helix.db"))
@@ -1237,9 +1300,10 @@ mod tests {
         std::fs::create_dir_all(&jellyx_dir).unwrap();
         create_test_database(&jellyx_dir.join("jellyx.db"), "current", "current-playlist");
 
-        assert_eq!(
-            migrate_legacy_data(&helix_dir, &jellyx_dir).unwrap(),
-            LegacyMigration::FailedUsingExistingData
+        expect_migration(
+            migrate_legacy_data(&helix_dir, &jellyx_dir),
+            LegacyMigration::FailedUsingExistingData,
+            "migration_fails_when_legacy_db_is_not_a_valid_sqlite_file",
         );
         assert_eq!(read_test_setting(&jellyx_dir.join("jellyx.db")), "current");
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1333,9 +1397,15 @@ mod tests {
         fs::create_dir_all(&staging).unwrap();
         fs::write(staging.join("sentinel"), "new").unwrap();
 
-        write_promotion_marker(&marker, b"{\"state\":\"prepared\"}\n").unwrap();
+        expect_marker_write(
+            write_promotion_marker(&marker, b"{\"state\":\"prepared\"}\n"),
+            "promotion_marker_transitions (prepared)",
+        );
         assert_eq!(fs::read(&marker).unwrap(), b"{\"state\":\"prepared\"}\n");
-        write_promotion_marker(&marker, b"{\"state\":\"promoted\"}\n").unwrap();
+        expect_marker_write(
+            write_promotion_marker(&marker, b"{\"state\":\"promoted\"}\n"),
+            "promotion_marker_transitions (promoted)",
+        );
         assert_eq!(fs::read(&marker).unwrap(), b"{\"state\":\"promoted\"}\n");
 
         promote_staging(&staging, &current, &recovery).unwrap();
@@ -1410,8 +1480,14 @@ mod tests {
         fs::create_dir_all(&tmp).unwrap();
         let marker = tmp.join(PROMOTION_MARKER);
 
-        write_promotion_marker(&marker, b"{\"state\":\"prepared\"}\n").unwrap();
-        write_promotion_marker(&marker, b"{\"state\":\"promoted\"}\n").unwrap();
+        expect_marker_write(
+            write_promotion_marker(&marker, b"{\"state\":\"prepared\"}\n"),
+            "windows_marker_replacement_uses_native_utf16_paths (prepared)",
+        );
+        expect_marker_write(
+            write_promotion_marker(&marker, b"{\"state\":\"promoted\"}\n"),
+            "windows_marker_replacement_uses_native_utf16_paths (promoted)",
+        );
 
         assert_eq!(fs::read(&marker).unwrap(), b"{\"state\":\"promoted\"}\n");
         let _ = fs::remove_dir_all(&tmp);
