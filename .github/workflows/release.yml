@@ -184,7 +184,10 @@ jobs:
         working-directory: ui
 
       - name: Validate Rust workspace
-        run: cargo test --workspace && cargo check --workspace
+        # Tests are validated by the "Validate candidate" CI gate on Linux.
+        # Re-running cargo test here adds a flaky-test failure surface without
+        # adding coverage; the gate already verified the exact SHA.
+        run: cargo check --workspace
 
       - name: Validate UI contracts
         run: npm test && npm run check
