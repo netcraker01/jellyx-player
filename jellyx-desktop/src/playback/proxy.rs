@@ -40,10 +40,6 @@ const PROXY_PORT: u16 = 8765;
 /// browser opens a new connection for each Range request.
 static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
-/// Origins used by Tauri's production and development webviews. Requests from
-/// arbitrary loopback pages do not receive CORS permission.
-const WEBVIEW_ORIGINS: &[&str] = &["tauri://localhost", "http://tauri.localhost"];
-
 fn http_client() -> &'static reqwest::blocking::Client {
     HTTP_CLIENT.get_or_init(|| strict_remote_client().expect("failed to build proxy HTTP client"))
 }

@@ -151,12 +151,16 @@ if "target_commit:" in release or "release_tag:" in release.split("authorize-rel
 require(release, "authorize-release:", "release.yml protected-main authorization job")
 require(release, 'main_sha="$(gh api', "release.yml current main SHA query")
 require(release, 'test "$candidate_sha" = "$main_sha"', "release.yml main SHA equality")
-require(release, 'required_status_checks.strict', "release.yml protected required-check policy")
 require(release, 'commits/${candidate_sha}/check-runs', "release.yml exact-SHA check runs")
-require(release, ".app.id == $app_id", "release.yml required check app authorization")
+require(release, 'required_context="Validate candidate"', "release.yml hardcoded required check name")
+require(release, "checks: read", "release.yml authorize-release check-runs API permission")
 require(release, "sort_by(.completed_at // .started_at // .created_at", "release.yml latest check-run selection")
-require(release, "sort_by(.updated_at // .created_at", "release.yml latest status selection")
-require(release, "[.required_status_checks.contexts[]?] - [.required_status_checks.checks[]? | .context]", "release.yml required-check context de-duplication")
+# The authorize-release job must NOT read the branch protection API: the
+# default GITHUB_TOKEN cannot access it (requires administration:read) and
+# the required check set is fixed to the documented "Validate candidate".
+authorize = release.split("stage-and-publish-release:", 1)[0]
+if "branches/main/protection" in authorize:
+    raise SystemExit("release.yml: authorize-release must not read the branch protection API")
 require(release, 'tag="v${version}"', "release.yml Cargo-derived tag")
 require(release, "BUILD_LINUX_SHA", "release.yml build provenance")
 require(release, 'test "$BUILD_WINDOWS_SHA" = "$built_sha"', "release.yml Windows SHA match")
@@ -209,72 +213,26 @@ for workflow, label in ((release, "release.yml"), (macos, "macos-dmg.yml")):
     require(workflow, "Remove ephemeral embedded Sentry DSN", f"{label} DSN cleanup")
 
 
-def latest_check_run(runs: list[dict], context: str, app_id: int | None) -> dict | None:
-    matches = [run for run in runs if run["name"] == context and (app_id is None or run["app"]["id"] == app_id)]
+def latest_check_run(runs: list[dict], context: str) -> dict | None:
+    # The authorize-release job selects the latest run matching the required
+    # check name only (no app_id filtering): the required check is the
+    # documented "Validate candidate" job, owned by this repository's own
+    # GitHub Actions app. Selection is by completed_at (then started_at /
+    # created_at as tiebreakers), matching the workflow's jq sort_by.
+    matches = [run for run in runs if run["name"] == context]
     return max(matches, key=lambda run: run["completed_at"], default=None)
 
 
-old_success = {"name": "CI", "app": {"id": 7}, "completed_at": "2026-01-01T00:00:00Z", "status": "completed", "conclusion": "success"}
+old_success = {"name": "Validate candidate", "app": {"id": 7}, "completed_at": "2026-01-01T00:00:00Z", "status": "completed", "conclusion": "success"}
 new_failed = {**old_success, "completed_at": "2026-01-01T00:01:00Z", "conclusion": "failure"}
-wrong_app_success = {**old_success, "app": {"id": 8}, "completed_at": "2026-01-01T00:02:00Z"}
-if latest_check_run([old_success, new_failed], "CI", 7)["conclusion"] == "success":
+if latest_check_run([old_success, new_failed], "Validate candidate")["conclusion"] == "success":
     raise SystemExit("required checks must reject a newer failure after an older success")
-if latest_check_run([old_success, wrong_app_success], "CI", 8)["app"]["id"] != 8:
-    raise SystemExit("required checks must select the protected app id")
-if latest_check_run([old_success], "CI", 8) is not None:
-    raise SystemExit("required checks must reject a success from the wrong app")
-
-
-def latest_status(statuses: list[dict], context: str) -> dict | None:
-    matches = [status for status in statuses if status["context"] == context]
-    return max(matches, key=lambda status: status["updated_at"], default=None)
-
-
-def legacy_required_contexts(protection: dict) -> set[str]:
-    app_bound_contexts = {
-        check["context"]
-        for check in protection["required_status_checks"].get("checks", [])
-        # A null app_id is still a required check context; it accepts any app
-        # but must suppress a duplicate legacy status requirement.
-    }
-    return set(protection["required_status_checks"].get("contexts", [])) - app_bound_contexts
-
-
-old_status_success = {"context": "legacy-ci", "updated_at": "2026-01-01T00:00:00Z", "state": "success"}
-new_status_pending = {**old_status_success, "updated_at": "2026-01-01T00:01:00Z", "state": "pending"}
-if latest_status([old_status_success, new_status_pending], "legacy-ci")["state"] == "success":
-    raise SystemExit("required statuses must reject a newer pending result after an older success")
-
-# GitHub supplies both arrays for the same required context. The app-bound
-# check is authoritative, so this live-shaped payload must not demand a
-# duplicate legacy status that is absent from the response.
-combined_protection = {
-    "required_status_checks": {
-        "contexts": ["CI", "legacy-ci"],
-        "checks": [{"context": "CI", "app_id": 7}],
-    }
-}
-if legacy_required_contexts(combined_protection) != {"legacy-ci"}:
-    raise SystemExit("app-bound checks must suppress only duplicate legacy contexts")
-if latest_check_run([old_success], "CI", 7)["conclusion"] != "success":
-    raise SystemExit("combined required check must accept its latest matching app run")
-if latest_status([old_status_success], "legacy-ci")["state"] != "success":
-    raise SystemExit("unmatched legacy context must still require its latest status")
-
-null_app_protection = {
-    "required_status_checks": {
-        "contexts": ["any-app-ci", "legacy-ci"],
-        "checks": [{"context": "any-app-ci", "app_id": None}],
-    }
-}
-any_app_success = {**old_success, "name": "any-app-ci", "app": {"id": 99}}
-any_app_failure = {**any_app_success, "completed_at": "2026-01-01T00:03:00Z", "conclusion": "failure"}
-if legacy_required_contexts(null_app_protection) != {"legacy-ci"}:
-    raise SystemExit("null-app checks must suppress only duplicate legacy contexts")
-if latest_check_run([any_app_success], "any-app-ci", None)["conclusion"] != "success":
-    raise SystemExit("null-app required checks must accept a successful run from any app")
-if latest_check_run([any_app_success, any_app_failure], "any-app-ci", None)["conclusion"] == "success":
-    raise SystemExit("null-app required checks must reject the latest failed run")
+if latest_check_run([old_success], "Validate candidate")["conclusion"] != "success":
+    raise SystemExit("required check must accept the latest successful Validate candidate run")
+if latest_check_run([old_success, new_failed], "Validate candidate") is not new_failed:
+    raise SystemExit("required checks must select the latest run by completed_at")
+if latest_check_run([], "Validate candidate") is not None:
+    raise SystemExit("required checks must fail closed when no matching run exists")
 
 # Public-release recovery is deliberately opt-in and non-destructive: it must
 # require an exact confirmation, hide the release from the updater as a draft,
