@@ -189,8 +189,14 @@ if "actions/download-artifact@v4" in stage:
 require(stage, "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093", "release.yml immutable promotion artifact action")
 
 # Release builds must provision the packaged DSN without exposing it in logs.
+# The DSN is optional: when the repository secret is absent or empty, builds
+# proceed without any DSN embedded and telemetry stays completely off. The
+# release must NOT fail when the secret is missing.
 require(release, 'JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}', "release.yml packaged Sentry DSN")
-require(release, 'test -n "$JELLYX_SENTRY_DSN"', "release.yml fail-closed Sentry secret check")
+if 'JELLYX_SENTRY_DSN repository secret is required for releases' in release:
+    raise SystemExit("release.yml: JELLYX_SENTRY_DSN must be optional, not a release gate")
+if 'test -n "$JELLYX_SENTRY_DSN"' in release:
+    raise SystemExit("release.yml: must not fail the release when JELLYX_SENTRY_DSN is missing")
 require(release, "secrets: inherit", "release.yml macOS secret forwarding")
 require(macos, "JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}", "macos-dmg.yml packaged Sentry DSN")
 if 'cargo:rustc-env=JELLYX_SENTRY_DSN' in (ROOT / "jellyx-desktop/build.rs").read_text():

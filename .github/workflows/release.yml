@@ -83,7 +83,10 @@ jobs:
           version="$(grep '^version' jellyx-desktop/Cargo.toml | head -1 | cut -d'"' -f2)"
           test -n "$version"
           tag="v${version}"
-          test -n "$JELLYX_SENTRY_DSN" || { echo "JELLYX_SENTRY_DSN repository secret is required for releases" >&2; exit 1; }
+          # JELLYX_SENTRY_DSN is optional. When absent or empty, builds
+          # proceed without any DSN embedded and telemetry stays completely
+          # off. When present, the ephemeral DSN embedding pipeline activates
+          # as before. Do not fail the release if the secret is missing.
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             test "$GITHUB_REF_TYPE" = tag
             test "$GITHUB_REF_NAME" = "$tag" || { echo "tag must exactly equal Cargo-derived $tag" >&2; exit 1; }

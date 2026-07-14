@@ -2,20 +2,22 @@
 
 ## Optional Sentry telemetry and privacy
 
-Remote telemetry is **disabled by default**. Jellyx transmits nothing unless both conditions are true:
+Remote telemetry is **OFF by default** and stays completely inert unless both of the following are true:
 
 1. The user explicitly enables **Settings → Privacy → Share anonymous failure signals**. This choice is stored locally and can be turned off at any time.
-2. The packaged build contains a non-empty `JELLYX_SENTRY_DSN`, or the application operator supplies one at launch. A non-empty runtime value overrides the packaged default, which is useful for development.
+2. A non-empty `JELLYX_SENTRY_DSN` is available to the running app — either embedded in the packaged build at release time, or supplied by the application operator at launch. A non-empty runtime value overrides the packaged default, which is useful for development.
 
-A DSN does not enable consent, and consent without a DSN does not create a Sentry client or make a network request. Disabling the setting first closes an atomic consent gate, then unbinds the Sentry Hub and drops its transport guard. The gate rejects queued envelopes at transport send, flush, and shutdown time, so the guard's close-triggered flush cannot transmit after opt-out. Deleting `JELLYX_SENTRY_DSN` disables it for all users on the next start.
+Neither gate alone activates telemetry. A DSN does not enable consent, and consent without a DSN does not create a Sentry client or make a network request. With no DSN configured, no telemetry code path activates, no Sentry client is constructed, and no network request is ever made — the infrastructure remains present but completely inert. Disabling the setting first closes an atomic consent gate, then unbinds the Sentry Hub and drops its transport guard. The gate rejects queued envelopes at transport send, flush, and shutdown time, so the guard's close-triggered flush cannot transmit after opt-out. Removing `JELLYX_SENTRY_DSN` disables it for all users on the next start.
 
 The Sentry client is initialized with the Jellyx release and `desktop` environment only after both gates pass. Its `ClientInitGuard` is retained for the application lifetime. A defensive `before_send` callback rebuilds every outgoing event from a strict allowlist and drops unsafe identifiers. Consequently events contain only stable `component:event` failure identifiers, threshold alert identifiers, and a latency value bounded to 60,000 ms. They never contain paths, URLs, titles, media metadata, usernames, request bodies, breadcrumbs, raw backend errors, device identifiers, exceptions, stack traces, contexts, or SDK-added extras.
 
 ### Operator setup
 
-- **Setup:** Create a Sentry project for Jellyx and set the repository Actions secret **`JELLYX_SENTRY_DSN`** to its non-empty project DSN. The Release workflow fails before any platform build if it is absent and passes it only as a build environment variable. Never echo or commit the DSN.
-- **Packaged default:** The release build embeds the secret as its default DSN. An empty or absent runtime `JELLYX_SENTRY_DSN` uses that packaged default.
-- **Runtime override:** A non-empty `JELLYX_SENTRY_DSN` at application launch overrides the packaged default, which is useful for development and controlled deployments.
+Telemetry is opt-in for operators too. The release pipeline does **not** require a Sentry DSN to publish; if the secret is absent or empty, builds proceed without any DSN embedded and the resulting binaries have telemetry permanently off until a DSN is provided at runtime. To activate telemetry for a release, configure the secret before tagging a release.
+
+- **Setup (optional):** Create a Sentry project for Jellyx and set the repository Actions secret **`JELLYX_SENTRY_DSN`** to its non-empty project DSN. The Release workflow passes it only as a build environment variable and never echoes or commits it. If the secret is absent or empty, the release still succeeds and ships with telemetry off.
+- **Packaged default:** When the secret is set, the release build embeds it as the default DSN. An empty or absent runtime `JELLYX_SENTRY_DSN` uses that packaged default. When the secret is not set, no DSN is embedded and the packaged default is absent.
+- **Runtime override:** A non-empty `JELLYX_SENTRY_DSN` at application launch overrides the packaged default, which is useful for development and controlled deployments. This is the only way to activate telemetry on a build that shipped without an embedded DSN.
 - **Rotation:** Create a replacement client key in Sentry, update the Actions secret, release a new build, then revoke the old key after supported builds have been replaced.
 
 Create aggregate/count-based alerts for stable event messages (for example `updater:periodic_check_failed`), threshold identifiers `observability:error_rate_1_percent`, `observability:error_rate_2_percent`, and `observability:error_rate_5_percent`, and `updater:latest_release_fetch:latency_high`. Error-rate threshold events are emitted at most once per identifier per rolling hour to prevent recursion and alert floods. Do not add server-side enrichment that collects user data.

@@ -8,9 +8,10 @@ from pathlib import Path
 
 dsn = os.environ.get("JELLYX_SENTRY_DSN", "")
 if not dsn.strip():
-    # PR/push CI builds do not have access to the release Sentry DSN secret.
-    # Skip embedding the DSN; the release pipeline enforces its presence at
-    # .github/workflows/release.yml before invoking this workflow.
+    # The DSN is optional. When the repository secret is absent or empty
+    # (PR/push CI builds, or releases without a configured Sentry project),
+    # skip embedding any DSN: no file is created, build.rs never sets the
+    # `jellyx_sentry_dsn` cfg, and telemetry stays completely off.
     raise SystemExit(0)
 
 path = Path("jellyx-desktop/.sentry-dsn.rs")
