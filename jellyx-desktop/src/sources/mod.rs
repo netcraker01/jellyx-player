@@ -41,7 +41,9 @@ pub trait SourceResolver: Send + Sync {
     /// with a lighter-weight command (e.g. `--print %(url)s`) when possible.
     fn resolve_stream_url(&self, id: &str) -> Result<String, SourceError> {
         let track = self.resolve(id)?;
-        track.stream_url.ok_or_else(|| SourceError::ResolveError("no stream URL".into()))
+        track
+            .stream_url
+            .ok_or_else(|| SourceError::ResolveError("no stream URL".into()))
     }
 
     /// Search for playlists matching the given query.
@@ -173,8 +175,7 @@ impl SourceRegistry {
     ///
     /// Routes to the first resolver matching the given source type. This is the
     /// fast path used by `play_stream()` when the Track metadata is already known.
-    pub fn resolve_stream_url(&self, source: &Source, id: &str,
-    ) -> Result<String, SourceError> {
+    pub fn resolve_stream_url(&self, source: &Source, id: &str) -> Result<String, SourceError> {
         for resolver in &self.resolvers {
             if resolver.source_type() == *source {
                 return resolver.resolve_stream_url(id);
