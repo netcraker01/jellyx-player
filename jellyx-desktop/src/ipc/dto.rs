@@ -6,10 +6,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use jellyx_core::models::track::Track;
 use crate::persistence::models::HistoryEntry;
 use crate::updater::checker::UpdateInfo;
 use crate::updater::prefs::UpdatePrefs;
+use jellyx_core::models::track::Track;
 
 /// Filter for grouped search: limit results to a single entity type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

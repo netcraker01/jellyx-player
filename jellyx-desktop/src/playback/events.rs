@@ -4,9 +4,9 @@
 //! for emitting playback events to the frontend.
 
 use crate::errors::types::IPCError;
-use jellyx_core::models::track::Track;
 use crate::playback::models::ProgressTick;
 use crate::playback::state::{PlaybackState, QueueState};
+use jellyx_core::models::track::Track;
 use tauri::{AppHandle, Emitter, Runtime};
 
 /// Event name constants for playback events.
@@ -43,6 +43,8 @@ pub struct BufferingProgress {
 pub struct StreamResolved {
     /// The ID of the track.
     pub track_id: String,
+    /// Correlates this resolution with the frontend request that initiated it.
+    pub stream_request_id: u64,
     /// The (proxied) stream URL the frontend should load.
     pub stream_url: String,
     /// The raw remote stream URL (before proxying). Present for remote tracks
@@ -50,6 +52,11 @@ pub struct StreamResolved {
     /// for instant seeking. `None` for local-file proxy URLs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remote_url: Option<String>,
+    /// Per-process capability for the already-selected local proxy. It is sent
+    /// only with the playback event that needs it, allowing the cache-file swap
+    /// to use the same guarded endpoint as the original stream request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proxy_capability: Option<String>,
 }
 
 /// Emits typed playback events via Tauri's event system.
@@ -109,11 +116,20 @@ impl<R: Runtime> PlaybackEventEmitter<R> {
     /// The frontend uses this URL with HTMLAudio for browser-native playback.
     /// If `remote_url` is provided, the frontend can call `cache_remote_stream`
     /// to download a local copy for instant seeking (YouTube).
-    pub fn emit_stream_resolved(&self, track_id: &str, stream_url: &str, remote_url: Option<&str>) -> Result<(), IPCError> {
+    pub fn emit_stream_resolved(
+        &self,
+        track_id: &str,
+        stream_request_id: u64,
+        stream_url: &str,
+        remote_url: Option<&str>,
+        proxy_capability: Option<&str>,
+    ) -> Result<(), IPCError> {
         let payload = StreamResolved {
             track_id: track_id.to_string(),
+            stream_request_id,
             stream_url: stream_url.to_string(),
             remote_url: remote_url.map(|s| s.to_string()),
+            proxy_capability: proxy_capability.map(|s| s.to_string()),
         };
         self.app
             .emit(EVENT_STREAM_RESOLVED, payload)
@@ -146,6 +162,13 @@ impl<R: Runtime> PlaybackEventEmitter<R> {
         Self {
             app: self.app.clone(),
         }
+    }
+
+    /// Return a reference to the underlying `AppHandle`.
+    ///
+    /// Used by the FFT thread to emit frames directly via `webview.emit()`.
+    pub fn app_handle(&self) -> &AppHandle<R> {
+        &self.app
     }
 }
 
@@ -181,25 +204,49 @@ mod tests {
     fn stream_resolved_serializes_camel_case() {
         let payload = StreamResolved {
             track_id: "t-1".to_string(),
+            stream_request_id: 7,
             stream_url: "http://127.0.0.1:8765/proxy?url=abc".to_string(),
             remote_url: Some("https://remote.example.com/stream".to_string()),
+            proxy_capability: Some("test-capability".to_string()),
         };
         let json = serde_json::to_string(&payload).unwrap();
-        assert!(json.contains("\"trackId\""), "track_id should serialize as trackId");
-        assert!(json.contains("\"streamUrl\""), "stream_url should serialize as streamUrl");
-        assert!(json.contains("\"remoteUrl\""), "remote_url should serialize as remoteUrl");
+        assert!(
+            json.contains("\"trackId\""),
+            "track_id should serialize as trackId"
+        );
+        assert!(
+            json.contains("\"streamUrl\""),
+            "stream_url should serialize as streamUrl"
+        );
+        assert!(
+            json.contains("\"remoteUrl\""),
+            "remote_url should serialize as remoteUrl"
+        );
+        assert!(json.contains("\"proxyCapability\""));
+        assert!(json.contains("\"streamRequestId\":7"));
     }
 
     #[test]
     fn stream_resolved_skips_none_remote_url() {
         let payload = StreamResolved {
             track_id: "t-1".to_string(),
+            stream_request_id: 7,
             stream_url: "http://127.0.0.1:8765/proxy?url=abc".to_string(),
             remote_url: None,
+            proxy_capability: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
-        assert!(json.contains("\"trackId\""), "track_id should serialize as trackId");
-        assert!(json.contains("\"streamUrl\""), "stream_url should serialize as streamUrl");
-        assert!(!json.contains("\"remoteUrl\""), "None remote_url should be skipped");
+        assert!(
+            json.contains("\"trackId\""),
+            "track_id should serialize as trackId"
+        );
+        assert!(
+            json.contains("\"streamUrl\""),
+            "stream_url should serialize as streamUrl"
+        );
+        assert!(
+            !json.contains("\"remoteUrl\""),
+            "None remote_url should be skipped"
+        );
     }
 }

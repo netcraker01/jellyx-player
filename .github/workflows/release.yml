@@ -1,13 +1,14 @@
 # =============================================================================
-# Jellyx Player — Release Pipeline (Linux + Windows)
+# Jellyx Player — Release Pipeline (Linux, Windows, and macOS)
 # =============================================================================
 # Builds Linux (AppImage, .deb, .rpm) and Windows (MSI, NSIS, portable exe)
-# on a v* tag push and attaches them to the GitHub Release.
+# on a v* tag push. Assets remain workflow artifacts until every platform has
+# passed; only the final promotion job creates and publishes the release.
 #
-# macOS DMGs are built by .github/workflows/macos-dmg.yml (same tag trigger)
-# to avoid blocking Linux/Windows builds while macOS runners are queued.
+# macOS DMGs are built through the reusable macOS workflow and join the same
+# final promotion gate.
 #
-# Trigger: push of a version tag matching v* (e.g. v0.2.1) or manual dispatch.
+# Trigger: push of a version tag matching v* (for example, v0.4.1) or manual dispatch.
 #
 # Two jobs run in parallel:
 #   - build-linux   → AppImage (NO_STRIP=1), .deb, .rpm
@@ -17,16 +18,16 @@
 #   1. Builds its platform artifacts
 #   2. Generates SHA256 checksum files (.sha256 alongside each artifact)
 #   3. Uploads build artifacts to the workflow run (30-day retention)
-#   4. Attaches artifacts + checksums to the GitHub Release for the tag
+#   4. Uploads artifacts + checksums only to the workflow run
 #
 # CI validation (push to main, PRs) is handled separately by:
 #   - .github/workflows/windows.yml
 #   - .github/workflows/macos-dmg.yml
 #
 # To publish a new release:
-#   git tag v0.2.1
-#   git push origin v0.2.1
-# That's it. macOS builds follow in a separate workflow.
+#   git tag v0.4.1
+#   git push origin v0.4.1
+# The final job creates a draft, validates every staged asset, then publishes.
 #
 # Note on code signing: Windows artifacts are UNSIGNED by default.
 # See docs/packaging.md > "Windows Code Signing" for Azure Trusted Signing
@@ -39,15 +40,92 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    # Manual releases are always pinned to the current protected main head.
+    # Arbitrary commits and tag names are intentionally not accepted.
 
-# Required to create the GitHub Release and upload assets to it.
+# Build jobs run untrusted dependency and build code with read-only tokens.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+
+  authorize-release:
+    name: Authorize protected-main release target
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.authorize.outputs.sha }}
+      tag: ${{ steps.authorize.outputs.tag }}
+      version: ${{ steps.authorize.outputs.version }}
+    steps:
+      - name: Checkout candidate without credentials
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.sha || 'main' }}
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Fail closed unless the candidate is protected current main
+        id: authorize
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # --- Resolve the immutable release candidate ---
+          candidate_sha="$(git rev-parse HEAD^{commit})"
+          main_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')"
+          test "$candidate_sha" = "$main_sha" || { echo "release target is not current origin/main" >&2; exit 1; }
+          version="$(grep '^version' jellyx-desktop/Cargo.toml | head -1 | cut -d'"' -f2)"
+          test -n "$version"
+          tag="v${version}"
+          test -n "$JELLYX_SENTRY_DSN" || { echo "JELLYX_SENTRY_DSN repository secret is required for releases" >&2; exit 1; }
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            test "$GITHUB_REF_TYPE" = tag
+            test "$GITHUB_REF_NAME" = "$tag" || { echo "tag must exactly equal Cargo-derived $tag" >&2; exit 1; }
+            tag_commit="$(git rev-parse "${GITHUB_REF}^{commit}")"
+            test "$tag_commit" = "$candidate_sha"
+          fi
+          protection="$(gh api "repos/${GITHUB_REPOSITORY}/branches/main/protection")" || {
+            echo "main must have readable branch protection" >&2; exit 1;
+          }
+          # --- Verify the current branch-protection requirements ---
+          test "$(jq -r '.required_status_checks.strict' <<<"$protection")" = true || {
+            echo "main must require up-to-date status checks" >&2; exit 1;
+          }
+          # GitHub returns legacy status contexts and check requirements in the
+          # same payload. A required check (including app_id: null, which means
+          # any app) is authoritative for its context and suppresses only its
+          # duplicate legacy commit status.
+          mapfile -t required_status_contexts < <(jq -r '([.required_status_checks.contexts[]?] - [.required_status_checks.checks[]? | .context]) | unique[]?' <<<"$protection")
+          mapfile -t required_check_runs < <(jq -c '.required_status_checks.checks[]?' <<<"$protection")
+          test "$(( ${#required_status_contexts[@]} + ${#required_check_runs[@]} ))" -gt 0 || { echo "main must require CI checks" >&2; exit 1; }
+          checks="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}/check-runs?per_page=100")"
+          statuses="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${candidate_sha}/status")"
+          # Required checks are authoritative for duplicate context names. A
+          # null app_id accepts the latest run of that exact context from any app.
+          for required_check in "${required_check_runs[@]}"; do
+            context="$(jq -r '.context' <<<"$required_check")"
+            app_id="$(jq -r '.app_id' <<<"$required_check")"
+            latest_check="$(jq -c --arg context "$context" --argjson app_id "$app_id" '[.check_runs[] | select(.name == $context and ($app_id == null or .app.id == $app_id))] | sort_by(.completed_at // .started_at // .created_at // "") | last // empty' <<<"$checks")"
+            test -n "$latest_check" && test "$(jq -r '.status' <<<"$latest_check")" = completed && test "$(jq -r '.conclusion' <<<"$latest_check")" = success || {
+              echo "latest required check run is not successful for $candidate_sha: $context (app ${app_id:-any})" >&2; exit 1;
+            }
+          done
+          # Legacy-only contexts still require their latest commit status.
+          for context in "${required_status_contexts[@]}"; do
+            latest_status="$(jq -c --arg context "$context" '[.statuses[] | select(.context == $context)] | sort_by(.updated_at // .created_at // "") | last // empty' <<<"$statuses")"
+            test -n "$latest_status" && test "$(jq -r '.state' <<<"$latest_status")" = success || {
+              echo "latest required status is not successful for $candidate_sha: $context" >&2; exit 1;
+            }
+          done
+          echo "sha=$candidate_sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # Linux: AppImage + .deb + .rpm
@@ -59,10 +137,23 @@ jobs:
   build-linux:
     name: Build Linux (AppImage, deb, rpm)
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    needs: authorize-release
+    outputs:
+      built_sha: ${{ steps.provenance.outputs.sha }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize-release.outputs.sha }}
+          persist-credentials: false
+
+      - name: Record immutable build commit
+        id: provenance
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install Tauri Linux system dependencies
         run: |
@@ -90,14 +181,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
 
-      - name: Cache Cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
-
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
@@ -114,13 +197,31 @@ jobs:
         run: npm ci
         working-directory: ui
 
+      - name: Validate Rust workspace
+        run: cargo test --workspace && cargo check --workspace
+
+      - name: Validate UI contracts
+        run: npm test && npm run check
+        working-directory: ui
+
+      - name: Validate Windows icon assets
+        run: |
+          python -m pip install --disable-pip-version-check -r scripts/requirements-windows-icons.txt
+          python scripts/test-windows-icons.py
+
       - name: Install tauri-cli
         run: cargo install tauri-cli --locked
+
+      - name: Prepare ephemeral embedded Sentry DSN
+        env:
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: python scripts/prepare-sentry-dsn.py
 
       - name: Clean stale Linux bundle outputs
         shell: bash
         run: |
           set -euo pipefail
+          # --- Validate immutable release inputs ---
           bundle_dirs=(
             "target/release/bundle"
             "target/release/portable-tar"
@@ -134,13 +235,41 @@ jobs:
             fi
           done
 
-      # Build all three Linux bundle formats in one pass.
-      # NO_STRIP=1 prevents linuxdeploy from stripping RELR-enabled binaries,
-      # which would otherwise corrupt the AppImage at runtime.
-      - name: Build AppImage, .deb, .rpm
+      # Each distributable is compiled separately so its embedded channel is
+      # authoritative rather than inheriting a generic multi-bundle value.
+      - name: Build AppImage
         env:
           NO_STRIP: "1"
-        run: cargo tauri build --bundles appimage,deb,rpm
+          JELLYX_INSTALL_CHANNEL: linux-appimage
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: cargo tauri build --bundles appimage
+
+      - name: Build deb
+        env:
+          JELLYX_INSTALL_CHANNEL: linux-deb
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: cargo tauri build --bundles deb
+
+      - name: Build rpm
+        env:
+          JELLYX_INSTALL_CHANNEL: linux-rpm
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: cargo tauri build --bundles rpm
+
+      - name: Build portable tarball binary
+        env:
+          JELLYX_INSTALL_CHANNEL: linux-tarball
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: cargo build --release -p jellyx-desktop
+
+      - name: Verify Sentry DSN executable boundary
+        env:
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: python scripts/verify-sentry-dsn-boundary.py target/release/jellyx jellyx-desktop/target/release/jellyx
+
+      - name: Remove ephemeral embedded Sentry DSN
+        if: always()
+        run: rm -f jellyx-desktop/.sentry-dsn.rs
 
       # Locate each artifact, generate a SHA256 checksum next to it, and
       # expose paths to later steps via $GITHUB_OUTPUT.
@@ -199,11 +328,8 @@ jobs:
           rpm_hash_file="${rpm_file}.sha256"
           echo "${rpm_hash}  $(basename "$rpm_file")" > "$rpm_hash_file"
 
-          # Version from the tag (strip leading 'v'); fall back to Cargo.toml.
-          version="${GITHUB_REF_NAME#v}"
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-            version=$(grep '^version' jellyx-desktop/Cargo.toml | head -1 | cut -d'"' -f2)
-          fi
+          # Cargo.toml is the version authority, including workflow_dispatch.
+          version=$(grep '^version' jellyx-desktop/Cargo.toml | head -1 | cut -d'"' -f2)
 
           # --- portable tar.gz ---
           binary_path=""
@@ -301,26 +427,22 @@ jobs:
           if [ -z "$prev_tag" ]; then
             prev_tag="$current_tag"
           fi
-          chmod +x scripts/generate-release-body.sh
-          ./scripts/generate-release-body.sh "$version" "$prev_tag" > release-body.md
-          echo "body_file=${PWD}/release-body.md" >> "$GITHUB_OUTPUT"
+           chmod +x scripts/generate-release-body.sh
+           ./scripts/generate-release-body.sh "$version" "$prev_tag" > release-body.md
+           sha256sum release-body.md > release-body.md.sha256
+           echo "body_file=${PWD}/release-body.md" >> "$GITHUB_OUTPUT"
 
-      - name: Attach Linux artifacts to Release
-        uses: softprops/action-gh-release@v2
+      # This script runs only in the read-token build job. The promotion job
+      # consumes the resulting data and never executes repository scripts.
+      - name: Upload release body artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: Jellyx ${{ steps.artifacts.outputs.version }}
-          body_path: ${{ steps.body.outputs.body_file }}
-          files: |
-            ${{ steps.artifacts.outputs.appimage_path }}
-            ${{ steps.artifacts.outputs.appimage_sha256_file }}
-            ${{ steps.artifacts.outputs.deb_path }}
-            ${{ steps.artifacts.outputs.deb_sha256_file }}
-            ${{ steps.artifacts.outputs.rpm_path }}
-            ${{ steps.artifacts.outputs.rpm_sha256_file }}
-            ${{ steps.artifacts.outputs.tarball_path }}
-            ${{ steps.artifacts.outputs.tarball_sha256_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: jellyx-release-body
+          path: |
+            ${{ steps.body.outputs.body_file }}
+            ${{ steps.body.outputs.body_file }}.sha256
+          if-no-files-found: error
+          retention-days: 30
 
   # ---------------------------------------------------------------------------
   # Windows: MSI + NSIS setup.exe + portable jellyx.exe
@@ -331,10 +453,23 @@ jobs:
   build-windows:
     name: Build Windows (MSI, NSIS, portable)
     runs-on: windows-latest
+    permissions:
+      contents: read
+    needs: authorize-release
+    outputs:
+      built_sha: ${{ steps.provenance.outputs.sha }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.authorize-release.outputs.sha }}
+          persist-credentials: false
+
+      - name: Record immutable build commit
+        id: provenance
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -346,12 +481,6 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}-v2
-
-      - name: Cache Cargo build
-        uses: actions/cache@v4
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}-v2
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -369,8 +498,26 @@ jobs:
         run: npm ci
         working-directory: ui
 
+      - name: Validate Rust workspace
+        run: cargo test --workspace && cargo check --workspace
+
+      - name: Validate UI contracts
+        run: npm test && npm run check
+        working-directory: ui
+
+      - name: Validate Windows icon assets
+        run: |
+          python -m pip install --disable-pip-version-check -r scripts/requirements-windows-icons.txt
+          python scripts/test-windows-icons.py
+
       - name: Install tauri-cli
         run: cargo install tauri-cli --locked --force
+
+      - name: Prepare ephemeral embedded Sentry DSN
+        shell: bash
+        env:
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: python scripts/prepare-sentry-dsn.py
 
       - name: Clean stale Windows bundle outputs
         shell: pwsh
@@ -388,9 +535,35 @@ jobs:
             }
           }
 
-      # Single build pass produces both MSI and NSIS installers.
-      - name: Build MSI and NSIS
-        run: cargo tauri build --bundles msi,nsis
+      # Installers must embed their own canonical channel.
+      - name: Build MSI
+        env:
+          JELLYX_INSTALL_CHANNEL: windows-msi
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: cargo tauri build --bundles msi
+
+      - name: Build NSIS
+        env:
+          JELLYX_INSTALL_CHANNEL: windows-nsis
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: cargo tauri build --bundles nsis
+
+      - name: Build portable executable
+        env:
+          JELLYX_INSTALL_CHANNEL: windows-portable
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: cargo build --release -p jellyx-desktop
+
+      - name: Verify Sentry DSN executable boundary
+        shell: bash
+        env:
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: python scripts/verify-sentry-dsn-boundary.py target/release/jellyx.exe jellyx-desktop/target/release/jellyx.exe
+
+      - name: Remove ephemeral embedded Sentry DSN
+        if: always()
+        shell: bash
+        run: rm -f jellyx-desktop/.sentry-dsn.rs
 
       # Locate the raw release executable (no installer wrapper) and hash it.
       - name: Locate portable exe
@@ -428,13 +601,8 @@ jobs:
         id: msi
         shell: pwsh
         run: |
-          # Extract expected version from tag or Cargo.toml before selecting artifacts.
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          if ($version -match '^\d+\.\d+\.\d+') {
-            $version = $Matches[0]
-          } else {
-            $version = (Select-String -Path "jellyx-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
-          }
+          # Cargo.toml is the version authority, including workflow_dispatch.
+          $version = (Select-String -Path "jellyx-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
 
           $searchDirs = @(
             "target/release/bundle/msi",
@@ -488,13 +656,8 @@ jobs:
         id: nsis
         shell: pwsh
         run: |
-          # Extract expected version from tag or Cargo.toml before selecting artifacts.
-          $version = "${{ github.ref_name }}" -replace '^v', ''
-          if ($version -match '^\d+\.\d+\.\d+') {
-            $version = $Matches[0]
-          } else {
-            $version = (Select-String -Path "jellyx-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
-          }
+          # Cargo.toml is the version authority, including workflow_dispatch.
+          $version = (Select-String -Path "jellyx-desktop/Cargo.toml" -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches.Groups[1].Value
 
           $searchDirs = @(
             "target/release/bundle/nsis",
@@ -591,50 +754,183 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach Windows artifacts to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Jellyx ${{ steps.msi.outputs.version }}
-          files: |
-            ${{ steps.msi.outputs.msi_path }}
-            ${{ steps.msi.outputs.sha256_file }}
-            ${{ steps.nsis.outputs.nsis_path }}
-            ${{ steps.nsis.outputs.nsis_sha256_file }}
-            ${{ steps.portable.outputs.exe_path }}
-            ${{ steps.portable.outputs.sha256_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  build-macos:
+    name: Build macOS DMG
+    uses: ./.github/workflows/macos-dmg.yml
+    with:
+      release_ref: ${{ needs.authorize-release.outputs.sha }}
+    secrets: inherit
+    needs: authorize-release
 
-  verify-release:
-    name: Verify release metadata and asset names
+  validate-release-assets:
+    name: Validate staged release artifacts
+    runs-on: ubuntu-22.04
+    needs:
+      - authorize-release
+      - build-linux
+      - build-windows
+      - build-macos
+    permissions:
+      contents: read
+    steps:
+      - name: Download staged platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: jellyx-*
+          path: release-assets
+      - name: Download pre-rendered release body
+        uses: actions/download-artifact@v4
+        with:
+          name: jellyx-release-body
+          path: release-body
+      - name: Validate assets and generate content-addressed manifest
+        env:
+          RELEASE_VERSION: ${{ needs.authorize-release.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$RELEASE_VERSION"
+          test -f release-body/release-body.md
+          test -f release-body/release-body.md.sha256
+          (cd release-body && sha256sum -c release-body.md.sha256)
+          mapfile -t assets < <(find release-assets -type f \( \
+            -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' \
+            -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.sha256' \
+          \) ! -name 'release-body.md.sha256' ! -name 'release-manifest.sha256' | sort)
+          required=(
+            "Jellyx.Player_${version}_amd64.AppImage" "Jellyx.Player_${version}_amd64.AppImage.sha256"
+            "Jellyx.Player-${version}-1.x86_64.rpm" "Jellyx.Player-${version}-1.x86_64.rpm.sha256"
+            "Jellyx.Player_${version}_amd64.deb" "Jellyx.Player_${version}_amd64.deb.sha256"
+            "Jellyx_${version}_amd64.tar.gz" "Jellyx_${version}_amd64.tar.gz.sha256"
+            "Jellyx.Player_${version}_x64-setup.exe" "Jellyx.Player_${version}_x64-setup.exe.sha256"
+            "Jellyx.Player_${version}_x64_en-US.msi" "Jellyx.Player_${version}_x64_en-US.msi.sha256"
+            "jellyx.exe" "jellyx.exe.sha256"
+            "Jellyx.Player_${version}_aarch64.dmg" "Jellyx.Player_${version}_aarch64.dmg.sha256"
+          )
+          mapfile -t staged_names < <(printf '%s\n' "${assets[@]}" | xargs -n1 basename | sort)
+          mapfile -t expected_names < <(printf '%s\n' "${required[@]}" | sort)
+          test "${staged_names[*]}" = "${expected_names[*]}"
+          for checksum in "${assets[@]}"; do
+            [[ "$checksum" == *.sha256 ]] || continue
+            (cd "$(dirname "$checksum")" && sha256sum -c "$(basename "$checksum")")
+          done
+          sha256sum "${assets[@]}" release-body/release-body.md > release-manifest.sha256
+      - name: Upload validated content manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellyx-release-manifest
+          path: release-manifest.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  stage-and-publish-release:
+    name: Stage, validate, and publish release
     runs-on: ubuntu-22.04
     needs:
       - build-linux
       - build-windows
+      - build-macos
+      - authorize-release
+      - validate-release-assets
+    permissions:
+      contents: write
+    environment: release
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      # This write-token job intentionally does not checkout the repository,
+      # retain checkout credentials, or execute repository/downloaded scripts.
+      - name: Verify immutable build provenance
+        id: provenance
+        env:
+          BUILD_LINUX_SHA: ${{ needs.build-linux.outputs.built_sha }}
+          BUILD_WINDOWS_SHA: ${{ needs.build-windows.outputs.built_sha }}
+          BUILD_MACOS_SHA: ${{ needs.build-macos.outputs.built_sha }}
+          AUTHORIZED_SHA: ${{ needs.authorize-release.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          built_sha="$BUILD_LINUX_SHA"
+          test -n "$built_sha"
+          test "$BUILD_WINDOWS_SHA" = "$built_sha"
+          test "$BUILD_MACOS_SHA" = "$built_sha"
+          test "$AUTHORIZED_SHA" = "$built_sha" || { echo "build target differs from authorized main SHA" >&2; exit 1; }
+          echo "sha=$built_sha" >> "$GITHUB_OUTPUT"
 
-      - name: Validate release title and required assets
+      - name: Download staged platform artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0, audited
+        with:
+          pattern: jellyx-*
+          path: release-assets
+
+      - name: Download pre-rendered release body
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0, audited
+        with:
+          name: jellyx-release-body
+          path: release-body
+
+      - name: Download validated content manifest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0, audited
+        with:
+          name: jellyx-release-manifest
+          path: release-manifest
+
+      - name: Create draft, validate assets, and publish atomically
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUILT_SHA: ${{ steps.provenance.outputs.sha }}
+          RELEASE_TAG: ${{ needs.authorize-release.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.authorize-release.outputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
-          ./scripts/validate-release.sh \
-            "$GITHUB_REF_NAME" \
-            "Jellyx ${version}" \
-            "Jellyx.Player_${version}_amd64.AppImage" \
-            "Jellyx.Player_${version}_amd64.AppImage.sha256" \
-            "Jellyx.Player-${version}-1.x86_64.rpm" \
-            "Jellyx.Player-${version}-1.x86_64.rpm.sha256" \
-            "Jellyx.Player_${version}_amd64.deb" \
-            "Jellyx.Player_${version}_amd64.deb.sha256" \
-            "Jellyx_${version}_amd64.tar.gz" \
-            "Jellyx_${version}_amd64.tar.gz.sha256" \
-            "Jellyx.Player_${version}_x64-setup.exe" \
-            "Jellyx.Player_${version}_x64-setup.exe.sha256" \
-            "Jellyx.Player_${version}_x64_en-US.msi" \
-            "Jellyx.Player_${version}_x64_en-US.msi.sha256" \
-            "jellyx.exe" \
-            "jellyx.exe.sha256"
+          set -euo pipefail
+          version="$RELEASE_VERSION"
+          release_tag="$RELEASE_TAG"
+          test "$release_tag" = "v${version}" || { echo "authorization tag/version mismatch" >&2; exit 1; }
+          test -f release-body/release-body.md
+          test -f release-manifest/release-manifest.sha256
+          # --- Revalidate read-only validator output before write-token use ---
+          # The read-only validator emitted this manifest after checking the
+          # exact asset set and every sidecar checksum. Recheck all content
+          # digests here before any write-token publication.
+          sha256sum -c release-manifest/release-manifest.sha256
+          if gh release view "$release_tag" --json isDraft --jq '.isDraft' >/dev/null 2>&1; then
+            test "$(gh release view "$release_tag" --json isDraft --jq '.isDraft')" = "true"
+            gh release delete "$release_tag" --yes
+          fi
+          # --- Recheck authorization immediately before publication ---
+          # Recheck the protected branch immediately before every publication
+          # mutation. A moved main head fails closed rather than releasing stale
+          # artifacts. The authorization job already verified required checks
+          # for this exact immutable SHA.
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq '.object.sha')" = "$BUILT_SHA" || {
+            echo "origin/main moved after authorization" >&2; exit 1;
+          }
+          if ! gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${release_tag}" --jq '.object.sha' >/dev/null 2>&1; then
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" -f "ref=refs/tags/${release_tag}" -f "sha=${BUILT_SHA}" >/dev/null
+          fi
+          git init tag-verification >/dev/null
+          git -C tag-verification remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git -C tag-verification fetch --depth=1 origin "refs/tags/${release_tag}"
+          tag_commit="$(git -C tag-verification rev-parse 'FETCH_HEAD^{commit}')"
+          test "$tag_commit" = "$BUILT_SHA" || { echo "release tag commit targets another SHA" >&2; exit 1; }
+          gh release create "$release_tag" --target "$BUILT_SHA" --draft --title "Jellyx ${version}" --notes-file release-body/release-body.md
+          release_target="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$release_tag" --jq '.target_commitish')"
+          test "$release_target" = "$BUILT_SHA" || {
+            echo "draft release target does not match built commit" >&2; exit 1;
+          }
+
+          # --- Publish the exact validated asset set ---
+          mapfile -t assets < <(find release-assets -type f \( \
+            -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' \
+            -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.sha256' \
+          \) ! -name 'release-body.md.sha256' ! -name 'release-manifest.sha256' | sort)
+          test "${#assets[@]}" -gt 0
+          gh release upload "$release_tag" "${assets[@]}"
+          release_json="$(gh release view "$release_tag" --json name,assets)"
+          test "$(printf '%s' "$release_json" | jq -r '.name')" = "Jellyx ${version}"
+          actual_assets="$(printf '%s' "$release_json" | jq -r '.assets[].name')"
+          expected_asset_count="$(grep -c ' release-assets/' release-manifest/release-manifest.sha256)"
+          test "$(printf '%s\n' "$actual_assets" | sed '/^$/d' | wc -l | tr -d ' ')" = "$expected_asset_count"
+          gh release edit "$release_tag" --draft=false
+
+          # Any failure above leaves a non-public draft with its staged assets
+          # for inspection or deletion; no partial release is made public.

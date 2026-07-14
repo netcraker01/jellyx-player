@@ -121,7 +121,7 @@ This document explains what accounts, credentials, and steps are needed to publi
 - **GitHub account** (to create the tap repository)
 
 ### Prerequisites
-- At least one macOS DMG must exist on a GitHub Release. The Release workflow (`.github/workflows/release.yml`) builds both Apple Silicon (`aarch64`) and Intel (`x64`) DMGs on every `v*` tag push.
+- An Apple Silicon (ARM64/aarch64) macOS DMG must exist on a GitHub Release. The Release workflow (`.github/workflows/release.yml`) builds this single supported macOS artifact on every authorized release.
 - The cask file at `packaging/homebrew/Casks/jellyx-player.rb` contains placeholder checksums that must be replaced with real values from the release artifacts.
 
 ### Steps
@@ -130,18 +130,16 @@ This document explains what accounts, credentials, and steps are needed to publi
    git tag v0.1.0
    git push origin v0.1.0
    ```
-   This builds two DMGs and attaches them to the GitHub Release.
+    This builds the ARM64 DMG and attaches it to the GitHub Release.
 
 2. **Get the SHA256 checksums** from the release:
    ```bash
-   shasum -a 256 Jellyx_0.1.0_aarch64.dmg
-   shasum -a 256 Jellyx_0.1.0_x64.dmg
+    shasum -a 256 Jellyx.Player_0.1.0_aarch64.dmg
    ```
    Or download the `.sha256` files attached to the release.
 
 3. **Update the cask file** (`packaging/homebrew/Casks/jellyx-player.rb`):
-   - Replace `REPLACE_WITH_AARCH64_SHA256` with the actual aarch64 checksum
-   - Replace `REPLACE_WITH_X64_SHA256` with the actual x64 checksum
+    - Replace the ARM64 checksum placeholder with the actual aarch64 checksum.
    - Confirm `version` matches the release tag (without `v` prefix)
 
 4. Create a Homebrew tap repository:
@@ -181,14 +179,13 @@ This document explains what accounts, credentials, and steps are needed to publi
 
 ### Architecture support
 
-The CI workflow builds DMGs for two architectures:
+The CI workflow currently builds one macOS architecture:
 
 | Runner | Target | DMG filename |
 |--------|--------|-------------|
-| `macos-14` (M1) | `aarch64-apple-darwin` | `Jellyx_<version>_aarch64.dmg` |
-| `macos-13` (Intel) | `x86_64-apple-darwin` | `Jellyx_<version>_x64.dmg` |
+| `macos-14` (M1) | `aarch64-apple-darwin` | `Jellyx.Player_<version>_aarch64.dmg` |
 
-The cask uses `on_arm` / `on_intel` blocks so Homebrew automatically selects the correct DMG.
+Intel macOS is not currently packaged; do not publish an `on_intel` cask block until an Intel build is added and validated.
 
 ### Future: Official Homebrew Cask
 If Jellyx gains enough traction, consider submitting to the official homebrew/cask repo for `brew install --cask jellyx-player` without a custom tap. See: https://docs.brew.sh/Adding-Software-to-Homebrew#casks
@@ -388,7 +385,6 @@ NO_STRIP=1 cargo tauri build --bundles appimage
 | **Windows NSIS setup.exe** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
 | **Windows portable jellyx.exe** | `.github/workflows/release.yml` | `windows-latest` | `v*` tag push (release) |
 | **macOS DMG (Apple Silicon)** | `.github/workflows/release.yml` | `macos-14` (M1) | `v*` tag push (release) |
-| **macOS DMG (Intel)** | `.github/workflows/release.yml` | `macos-13` | `v*` tag push (release) |
 | **Linux AppImage** | `.github/workflows/release.yml` | `ubuntu-22.04` | `v*` tag push (release) |
 | **Linux .deb** | `.github/workflows/release.yml` | `ubuntu-22.04` | `v*` tag push (release) |
 | **Linux .rpm** | `.github/workflows/release.yml` | `ubuntu-22.04` | `v*` tag push (release) |
@@ -409,9 +405,9 @@ When cutting a new release, update these placeholders:
 - [ ] `packaging/aur/PKGBUILD` — `pkgver`, `sha256sums`
 - [ ] `packaging/flatpak/com.jellyx.music.yml` — source URL and SHA256
 - [ ] `packaging/flatpak/com.jellyx.music.metainfo.xml` — `<release>` entry
-- [ ] `packaging/homebrew/Casks/jellyx-player.rb` — `version`, `sha256` (both aarch64 and x64), `url`
+- [ ] `packaging/homebrew/Casks/jellyx-player.rb` — ARM64 `version`, `sha256`, and `url`
 - [ ] `packaging/winget/manifests/*.yaml` — `PackageVersion`, `InstallerSha256`, `InstallerUrl`, `ProductCode`
-- [ ] Download `.sha256` files from the macOS DMG CI artifacts for both architectures
+- [ ] Download the ARM64 macOS DMG `.sha256` file from the release artifacts
 - [ ] Run `scripts/inspect-msi.ps1` on the built MSI to extract ProductCode and UpgradeCode
 - [ ] Sign Windows installers (MSI + NSIS) — see [Code Signing](#6-code-signing-windows) section
 - [ ] Upload signed MSI + NSIS to GitHub Release (replace unsigned artifacts if signing locally)

@@ -48,9 +48,8 @@ impl HttpStreamReader {
     /// or the response status is not successful.
     #[allow(dead_code)]
     pub fn from_url(url: &str) -> Result<Self, StreamError> {
-        let response = reqwest::blocking::get(url).map_err(|e| {
-            StreamError::StreamFailed(format!("HTTP request failed: {}", e))
-        })?;
+        let response = reqwest::blocking::get(url)
+            .map_err(|e| StreamError::StreamFailed(format!("HTTP request failed: {}", e)))?;
 
         let status = response.status();
         if !status.is_success() {

@@ -6,6 +6,7 @@
 //! for the frontend visualizer.
 
 use std::collections::VecDeque;
+use std::time::Duration;
 
 use rustfft::num_complex::Complex;
 use rustfft::num_traits::Zero;
@@ -21,8 +22,12 @@ use super::pipeline::PcmBusSubscriber;
 pub struct FftEngine {
     fft_size: usize,
     planner: FftPlanner<f64>,
-    /// Circular buffer of interleaved f32 PCM samples.
+    /// Circular buffer of mono f32 PCM samples, one per audio frame.
     buffer: VecDeque<f32>,
+    /// Number of interleaved PCM channels in each input audio frame.
+    channels: usize,
+    /// Samples from an incomplete interleaved frame at a tap-message boundary.
+    remainder: Vec<f32>,
     /// Subscriber to the PCM Bus for receiving audio frames.
     subscriber: PcmBusSubscriber,
     /// Sample rate of the audio stream (for FrequencyData metadata).
@@ -53,23 +58,64 @@ impl FftEngine {
     /// `fft_size` determines the FFT window size (e.g., 1024 or 2048).
     /// `subscriber` receives PCM frames from the PcmBus.
     /// `sample_rate` is the audio sample rate in Hz.
-    pub fn new(fft_size: usize, subscriber: PcmBusSubscriber, sample_rate: u32) -> Self {
+    pub fn new(
+        fft_size: usize,
+        subscriber: PcmBusSubscriber,
+        sample_rate: u32,
+        channels: u16,
+    ) -> Self {
+        let channels = usize::from(channels);
+        assert!(channels > 0, "FFT input must have at least one channel");
         Self {
             fft_size,
             planner: FftPlanner::new(),
             buffer: VecDeque::with_capacity(fft_size * 2),
+            channels,
+            remainder: Vec::with_capacity(channels.saturating_sub(1)),
             subscriber,
             sample_rate,
         }
+    }
+
+    /// Downmix complete interleaved input frames to mono without allocating.
+    /// Incomplete frames are retained until their remaining channels arrive.
+    fn collect_interleaved(&mut self, samples: &[f32]) {
+        let mut offset = 0;
+
+        if !self.remainder.is_empty() {
+            let needed = self.channels - self.remainder.len();
+            if samples.len() < needed {
+                self.remainder.extend_from_slice(samples);
+                return;
+            }
+
+            let sum = self.remainder.iter().copied().sum::<f32>()
+                + samples[..needed].iter().copied().sum::<f32>();
+            self.buffer.push_back(sum / self.channels as f32);
+            self.remainder.clear();
+            offset = needed;
+        }
+
+        let complete = &samples[offset..];
+        let mut frames = complete.chunks_exact(self.channels);
+        for frame in &mut frames {
+            self.buffer
+                .push_back(frame.iter().copied().sum::<f32>() / self.channels as f32);
+        }
+        self.remainder.extend_from_slice(frames.remainder());
     }
 
     /// Drain available PCM frames from the subscriber into the circular buffer.
     ///
     /// Called from a timer or poll loop. The buffer accumulates samples;
     /// when enough are present, call `analyze_if_ready()` to compute FFT.
-    pub fn collect_frames(&mut self) {
+    pub fn collect_frames(&mut self) -> (usize, usize) {
+        let mut frame_count = 0;
+        let mut sample_count = 0;
         while let Some(frame) = self.subscriber.try_recv() {
-            self.buffer.extend(frame);
+            frame_count += 1;
+            sample_count += frame.len() / self.channels;
+            self.collect_interleaved(&frame);
         }
 
         // Keep buffer size bounded — drop oldest samples if buffer exceeds
@@ -78,11 +124,29 @@ impl FftEngine {
         while self.buffer.len() > max_capacity {
             self.buffer.pop_front();
         }
+
+        (frame_count, sample_count)
+    }
+
+    /// Wait for one playback-consumed PCM frame, then drain any queued frames.
+    /// The timeout is solely for stop-state polling, never playback pacing.
+    pub fn collect_next_frame(&mut self, timeout: Duration) -> bool {
+        let Some(frame) = self.subscriber.recv_timeout(timeout) else {
+            return false;
+        };
+        self.collect_interleaved(&frame);
+        self.collect_frames();
+
+        let max_capacity = self.fft_size * 2;
+        while self.buffer.len() > max_capacity {
+            self.buffer.pop_front();
+        }
+        true
     }
 
     /// Compute FFT if enough samples are available in the circular buffer.
     ///
-    /// Returns `Some(FrequencyData)` if >= fft_size samples are available,
+    /// Returns `Some(FrequencyData)` if >= fft_size mono audio frames are available,
     /// `None` otherwise. On success, the consumed samples are removed from
     /// the buffer (sliding window advances).
     pub fn analyze_if_ready(&mut self) -> Option<FrequencyData> {
@@ -111,7 +175,7 @@ impl FftEngine {
         compute_fft(&samples, self.fft_size, &mut self.planner, self.sample_rate)
     }
 
-    /// Get the current buffer length (number of PCM samples pending analysis).
+    /// Get the current buffer length (number of mono audio frames pending analysis).
     #[allow(dead_code)]
     pub fn buffer_len(&self) -> usize {
         self.buffer.len()
@@ -157,30 +221,6 @@ fn compute_fft(
         sample_rate,
         peak,
     }
-}
-
-/// Encode `FrequencyData` into a binary frame for IPC transfer.
-///
-/// Frame layout (all little-endian):
-/// - Bytes 0-3: `sample_rate` as `u32` LE
-/// - Bytes 4-7: `peak` as `f32` LE
-/// - Bytes 8+: `bins` as `N * f32` LE (N = bins.len())
-///
-/// Total frame size = 8 + bins.len() * 4 bytes.
-pub fn encode_frequency_data_binary(data: &FrequencyData) -> Vec<u8> {
-    let bin_count = data.bins.len();
-    let mut buf = Vec::with_capacity(8 + bin_count * 4);
-
-    // sample_rate: u32 LE
-    buf.extend_from_slice(&data.sample_rate.to_le_bytes());
-    // peak: f32 LE
-    buf.extend_from_slice(&data.peak.to_le_bytes());
-    // bins: N * f32 LE
-    for &bin in &data.bins {
-        buf.extend_from_slice(&bin.to_le_bytes());
-    }
-
-    buf
 }
 
 impl AudioAnalyzer {
@@ -241,29 +281,34 @@ mod tests {
     fn fft_engine_collects_frames_from_bus() {
         // Create a PcmBus and a subscriber
         let (producer, subscriber) = PcmBus::new(44100, 2);
-        let mut engine = FftEngine::new(256, subscriber, 44100);
+        let mut engine = FftEngine::new(1024, subscriber, 44100, 2);
 
-        // Send some frames through the bus
-        producer.send(vec![0.5; 128]).unwrap();
-        producer.send(vec![0.3; 128]).unwrap();
+        // Send 1024 stereo audio frames through the bus.
+        for _ in 0..4 {
+            producer.send(vec![0.5; 512]).unwrap();
+        }
 
         // Collect frames into the engine's circular buffer
         engine.collect_frames();
 
-        // Buffer should have 256 samples (128 + 128)
-        assert_eq!(engine.buffer_len(), 256);
+        // Buffer should have one 1024-frame mono FFT window.
+        assert_eq!(engine.buffer_len(), 1024);
     }
 
     #[test]
-    fn fft_engine_analyze_if_ready_when_enough_samples() {
+    fn fft_engine_waits_for_1024_stereo_frames_then_returns_512_bins() {
         let (producer, subscriber) = PcmBus::new(44100, 2);
-        let mut engine = FftEngine::new(256, subscriber, 44100);
+        let mut engine = FftEngine::new(1024, subscriber, 44100, 2);
 
-        // Send enough samples for one FFT window
-        for _ in 0..2 {
-            producer.send(vec![0.1; 128]).unwrap();
-        }
+        producer.send(vec![0.1; 1023 * 2]).unwrap();
 
+        engine.collect_frames();
+        assert!(
+            engine.analyze_if_ready().is_none(),
+            "FFT must not produce output before a 1024-frame window is available"
+        );
+
+        producer.send(vec![0.1; 2]).unwrap();
         engine.collect_frames();
         let result = engine.analyze_if_ready();
 
@@ -272,14 +317,18 @@ mod tests {
             "Should return FrequencyData when enough samples"
         );
         let data = result.unwrap();
-        assert!(!data.bins.is_empty(), "Bins should not be empty");
+        assert_eq!(
+            data.bins.len(),
+            512,
+            "1024-point FFT should return 512 bins"
+        );
         assert_eq!(data.sample_rate, 44100);
     }
 
     #[test]
     fn fft_engine_analyze_if_ready_returns_none_when_insufficient() {
         let (_, subscriber) = PcmBus::new(44100, 2);
-        let mut engine = FftEngine::new(1024, subscriber, 44100);
+        let mut engine = FftEngine::new(1024, subscriber, 44100, 2);
 
         // No frames sent — buffer is empty
         engine.collect_frames();
@@ -293,7 +342,7 @@ mod tests {
     #[test]
     fn fft_engine_analyze_partial_pads_with_zeros() {
         let (_, subscriber) = PcmBus::new(44100, 2);
-        let mut engine = FftEngine::new(256, subscriber, 44100);
+        let mut engine = FftEngine::new(1024, subscriber, 44100, 2);
 
         // Buffer is empty — analyze_partial should still work (all zeros)
         let data = engine.analyze_partial();
@@ -313,116 +362,63 @@ mod tests {
     #[test]
     fn fft_engine_buffer_drops_oldest_when_over_capacity() {
         let (producer, subscriber) = PcmBus::new(44100, 2);
-        let mut engine = FftEngine::new(256, subscriber, 44100);
+        let mut engine = FftEngine::new(1024, subscriber, 44100, 2);
 
-        // Send more than 2x fft_size samples
-        for i in 0..6 {
+        // Send more than 2x fft_size stereo audio frames.
+        for i in 0..12 {
             let val = i as f32 * 0.1;
-            producer.send(vec![val; 128]).unwrap();
+            producer.send(vec![val; 512]).unwrap();
         }
 
         engine.collect_frames();
 
-        // Buffer should be capped at 2 * fft_size = 512
+        // Buffer should be capped at 2 * fft_size = 2048
         assert!(
-            engine.buffer_len() <= 512,
+            engine.buffer_len() <= 2048,
             "Buffer should be capped at 2 * fft_size, got {}",
             engine.buffer_len()
         );
     }
 
     #[test]
-    fn encode_binary_frame_layout_correct() {
-        let data = FrequencyData {
-            bins: vec![0.1, 0.2, 0.3],
-            sample_rate: 44100,
-            peak: 0.3,
-        };
+    fn fft_engine_downmixes_same_phase_stereo_tone() {
+        let (producer, subscriber) = PcmBus::new(44_100, 2);
+        let mut engine = FftEngine::new(1024, subscriber, 44_100, 2);
+        let mono: Vec<f32> = (0..1024)
+            .map(|frame| (std::f32::consts::TAU * 8.0 * frame as f32 / 1024.0).sin())
+            .collect();
+        let stereo: Vec<f32> = mono.iter().flat_map(|&sample| [sample, sample]).collect();
+        producer.send(stereo).unwrap();
 
-        let frame = encode_frequency_data_binary(&data);
+        engine.collect_frames();
+        let actual = engine.analyze_if_ready().unwrap();
+        let expected = AudioAnalyzer::new(1024).analyze(&mono, 44_100);
 
-        // Total size: 8 header + 3 bins * 4 = 20 bytes
-        assert_eq!(frame.len(), 20, "Frame size should be 8 + bins.len() * 4");
-
-        // sample_rate at offset 0 (u32 LE)
-        let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
-        assert_eq!(sr, 44100, "sample_rate should be at offset 0");
-
-        // peak at offset 4 (f32 LE)
-        let pk = f32::from_le_bytes(frame[4..8].try_into().unwrap());
+        assert_eq!(actual.bins.len(), 512);
         assert!(
-            (pk - 0.3).abs() < f32::EPSILON,
-            "peak should be at offset 4"
+            actual
+                .bins
+                .iter()
+                .zip(expected.bins.iter())
+                .all(|(actual, expected)| (actual - expected).abs() < 1e-6),
+            "same-phase stereo must downmix to the equivalent mono tone"
         );
-
-        // bins start at offset 8
-        let bin0 = f32::from_le_bytes(frame[8..12].try_into().unwrap());
-        let bin1 = f32::from_le_bytes(frame[12..16].try_into().unwrap());
-        let bin2 = f32::from_le_bytes(frame[16..20].try_into().unwrap());
-        assert!((bin0 - 0.1).abs() < 1e-6, "bin[0] should be at offset 8");
-        assert!((bin1 - 0.2).abs() < 1e-6, "bin[1] should be at offset 12");
-        assert!((bin2 - 0.3).abs() < 1e-6, "bin[2] should be at offset 16");
     }
 
     #[test]
-    fn encode_binary_empty_bins() {
-        let data = FrequencyData {
-            bins: vec![],
-            sample_rate: 48000,
-            peak: 0.0,
-        };
+    fn fft_engine_preserves_multichannel_frame_alignment_across_boundaries() {
+        let (producer, subscriber) = PcmBus::new(44_100, 3);
+        let mut engine = FftEngine::new(1024, subscriber, 44_100, 3);
 
-        let frame = encode_frequency_data_binary(&data);
+        producer.send(vec![0.0, 10.0, 20.0, 1.0]).unwrap();
+        producer.send(vec![11.0, 21.0, 2.0, 12.0, 22.0]).unwrap();
+        engine.collect_frames();
+
         assert_eq!(
-            frame.len(),
-            8,
-            "Empty bins should produce 8-byte header only"
+            engine.buffer.iter().copied().collect::<Vec<_>>(),
+            vec![10.0, 11.0, 12.0],
+            "partial interleaved frames must not shift multichannel downmix alignment"
         );
-
-        let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
-        assert_eq!(sr, 48000);
-        let pk = f32::from_le_bytes(frame[4..8].try_into().unwrap());
-        assert!((pk - 0.0).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn encode_binary_large_fft() {
-        let data = FrequencyData {
-            bins: vec![0.5; 512],
-            sample_rate: 44100,
-            peak: 0.5,
-        };
-
-        let frame = encode_frequency_data_binary(&data);
-        assert_eq!(
-            frame.len(),
-            8 + 512 * 4,
-            "512 bins should produce 2056-byte frame"
-        );
-    }
-
-    #[test]
-    fn encode_binary_roundtrip_values() {
-        let data = FrequencyData {
-            bins: vec![0.001, 0.999, -0.5, 1.0],
-            sample_rate: 96000,
-            peak: 1.0,
-        };
-
-        let frame = encode_frequency_data_binary(&data);
-
-        // Decode and verify
-        let sr = u32::from_le_bytes(frame[0..4].try_into().unwrap());
-        assert_eq!(sr, 96000);
-
-        let pk = f32::from_le_bytes(frame[4..8].try_into().unwrap());
-        assert!((pk - 1.0).abs() < f32::EPSILON);
-
-        for (i, expected) in data.bins.iter().enumerate() {
-            let offset = 8 + i * 4;
-            let val = f32::from_le_bytes(frame[offset..offset + 4].try_into().unwrap());
-            assert!((val - expected).abs() < 1e-6, "bin[{}] roundtrip failed", i);
-        }
     }
 
     #[test]

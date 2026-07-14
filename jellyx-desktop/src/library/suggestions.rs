@@ -206,6 +206,10 @@ mod tests {
     fn current_year_is_reasonable() {
         let year: u64 = current_year().parse().unwrap();
         // Should be between 2024 and 2100 for a very long-lived app
-        assert!(year >= 2024 && year <= 2100, "current_year should be reasonable: got {}", year);
+        assert!(
+            year >= 2024 && year <= 2100,
+            "current_year should be reasonable: got {}",
+            year
+        );
     }
 }

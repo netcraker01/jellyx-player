@@ -24,6 +24,12 @@
   "mini_player": {
     "open": "Abrir mini reproductor"
   },
+  "migration": {
+    "cleanup_title": "Migración de Jellyx completada",
+    "cleanup_message": "Jellyx importó y verificó tus datos de Helix. ¿Quieres eliminar los binarios y el registro de Helix? Tus datos se conservarán.",
+    "remove_helix": "Eliminar Helix",
+    "keep_helix": "Conservar Helix"
+  },
   "home": {
     "recently_played": "Reproducido recientemente",
     "recommended": "Recomendado para ti",
@@ -90,6 +96,10 @@
     "language": "Idioma",
     "theme": "Tema",
     "audio": "Audio",
+    "privacy": "Privacidad",
+    "telemetry": "Compartir señales anónimas de fallos",
+    "telemetry_desc": "Está desactivado de forma predeterminada. Actívalo solo si quieres ayudar a identificar problemas de fiabilidad.",
+    "telemetry_details": "Cuando está activado, Jellyx envía solo identificadores de componentes redactados y métricas de tiempo acotadas, y únicamente si el operador configuró un servicio de telemetría. Nunca envía música, rutas, URL, datos de cuenta, identificadores de dispositivo ni detalles de errores sin procesar. Puedes desactivarlo en cualquier momento para detener futuras transmisiones.",
     "about": "Acerca de Jellyx Player",
     "version": "Versión",
     "about_description": "Reproductor de música de fondo para escritorio pensado para personas que trabajan con música puesta. Escuchá YouTube, SoundCloud y archivos locales sin cuentas, sin suscripciones y sin reproducción de vídeo innecesaria.",
@@ -112,7 +122,14 @@
     "mini_player_skins_desc": "Elegí el skin declarativo del mini reproductor. Los skins definen layout, colores y tamaño de ventana sin ejecutar scripts.",
     "mini_player_size": "Tamaño del mini reproductor",
     "skin_activate": "Activar",
-    "skin_active": "Activo"
+    "skin_active": "Activo",
+    "diagnostics_title": "Diagnósticos locales",
+    "diagnostics_desc": "Un resumen local y redactado para diagnóstico. Está disponible tanto si el envío de telemetría está activado como si no.",
+    "diagnostics_events_last_hour": "Eventos en la última hora",
+    "diagnostics_error_rate": "Tasa de error observada",
+    "diagnostics_unavailable": "Los diagnósticos no están disponibles temporalmente.",
+    "diagnostics_refresh": "Actualizar diagnósticos",
+    "diagnostics_refreshing": "Actualizando…"
   },
   "errors": {
     "NETWORK_TIMEOUT": "Tiempo de espera agotado. Verifica tu conexión.",

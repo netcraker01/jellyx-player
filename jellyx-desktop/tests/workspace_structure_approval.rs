@@ -51,8 +51,9 @@ fn workspace_members_include_all_four_crates() {
     let manifest = std::fs::read_to_string("../Cargo.toml")
         .expect("root Cargo.toml must be readable from test cwd");
     assert!(
-        manifest.contains("members = [\"jellyx-desktop\", \"jellyx-core\", \"jellyx-cli\", \"jellyx-ffi\"]")
-            || manifest.contains("\"jellyx-core\""),
+        manifest.contains(
+            "members = [\"jellyx-desktop\", \"jellyx-core\", \"jellyx-cli\", \"jellyx-ffi\"]"
+        ) || manifest.contains("\"jellyx-core\""),
         "workspace members MUST list jellyx-core, got:\n{manifest}"
     );
     assert!(
@@ -203,8 +204,8 @@ fn jellyx_desktop_depends_on_local_jellyx_core() {
 /// reordering that the per-member checks above would miss.
 #[test]
 fn workspace_member_list_is_exactly_four_canonical_members() {
-    let manifest = std::fs::read_to_string("../Cargo.toml")
-        .expect("root Cargo.toml must be readable");
+    let manifest =
+        std::fs::read_to_string("../Cargo.toml").expect("root Cargo.toml must be readable");
     // Locate the members array line and assert its exact content.
     let members_line = manifest
         .lines()
@@ -379,8 +380,8 @@ fn root_architecture_doc_exists() {
 /// appears so a stale or partial doc is caught.
 #[test]
 fn root_architecture_doc_describes_workspace_layout() {
-    let arch = std::fs::read_to_string("../ARCHITECTURE.md")
-        .expect("root ARCHITECTURE.md MUST exist");
+    let arch =
+        std::fs::read_to_string("../ARCHITECTURE.md").expect("root ARCHITECTURE.md MUST exist");
     assert!(
         arch.contains("jellyx-desktop"),
         "root ARCHITECTURE.md MUST mention jellyx-desktop"
@@ -404,11 +405,12 @@ fn root_architecture_doc_describes_workspace_layout() {
 /// contributor-facing guidance that the original requirement asked for.
 #[test]
 fn root_architecture_doc_explains_adding_core_functionality() {
-    let arch = std::fs::read_to_string("../ARCHITECTURE.md")
-        .expect("root ARCHITECTURE.md MUST exist");
+    let arch =
+        std::fs::read_to_string("../ARCHITECTURE.md").expect("root ARCHITECTURE.md MUST exist");
     let lower = arch.to_lowercase();
     assert!(
-        lower.contains("jellyx-core") && (lower.contains("add") || lower.contains("extend") || lower.contains("new")),
+        lower.contains("jellyx-core")
+            && (lower.contains("add") || lower.contains("extend") || lower.contains("new")),
         "root ARCHITECTURE.md MUST explain how to add new functionality to jellyx-core"
     );
 }

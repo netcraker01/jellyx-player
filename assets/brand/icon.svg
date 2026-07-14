@@ -1,6 +1,6 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Helix app icon</title>
-  <desc id="desc">White rounded desktop app icon for Helix music player with cyan and violet helix, waveform bars and play symbol.</desc>
+  <title id="title">Jellyx app icon</title>
+  <desc id="desc">Transparent Jellyx app icon with a cyan and violet helix, waveform bars and play symbol.</desc>
   <defs>
     <linearGradient id="helixCyan" x1="151" y1="83" x2="339" y2="210" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#00E5FF"/>
@@ -21,16 +21,9 @@
       <stop offset="0" stop-color="#4F8DFF"/>
       <stop offset="1" stop-color="#8A5CFF"/>
     </linearGradient>
-    <filter id="tileShadow" x="42" y="44" width="428" height="432" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#0B0F2B" flood-opacity="0.12"/>
-    </filter>
   </defs>
 
-  <g filter="url(#tileShadow)">
-    <rect x="72" y="64" width="368" height="368" rx="84" fill="#FFFFFF"/>
-    <rect x="72.75" y="64.75" width="366.5" height="366.5" rx="83.25" stroke="#E8ECF3" stroke-width="1.5"/>
-  </g>
-
+  <g transform="translate(-76.8 -76.8) scale(1.3)">
   <!-- Upper helix ribbon -->
   <path d="M161 243C139 194 178 161 225 139L342 83V116C342 135 332 148 315 156L219 199C190 212 169 226 161 243Z" fill="url(#helixCyan)"/>
 
@@ -47,4 +40,5 @@
 
   <!-- Play symbol -->
   <path d="M227 213C227 204.9 236 200.1 242.8 204.6L297.8 241.3C303.8 245.3 303.8 254.7 297.8 258.7L242.8 295.4C236 299.9 227 295.1 227 287V213Z" fill="url(#playGradient)"/>
+  </g>
 </svg>

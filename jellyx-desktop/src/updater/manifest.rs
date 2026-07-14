@@ -1,13 +1,13 @@
 //! Release manifest fetch and parsing.
 //!
-//! Long-term preferred source: a static `latest.json` file hosted on a CDN.
-//! Phase 1 fallback: GitHub Releases latest release API for `netcraker01/jellyx-player`
+//! Source: GitHub Releases latest release API for `netcraker01/jellyx-player`
 //! (matches the repo in `tauri.conf.json` identifier conventions).
 //!
-//! Both shapes are normalized into [`LatestRelease`]. The fetcher tries the
-//! static manifest first and falls back to the GitHub API on any error.
+//! This avoids allowing a stale, independently hosted static manifest to hide
+//! a newer validated GitHub release.
 
 use serde::Deserialize;
+use std::time::{Duration, Instant};
 
 /// Normalized latest release info, independent of the source manifest shape.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,80 +30,43 @@ struct GithubRelease {
     tag_name: String,
     #[serde(default)]
     body: Option<String>,
-    html_url: String,
     #[serde(default)]
     published_at: Option<String>,
 }
 
-/// Static `latest.json` manifest shape (intentionally similar to GitHub).
-#[derive(Debug, Deserialize)]
-struct StaticManifest {
-    version: String,
-    #[serde(default)]
-    tag_name: Option<String>,
-    #[serde(default)]
-    body: Option<String>,
-    #[serde(default)]
-    release_url: Option<String>,
-    #[serde(default)]
-    published_at: Option<String>,
-}
-
+/// The sole production updater source. Test endpoints are accepted only by the
+/// internal test seam; public fetching always uses this HTTPS GitHub endpoint.
+pub const GITHUB_REPOSITORY: &str = "netcraker01/jellyx-player";
+pub const GITHUB_WEB_BASE_URL: &str = "https://github.com";
 const GITHUB_LATEST_URL: &str =
     "https://api.github.com/repos/netcraker01/jellyx-player/releases/latest";
-const STATIC_MANIFEST_URL: &str =
-    "https://releases.helix.dev/latest.json";
 const USER_AGENT: &str = concat!("Jellyx/", env!("CARGO_PKG_VERSION"));
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Fetch the latest release info asynchronously, trying the static manifest first and
-/// falling back to the GitHub Releases API.
+/// Fetch the latest published GitHub release. Draft staging releases are excluded
+/// by the API, so an updater never points users at an unvalidated release.
 pub async fn fetch_latest(client: &reqwest::Client) -> Result<Option<LatestRelease>, String> {
-    if let Ok(rel) = fetch_static_manifest(client).await {
-        return Ok(Some(rel));
-    }
-    fetch_github_latest(client).await
+    let started = Instant::now();
+    let result = fetch_github_latest_at(client, GITHUB_LATEST_URL, REQUEST_TIMEOUT).await;
+    crate::observability::record_latency(
+        "updater",
+        "latest_release_fetch",
+        started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+    );
+    crate::observability::record_operation("updater", "latest_release_fetch", result.is_ok());
+    result
 }
 
-async fn fetch_static_manifest(client: &reqwest::Client) -> Result<LatestRelease, String> {
+async fn fetch_github_latest_at(
+    client: &reqwest::Client,
+    endpoint: &str,
+    timeout: Duration,
+) -> Result<Option<LatestRelease>, String> {
     let resp = client
-        .get(STATIC_MANIFEST_URL)
-        .header("User-Agent", USER_AGENT)
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await
-        .map_err(|e| format!("static manifest: request: {}", e))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("static manifest: status {}", resp.status()));
-    }
-    
-    let manifest: StaticManifest = resp
-        .json()
-        .await
-        .map_err(|e| format!("static manifest: decode: {}", e))?;
-
-    let tag_name = manifest
-        .tag_name
-        .clone()
-        .unwrap_or_else(|| format!("v{}", manifest.version));
-
-    let release_url = manifest.release_url.unwrap_or_else(|| default_release_url(&tag_name));
-
-    Ok(LatestRelease {
-        version: strip_v(&manifest.version),
-        tag_name,
-        body: manifest.body,
-        release_url,
-        published_at: manifest.published_at,
-    })
-}
-
-async fn fetch_github_latest(client: &reqwest::Client) -> Result<Option<LatestRelease>, String> {
-    let resp = client
-        .get(GITHUB_LATEST_URL)
+        .get(endpoint)
         .header("User-Agent", USER_AGENT)
         .header("Accept", "application/vnd.github+json")
-        .timeout(std::time::Duration::from_secs(10))
+        .timeout(timeout)
         .send()
         .await
         .map_err(|e| format!("github api: request: {}", e))?;
@@ -111,7 +74,7 @@ async fn fetch_github_latest(client: &reqwest::Client) -> Result<Option<LatestRe
     if resp.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
     }
-    
+
     if !resp.status().is_success() {
         return Err(format!("github api: status {}", resp.status()));
     }
@@ -121,11 +84,12 @@ async fn fetch_github_latest(client: &reqwest::Client) -> Result<Option<LatestRe
         .await
         .map_err(|e| format!("github api: decode: {}", e))?;
 
+    let release_url = default_release_url(&release.tag_name);
     Ok(Some(LatestRelease {
         version: strip_v(&release.tag_name),
         tag_name: release.tag_name,
         body: release.body,
-        release_url: release.html_url,
+        release_url,
         published_at: release.published_at,
     }))
 }
@@ -144,7 +108,7 @@ pub fn default_release_url(tag_name: &str) -> String {
         format!("v{}", tag_name)
     };
     format!(
-        "https://github.com/netcraker01/jellyx-player/releases/tag/{}",
+        "{GITHUB_WEB_BASE_URL}/{GITHUB_REPOSITORY}/releases/tag/{}",
         normalized
     )
 }

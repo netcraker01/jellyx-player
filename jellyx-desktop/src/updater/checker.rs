@@ -98,14 +98,8 @@ mod tests {
 
     #[test]
     fn parse_version_strips_v_prefix() {
-        assert_eq!(
-            parse_version("v0.2.3"),
-            Some(semver::Version::new(0, 2, 3))
-        );
-        assert_eq!(
-            parse_version("0.2.3"),
-            Some(semver::Version::new(0, 2, 3))
-        );
+        assert_eq!(parse_version("v0.2.3"), Some(semver::Version::new(0, 2, 3)));
+        assert_eq!(parse_version("0.2.3"), Some(semver::Version::new(0, 2, 3)));
         assert!(parse_version("not-a-version").is_none());
     }
 
@@ -129,7 +123,11 @@ mod tests {
     #[test]
     fn should_show_when_no_prefs() {
         let prefs = UpdatePrefs::default();
-        assert!(should_show(&release("0.2.4"), &prefs, "2026-07-07T00:00:00Z"));
+        assert!(should_show(
+            &release("0.2.4"),
+            &prefs,
+            "2026-07-07T00:00:00Z"
+        ));
     }
 
     #[test]
@@ -138,9 +136,17 @@ mod tests {
             skipped_version: Some("v0.2.4".to_string()),
             ..Default::default()
         };
-        assert!(!should_show(&release("0.2.4"), &prefs, "2026-07-07T00:00:00Z"));
+        assert!(!should_show(
+            &release("0.2.4"),
+            &prefs,
+            "2026-07-07T00:00:00Z"
+        ));
         // A newer version resurfaces the modal even though 0.2.4 was skipped.
-        assert!(should_show(&release("0.2.5"), &prefs, "2026-07-07T00:00:00Z"));
+        assert!(should_show(
+            &release("0.2.5"),
+            &prefs,
+            "2026-07-07T00:00:00Z"
+        ));
     }
 
     #[test]
@@ -149,9 +155,17 @@ mod tests {
             remind_later_at: Some("2026-07-10T00:00:00Z".to_string()),
             ..Default::default()
         };
-        assert!(!should_show(&release("0.2.4"), &prefs, "2026-07-07T00:00:00Z"));
+        assert!(!should_show(
+            &release("0.2.4"),
+            &prefs,
+            "2026-07-07T00:00:00Z"
+        ));
         // After the remind-later timestamp passes, the modal shows again.
-        assert!(should_show(&release("0.2.4"), &prefs, "2026-07-11T00:00:00Z"));
+        assert!(should_show(
+            &release("0.2.4"),
+            &prefs,
+            "2026-07-11T00:00:00Z"
+        ));
     }
 
     #[test]

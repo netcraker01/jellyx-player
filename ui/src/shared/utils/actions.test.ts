@@ -14,6 +14,7 @@ import type { Track } from '@shared/types/models';
 const mocks = vi.hoisted(() => ({
   playStream: vi.fn(),
   playLocal: vi.fn(),
+  invalidateStreamRequests: vi.fn(),
   addToQueueWithTrack: vi.fn(),
   playNextWithTrack: vi.fn(),
   push: vi.fn(),
@@ -22,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@services/commands', () => ({
   playStream: mocks.playStream,
   playLocal: mocks.playLocal,
+  invalidateStreamRequests: mocks.invalidateStreamRequests,
   addToQueueWithTrack: mocks.addToQueueWithTrack,
   playNextWithTrack: mocks.playNextWithTrack,
 }));
@@ -85,6 +87,7 @@ describe('playTrack', () => {
 
     expect(mocks.playLocal).toHaveBeenCalledWith('/music/track.mp3');
     expect(mocks.playStream).not.toHaveBeenCalled();
+    expect(mocks.invalidateStreamRequests).toHaveBeenCalled();
   });
 
   it('prefers playLocal when both streamUrl and localPath are present', async () => {
@@ -125,6 +128,57 @@ describe('playTrack', () => {
       message: 'backend failed',
       dismissible: true,
     });
+  });
+
+  it('extracts a structured AppError object instead of showing [object Object]', async () => {
+    // Tauri commands reject with a plain { code, details } object, not an Error.
+    mocks.playStream.mockRejectedValueOnce({
+      code: 'PLAYBACK_ERROR',
+      details: 'decode: corrupted frame',
+    });
+
+    await playTrack(remoteTrack);
+
+    expect(mocks.push).toHaveBeenCalledWith({
+      type: 'error',
+      title: 'Playback Error',
+      message: 'decode: corrupted frame',
+      dismissible: true,
+    });
+    // Must NEVER produce [object Object].
+    const call = mocks.push.mock.calls[0][0];
+    expect(call.message).not.toBe('[object Object]');
+  });
+
+  it('maps a known AppError code to the errors.<code> i18n key', async () => {
+    mocks.playStream.mockRejectedValueOnce({
+      code: 'STREAM_NOT_FOUND',
+      details: 'yt-dlp returned 404',
+    });
+
+    await playTrack(remoteTrack);
+
+    const call = mocks.push.mock.calls[0][0];
+    // The toast must never show [object Object] for a structured AppError.
+    expect(call.message).not.toBe('[object Object]');
+    // The actions.test.ts i18n mock returns params.default (the details) for
+    // keys with a default, so the user-facing message carries the backend
+    // details rather than the raw object. With the REAL i18n, this resolves
+    // to "Stream not found. It may be unavailable." (errors.STREAM_NOT_FOUND).
+    expect(call.message).toBe('yt-dlp returned 404');
+  });
+
+  it('falls back to a generic message for an unknown AppError code with no details', async () => {
+    mocks.playStream.mockRejectedValueOnce({ code: 'TOTALLY_UNKNOWN' });
+
+    await playTrack(remoteTrack);
+
+    const call = mocks.push.mock.calls[0][0];
+    expect(call.message).not.toBe('[object Object]');
+    // The actions.test.ts i18n mock returns params.default when present; here
+    // no default is forwarded for unknown codes, so we expect a non-empty
+    // human message rather than the raw key or [object Object].
+    expect(call.message.length).toBeGreaterThan(0);
   });
 });
 

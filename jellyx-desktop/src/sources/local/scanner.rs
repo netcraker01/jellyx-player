@@ -23,10 +23,10 @@ use walkdir::WalkDir;
 
 use crate::errors::types::{AppError, LibraryError, ScannerError};
 use crate::library::PlaylistService;
-use jellyx_core::models::source::Source;
-use jellyx_core::models::track::Track;
 use crate::persistence::db::Database;
 use crate::persistence::models::{LocalTrackEntry, WatchedFolder};
+use jellyx_core::models::source::Source;
+use jellyx_core::models::track::Track;
 use jellyx_core::shared::utils::art_cache_dir;
 
 /// Supported audio file extensions for scanning.
@@ -670,7 +670,8 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).unwrap();
-        db.insert_watched_folder(temp_dir.to_str().unwrap()).unwrap();
+        db.insert_watched_folder(temp_dir.to_str().unwrap())
+            .unwrap();
 
         let _permission_guard = PermissionGuard::deny(&temp_dir);
         assert!(
@@ -708,7 +709,8 @@ mod tests {
         write_test_wav(&accessible_path, 1);
         write_test_wav(&blocked_path, 1);
 
-        db.insert_watched_folder(temp_dir.to_str().unwrap()).unwrap();
+        db.insert_watched_folder(temp_dir.to_str().unwrap())
+            .unwrap();
 
         let accessible_track = Track {
             id: "live".to_string(),
@@ -766,9 +768,14 @@ mod tests {
 
         assert_eq!(result.files_scanned, 2);
         assert_eq!(result.errors, 1);
-        let tracks = db.get_local_tracks(Some(temp_dir.to_str().unwrap())).unwrap();
+        let tracks = db
+            .get_local_tracks(Some(temp_dir.to_str().unwrap()))
+            .unwrap();
         assert_eq!(tracks.len(), 1);
-        assert_eq!(tracks[0].file_path, accessible_path.to_string_lossy().to_string());
+        assert_eq!(
+            tracks[0].file_path,
+            accessible_path.to_string_lossy().to_string()
+        );
         assert!(db
             .get_local_track_by_path(blocked_path.to_string_lossy().as_ref())
             .unwrap()
@@ -916,7 +923,10 @@ mod tests {
         // Manual playlist should still exist; folder playlists should be gone.
         let all = gen_svc.get_all_playlists().unwrap();
         let ids: Vec<String> = all.iter().map(|p| p.id.clone()).collect();
-        assert!(ids.contains(&manual.id), "manual playlist should be preserved");
+        assert!(
+            ids.contains(&manual.id),
+            "manual playlist should be preserved"
+        );
         assert_eq!(all.len(), 1, "only the manual playlist should remain");
         for created_pl in &created {
             assert!(
@@ -931,10 +941,7 @@ mod tests {
 
     #[test]
     fn compute_subfolder_returns_subfolder_relative_to_root() {
-        let sub = compute_subfolder(
-            Path::new("/music/Rock/Album1/song.mp3"),
-            "/music/Rock",
-        );
+        let sub = compute_subfolder(Path::new("/music/Rock/Album1/song.mp3"), "/music/Rock");
         assert_eq!(sub.as_deref(), Some("Album1"));
     }
 
@@ -946,19 +953,13 @@ mod tests {
 
     #[test]
     fn compute_subfolder_handles_nested_subfolder() {
-        let sub = compute_subfolder(
-            Path::new("/music/Rock/Album1/Sub/song.mp3"),
-            "/music/Rock",
-        );
+        let sub = compute_subfolder(Path::new("/music/Rock/Album1/Sub/song.mp3"), "/music/Rock");
         assert_eq!(sub.as_deref(), Some("Album1/Sub"));
     }
 
     #[test]
     fn compute_subfolder_returns_none_when_path_outside_root() {
-        let sub = compute_subfolder(
-            Path::new("/other/Album1/song.mp3"),
-            "/music/Rock",
-        );
+        let sub = compute_subfolder(Path::new("/other/Album1/song.mp3"), "/music/Rock");
         assert_eq!(sub, None);
     }
 
@@ -1331,8 +1332,14 @@ mod tests {
         }
 
         let result = service.scan_folder(temp_dir.to_str().unwrap()).unwrap();
-        assert_eq!(result.files_scanned, 1, "should scan the generated Opus file");
-        assert_eq!(result.files_added, 1, "should add the Opus file to local_tracks");
+        assert_eq!(
+            result.files_scanned, 1,
+            "should scan the generated Opus file"
+        );
+        assert_eq!(
+            result.files_added, 1,
+            "should add the Opus file to local_tracks"
+        );
         assert_eq!(result.errors, 0, "probe error should not occur");
 
         let tracks = service

@@ -6,8 +6,8 @@
  *
  * Spec: FR-011 — App shell navigation exposes all routes.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render } from '@testing-library/svelte';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { cleanup, render } from '@testing-library/svelte';
 import { initI18n } from '@i18n';
 import App from '../app/App.svelte';
 
@@ -15,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   loadWatchedFolders: vi.fn(),
   loadLocalTracks: vi.fn(),
   getVersion: vi.fn(),
+  getSourceSettings: vi.fn(),
+  getTelemetrySettings: vi.fn(),
 }));
 
 vi.mock('@features/library/stores/library', () => ({
@@ -32,6 +34,13 @@ vi.mock('@features/library/stores/library', () => ({
 
 vi.mock('@services/commands', () => ({
   getVersion: mocks.getVersion,
+  getSourceSettings: mocks.getSourceSettings,
+  getTelemetrySettings: mocks.getTelemetrySettings,
+  setSourceEnabled: vi.fn(),
+  setTelemetryEnabled: vi.fn(),
+  getAudioSettings: vi.fn(),
+  setPlaybackNormalizeAudio: vi.fn(),
+  setNormalizeAudio: vi.fn(),
 }));
 
 function setHash(hash: string) {
@@ -47,7 +56,13 @@ describe('Route rendering', () => {
     mocks.loadWatchedFolders.mockReset().mockResolvedValue(undefined);
     mocks.loadLocalTracks.mockReset().mockResolvedValue(undefined);
     mocks.getVersion.mockReset().mockResolvedValue('0.1.0');
+    mocks.getSourceSettings.mockReset().mockResolvedValue([]);
+    mocks.getTelemetrySettings.mockReset().mockResolvedValue({ enabled: false });
   });
+
+  // App mounts route-level subscriptions. Explicitly destroy each render so a
+  // worker never retains route listeners while Vitest is tearing it down.
+  afterEach(() => cleanup());
 
   it('renders the Library page at /library', () => {
     setHash('#/library');

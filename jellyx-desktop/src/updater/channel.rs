@@ -188,13 +188,21 @@ mod tests {
             InstallChannel::Unknown,
         ];
         for c in all {
-            assert_eq!(InstallChannel::from_str(c.as_str()), c, "roundtrip {}", c.as_str());
+            assert_eq!(
+                InstallChannel::from_str(c.as_str()),
+                c,
+                "roundtrip {}",
+                c.as_str()
+            );
         }
     }
 
     #[test]
     fn unknown_string_maps_to_unknown() {
-        assert_eq!(InstallChannel::from_str("nonsense"), InstallChannel::Unknown);
+        assert_eq!(
+            InstallChannel::from_str("nonsense"),
+            InstallChannel::Unknown
+        );
         assert_eq!(InstallChannel::from_str(""), InstallChannel::Unknown);
     }
 
@@ -212,7 +220,12 @@ mod tests {
             InstallChannel::Unknown,
         ];
         for c in all {
-            assert_ne!(c.phase1_policy(), ChannelPolicy::AutoUpdate, "auto_update leaked for {}", c.as_str());
+            assert_ne!(
+                c.phase1_policy(),
+                ChannelPolicy::AutoUpdate,
+                "auto_update leaked for {}",
+                c.as_str()
+            );
         }
     }
 

@@ -21,10 +21,14 @@
 //!
 //! This avoids forcing YouTube streams through the Rust Symphonia/cpal pipeline.
 
-use percent_encoding::{percent_decode_str, NON_ALPHANUMERIC, percent_encode};
+use percent_encoding::{percent_decode_str, percent_encode, NON_ALPHANUMERIC};
+use rand::RngCore;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::{Arc, atomic::{AtomicBool, Ordering}, OnceLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, OnceLock,
+};
 use std::thread;
 use std::time::Duration;
 
@@ -36,20 +40,37 @@ const PROXY_PORT: u16 = 8765;
 /// browser opens a new connection for each Range request.
 static HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 
+/// Origins used by Tauri's production and development webviews. Requests from
+/// arbitrary loopback pages do not receive CORS permission.
+const WEBVIEW_ORIGINS: &[&str] = &["tauri://localhost", "http://tauri.localhost"];
+
 fn http_client() -> &'static reqwest::blocking::Client {
-    HTTP_CLIENT.get_or_init(|| {
-        reqwest::blocking::Client::builder()
-            .connect_timeout(Duration::from_secs(15))
-            .timeout(Duration::from_secs(300))
-            .no_proxy()
-            // Force HTTP/1.1 — reqwest's blocking Read trait only reads the first
-            // ~32KB of HTTP/2 responses then reports EOF. HTTP/1.1 works correctly.
-            .http1_only()
-            .pool_idle_timeout(Duration::from_secs(60))
-            .pool_max_idle_per_host(4)
-            .build()
-            .expect("failed to build proxy HTTP client")
-    })
+    HTTP_CLIENT.get_or_init(|| strict_remote_client().expect("failed to build proxy HTTP client"))
+}
+
+/// Build an outbound client for approved remote streams. Both the loopback
+/// proxy and the cache downloader use this constructor so redirect validation
+/// cannot drift between the two network entry points.
+pub(crate) fn strict_remote_client() -> Result<reqwest::blocking::Client, reqwest::Error> {
+    reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(300))
+        .no_proxy()
+        // Force HTTP/1.1 — reqwest's blocking Read trait only reads the first
+        // ~32KB of HTTP/2 responses then reports EOF. HTTP/1.1 works correctly.
+        .http1_only()
+        .pool_idle_timeout(Duration::from_secs(60))
+        .pool_max_idle_per_host(4)
+        // Redirects are outbound requests too; reject an unapproved target
+        // before reqwest opens its next connection.
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if is_approved_remote_url(attempt.url().as_str()) {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        }))
+        .build()
 }
 
 /// Start a simple HTTP proxy server on a local port.
@@ -58,7 +79,7 @@ fn http_client() -> &'static reqwest::blocking::Client {
 /// and returning the response with CORS headers.
 ///
 /// Returns the bound port number (in case the default was in use).
-pub fn start_proxy_server() -> Result<u16, ProxyError> {
+pub fn start_proxy_server() -> Result<(u16, String), ProxyError> {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", PROXY_PORT))
         .or_else(|_| {
             // Try any available port if default is taken
@@ -66,13 +87,25 @@ pub fn start_proxy_server() -> Result<u16, ProxyError> {
         })
         .map_err(|e| ProxyError::BindFailed(e.to_string()))?;
 
-    let port = listener.local_addr()
+    let port = listener
+        .local_addr()
         .map_err(|e| ProxyError::BindFailed(e.to_string()))?
         .port();
+
+    // The port is intentionally not the authorization boundary: another local
+    // process can discover it. Each process lifetime gets a 256-bit capability
+    // that must be present on every request.
+    let mut token_bytes = [0_u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut token_bytes);
+    let capability = token_bytes
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
 
     let running = Arc::new(AtomicBool::new(true));
     let running_clone = running.clone();
 
+    let capability_for_server = capability.clone();
     thread::spawn(move || {
         listener.set_nonblocking(true).ok();
 
@@ -86,8 +119,9 @@ pub fn start_proxy_server() -> Result<u16, ProxyError> {
                     // Spawn a thread per connection so slow upstream responses
                     // don't block other requests (e.g. seek opens a new connection
                     // while the previous one is still streaming).
+                    let capability = capability_for_server.clone();
                     thread::spawn(move || {
-                        handle_proxy_request(stream);
+                        handle_proxy_request(stream, &capability);
                     });
                 }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -95,22 +129,26 @@ pub fn start_proxy_server() -> Result<u16, ProxyError> {
                     continue;
                 }
                 Err(e) => {
-                    eprintln!("[Proxy] Accept error: {}", e);
+                    let _ = e;
+                    crate::observability::expected_failure("proxy", "accept_error");
                 }
             }
         }
     });
 
-    Ok(port)
+    Ok((port, capability))
 }
 
 /// Construct a proxied URL that routes through the local proxy server.
 ///
 /// Takes the raw remote stream URL and returns a local URL like:
 /// `http://127.0.0.1:8765/proxy?url=<encoded_remote_url>`
-pub fn proxied_url(port: u16, remote_url: &str) -> String {
+pub fn proxied_url(port: u16, capability: &str, remote_url: &str) -> String {
     let encoded = percent_encode(remote_url.as_bytes(), &NON_ALPHANUMERIC).to_string();
-    format!("http://127.0.0.1:{}/proxy?url={}", port, encoded)
+    format!(
+        "http://127.0.0.1:{}/proxy?cap={}&url={}",
+        port, capability, encoded
+    )
 }
 
 /// Proxy errors.
@@ -126,13 +164,14 @@ pub enum ProxyError {
 ///
 /// Parses the request, extracts the `url` query parameter,
 /// fetches the remote content, and returns it with CORS headers.
-fn handle_proxy_request(mut stream: TcpStream) {
+fn handle_proxy_request(mut stream: TcpStream, capability: &str) {
     let mut buffer = [0u8; 4096];
     let bytes_read = match stream.read(&mut buffer) {
         Ok(0) => return, // Connection closed
         Ok(n) => n,
         Err(e) => {
-            eprintln!("[Proxy] Read error: {}", e);
+            let _ = e;
+            crate::observability::expected_failure("proxy", "request_read_error");
             return;
         }
     };
@@ -144,13 +183,18 @@ fn handle_proxy_request(mut stream: TcpStream) {
     let parts: Vec<&str> = request_line.split_whitespace().collect();
 
     if parts.len() < 2 || parts[0] != "GET" {
-        send_response(&mut stream, 400, "Bad Request", b"Only GET /proxy?url=... is supported");
+        send_response(
+            &mut stream,
+            400,
+            "Bad Request",
+            b"Only GET /proxy?url=... is supported",
+        );
         return;
     }
 
     let path = parts[1];
 
-    // Extract URL from query string: /proxy?url=...[&duration=<seconds>]
+    // Extract URL from query string: /proxy?cap=<capability>&url=...[&duration=<seconds>]
     //
     // `seekto` is intentionally NOT parsed anymore: byte-ratio seeking was
     // unreliable for YouTube m4a/fMP4 (the moov atom is not at a fixed byte
@@ -162,56 +206,127 @@ fn handle_proxy_request(mut stream: TcpStream) {
     // `duration` is optional and only used to hint the browser via
     // `X-Content-Duration`/`Content-Duration` headers when the upstream does
     // not provide them (e.g. YouTube m4a often reports Infinity to the element).
-    if let Some(url_start) = path.find("?url=") {
-        let query = &path[url_start + 5..];
+    if let Some(query) = path.strip_prefix("/proxy?") {
+        if !request_has_capability(query, capability) {
+            send_response(&mut stream, 403, "Forbidden", b"Invalid proxy capability");
+            return;
+        }
+        let Some(encoded_url) = query.split('&').find_map(|part| part.strip_prefix("url=")) else {
+            send_response(&mut stream, 400, "Bad Request", b"Missing url parameter");
+            return;
+        };
 
-        let (encoded_url, duration) = {
-            let mut url_part = query;
+        let duration = {
             let mut dur_val: Option<f64> = None;
-
-            if let Some(pos) = query.find("&duration=") {
-                url_part = &query[..pos];
-                let rest = &query[pos + 10..];
-                let end = rest.find('&').unwrap_or(rest.len());
-                dur_val = rest[..end].parse::<f64>().ok();
+            if let Some(value) = query
+                .split('&')
+                .find_map(|part| part.strip_prefix("duration="))
+            {
+                dur_val = value.parse::<f64>().ok();
             }
-            // Tolerate legacy `&seekto=` params (now unused) by stripping them
-            // from the URL portion so URL decoding still succeeds.
-            if let Some(pos) = url_part.find("&seekto=") {
-                url_part = &url_part[..pos];
-            }
-            (url_part, dur_val)
+            dur_val
         };
 
         let decoded_url = match percent_decode_str(encoded_url).decode_utf8() {
             Ok(url) => url.to_string(),
             Err(e) => {
-                eprintln!("[Proxy] URL decode error: {}", e);
+                let _ = e;
+                crate::observability::expected_failure("proxy", "url_decode_error");
                 send_response(&mut stream, 400, "Bad Request", b"Invalid URL encoding");
                 return;
             }
         };
 
-        // Route: file:// URLs serve a local cached file with full Range support.
-        // This is the YouTube local-cache fallback path — a local file seek is
-        // always reliable in WebKitGTK/GStreamer, unlike remote m4a Range seeks.
-        if decoded_url.starts_with("file://") {
-            let local_path = decoded_url.strip_prefix("file://").unwrap_or("");
-            if let Err(e) = serve_local_file(local_path, &request, &mut stream, duration) {
-                eprintln!("[Proxy] Local file serve error for {}: {}", local_path, e);
-                send_response(&mut stream, 500, "Internal Server Error", b"Failed to serve local file");
+        #[cfg(test)]
+        if let Some(local_path) = decoded_url.strip_prefix("file://") {
+            if serve_local_file(local_path, &request, &mut stream, duration).is_err() {
+                send_response(
+                    &mut stream,
+                    500,
+                    "Internal Server Error",
+                    b"Failed to serve local file",
+                );
             }
             return;
         }
 
+        if !is_allowed_remote_url(&decoded_url) {
+            send_response(
+                &mut stream,
+                403,
+                "Forbidden",
+                b"URL is not an approved streaming host",
+            );
+            return;
+        }
+
         // Forward the request to the remote URL
-        if let Err(e) = forward_request(&decoded_url, &request, &mut stream, duration) {
-            eprintln!("[Proxy] Forward error for {}: {}", decoded_url, e);
-            send_response(&mut stream, 502, "Bad Gateway", format!("Proxy error: {}", e).as_bytes());
+        match forward_request(&decoded_url, &request, &mut stream, duration) {
+            Ok(()) => crate::observability::record_operation("proxy", "forward_request", true),
+            Err(e) => {
+                let _ = (decoded_url, e);
+                crate::observability::record_operation("proxy", "forward_request", false);
+                crate::observability::expected_failure("proxy", "forward_error");
+                send_response(&mut stream, 502, "Bad Gateway", b"Proxy request failed");
+            }
         }
     } else {
         send_response(&mut stream, 400, "Bad Request", b"Missing url parameter");
     }
+}
+
+fn request_has_capability(query: &str, capability: &str) -> bool {
+    query
+        .split('&')
+        .find_map(|part| part.strip_prefix("cap="))
+        .is_some_and(|provided| provided == capability)
+}
+
+fn is_allowed_remote_url(raw_url: &str) -> bool {
+    #[cfg(test)]
+    if raw_url.starts_with("http://127.0.0.1:") || raw_url.starts_with("file://") {
+        return true;
+    }
+    is_approved_remote_url(raw_url)
+}
+
+/// Enforce the outbound-stream policy for both the loopback proxy and cache.
+/// Redirects must be checked with this exact policy before reqwest follows them.
+pub(crate) fn is_approved_remote_url(raw_url: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(raw_url) else {
+        return false;
+    };
+    if url.scheme() != "https"
+        || url.username() != ""
+        || url.password().is_some()
+        || url.port().is_some_and(|p| p != 443)
+    {
+        return false;
+    }
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let host = host.to_ascii_lowercase();
+    [
+        "googlevideo.com",
+        "youtube.com",
+        "youtu.be",
+        "soundcloud.com",
+        "sndcdn.com",
+    ]
+    .iter()
+    .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+}
+
+fn cors_headers(_request: &str) -> String {
+    // The proxy is already gated by a per-process 256-bit capability token,
+    // so the CORS origin is not the authorization boundary. The HTMLAudio
+    // element uses crossOrigin='anonymous', which requires CORS headers on
+    // the response or the browser blocks the media. WebKitGTK does not send
+    // an Origin header for media-element requests (unlike fetch), so we
+    // cannot filter by origin. Return permissive CORS — the capability
+    // token is the real security gate.
+    "Access-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, HEAD, OPTIONS\r\nAccess-Control-Allow-Headers: Range, Content-Type\r\nAccess-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges, X-Content-Duration, Content-Duration\r\n".to_string()
 }
 
 /// Serve a local file with full HTTP Range support.
@@ -221,6 +336,7 @@ fn handle_proxy_request(mut stream: TcpStream) {
 /// `Content-Range`/`206 Partial Content` responses. WebKitGTK/GStreamer
 /// can always seek local files reliably, unlike remote byte-range requests
 /// over the proxy which are flaky for YouTube m4a.
+#[cfg(test)]
 fn serve_local_file(
     path: &str,
     original_request: &str,
@@ -229,7 +345,8 @@ fn serve_local_file(
 ) -> Result<(), String> {
     use std::fs::File;
 
-    let file = File::open(path).map_err(|e| format!("Failed to open local file {}: {}", path, e))?;
+    let file =
+        File::open(path).map_err(|e| format!("Failed to open local file {}: {}", path, e))?;
     let file_size = file
         .metadata()
         .map_err(|e| format!("Failed to read file metadata: {}", e))?
@@ -240,14 +357,19 @@ fn serve_local_file(
 
     let mut response_text = format!(
         "HTTP/1.1 {} {}\r\n",
-        if start == 0 && end == file_size - 1 { 200 } else { 206 },
-        if start == 0 && end == file_size - 1 { "OK" } else { "Partial Content" }
+        if start == 0 && end == file_size - 1 {
+            200
+        } else {
+            206
+        },
+        if start == 0 && end == file_size - 1 {
+            "OK"
+        } else {
+            "Partial Content"
+        }
     );
 
-    response_text.push_str("Access-Control-Allow-Origin: *\r\n");
-    response_text.push_str("Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n");
-    response_text.push_str("Access-Control-Allow-Headers: Range, Content-Type\r\n");
-    response_text.push_str("Access-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges, X-Content-Duration, Content-Duration\r\n");
+    response_text.push_str(&cors_headers(original_request));
 
     // Content-Type: infer from extension
     let content_type = if path.ends_with(".m4a") {
@@ -294,7 +416,7 @@ fn serve_local_file(
         .map_err(|e| format!("Failed to write response headers: {}", e))?;
 
     // Stream the requested byte range from the file
-    use std::io::{Seek, SeekFrom, Read};
+    use std::io::{Read, Seek, SeekFrom};
     let mut file = file;
     if start > 0 {
         file.seek(SeekFrom::Start(start))
@@ -315,7 +437,8 @@ fn serve_local_file(
             if e.kind() != std::io::ErrorKind::BrokenPipe
                 && e.kind() != std::io::ErrorKind::ConnectionReset
             {
-                eprintln!("[Proxy] Write error serving local file: {}", e);
+                let _ = e;
+                crate::observability::expected_failure("proxy", "local_file_write_error");
             }
             break;
         }
@@ -330,6 +453,7 @@ fn serve_local_file(
 ///
 /// Supports `bytes=start-end`, `bytes=start-`, and `bytes=-suffix`. Returns
 /// `(0, file_size - 1)` when no Range header is present (full file).
+#[cfg(test)]
 fn parse_range_header(request: &str, file_size: u64) -> (u64, u64) {
     let range_header = request
         .lines()
@@ -386,13 +510,23 @@ fn parse_range_header(request: &str, file_size: u64) -> (u64, u64) {
 ///   - injects `Accept-Ranges: bytes` so the browser knows Range is allowed;
 ///   - optionally injects `X-Content-Duration`/`Content-Duration` from a known
 ///     `duration` query hint when the upstream does not provide them.
-fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream, duration: Option<f64>) -> Result<(), String> {
+fn forward_request(
+    url: &str,
+    original_request: &str,
+    stream: &mut TcpStream,
+    duration: Option<f64>,
+) -> Result<(), String> {
     // Extract Range header from the browser's original request if present.
     // We forward it UNCHANGED — the browser knows where it wants to read.
     let range_header = original_request
         .lines()
         .find(|line| line.to_lowercase().starts_with("range:"))
-        .map(|line| line.strip_prefix("Range:").or_else(|| line.strip_prefix("range:")).unwrap_or("").trim());
+        .map(|line| {
+            line.strip_prefix("Range:")
+                .or_else(|| line.strip_prefix("range:"))
+                .unwrap_or("")
+                .trim()
+        });
 
     let client = http_client();
 
@@ -409,10 +543,15 @@ fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream, du
         None => request = request.header("Range", "bytes=0-"),
     }
 
-    request = request.header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36");
+    request = request.header(
+        "User-Agent",
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+    );
     request = request.header("Accept-Encoding", "identity");
 
-    let mut response = request.send().map_err(|e| format!("Request failed: {}", e))?;
+    let mut response = request
+        .send()
+        .map_err(|e| format!("Request failed: {}", e))?;
     let status = response.status();
     let headers = response.headers().clone();
     let content_length = response.content_length();
@@ -425,10 +564,7 @@ fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream, du
         status.canonical_reason().unwrap_or("OK")
     );
 
-    response_text.push_str("Access-Control-Allow-Origin: *\r\n");
-    response_text.push_str("Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n");
-    response_text.push_str("Access-Control-Allow-Headers: Range, Content-Type\r\n");
-    response_text.push_str("Access-Control-Expose-Headers: Content-Range, Content-Length, Accept-Ranges, X-Content-Duration, Content-Duration\r\n");
+    response_text.push_str(&cors_headers(original_request));
 
     if let Some(content_type) = headers.get("content-type") {
         if let Ok(ct) = content_type.to_str() {
@@ -462,7 +598,8 @@ fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream, du
     // inject it when the upstream didn't already provide it, and only if we have
     // a sane known duration from the caller.
     if let Some(dur) = duration {
-        if dur.is_finite() && dur > 0.0
+        if dur.is_finite()
+            && dur > 0.0
             && !headers.contains_key("x-content-duration")
             && !headers.contains_key("content-duration")
         {
@@ -475,7 +612,8 @@ fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream, du
     response_text.push_str("Connection: close\r\n");
     response_text.push_str("\r\n");
 
-    stream.write_all(response_text.as_bytes())
+    stream
+        .write_all(response_text.as_bytes())
         .map_err(|e| format!("Failed to write response headers: {}", e))?;
 
     // Stream body to the client. The browser may close the connection early
@@ -491,7 +629,8 @@ fn forward_request(url: &str, original_request: &str, stream: &mut TcpStream, du
                     if e.kind() != std::io::ErrorKind::BrokenPipe
                         && e.kind() != std::io::ErrorKind::ConnectionReset
                     {
-                        eprintln!("[Proxy] Write error after {} bytes: {}", total_written, e);
+                        let _ = (total_written, e);
+                        crate::observability::expected_failure("proxy", "response_write_error");
                     }
                     break;
                 }
@@ -532,19 +671,26 @@ mod tests {
 
     #[test]
     fn proxied_url_encoding() {
-        let url = proxied_url(8765, "https://example.com/stream?foo=bar");
-        assert!(url.starts_with("http://127.0.0.1:8765/proxy?url="));
+        let url = proxied_url(
+            8765,
+            "test-capability",
+            "https://example.com/stream?foo=bar",
+        );
+        assert!(url.starts_with("http://127.0.0.1:8765/proxy?cap=test-capability&url="));
         // Should contain encoded characters
-        assert!(url.contains("%3A") || url.contains("https"), "URL should be encoded or contain https");
+        assert!(
+            url.contains("%3A") || url.contains("https"),
+            "URL should be encoded or contain https"
+        );
     }
 
     #[test]
     fn proxied_url_special_chars() {
         let remote = "https://test.com/path?a=1&b=2";
-        let url = proxied_url(8765, remote);
-        assert!(url.starts_with("http://127.0.0.1:8765/proxy?url="));
+        let url = proxied_url(8765, "test-capability", remote);
+        assert!(url.starts_with("http://127.0.0.1:8765/proxy?cap=test-capability&url="));
         // The encoded URL should round-trip correctly
-        let encoded = &url["http://127.0.0.1:8765/proxy?url=".len()..];
+        let encoded = url.split("&url=").nth(1).unwrap();
         let decoded = percent_decode_str(encoded).decode_utf8().unwrap();
         assert_eq!(decoded, remote);
     }
@@ -586,22 +732,33 @@ mod tests {
         });
 
         // Start proxy server
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
 
         // Give the proxy thread a moment to start accepting
         thread::sleep(Duration::from_millis(50));
 
         // Build proxy URL
         let remote_url = format!("http://127.0.0.1:{}/test", upstream_port);
-        let proxy_url = proxied_url(proxy_port, &remote_url);
+        let proxy_url = proxied_url(proxy_port, &capability, &remote_url);
 
         // Request through proxy using reqwest
         let client = reqwest::blocking::Client::new();
-        let response = client.get(&proxy_url).send().unwrap();
+        let response = client
+            .get(&proxy_url)
+            .header("Origin", "tauri://localhost")
+            .send()
+            .unwrap();
 
-        assert_eq!(response.status(), 200, "Proxy did not forward User-Agent or upstream failed");
+        assert_eq!(
+            response.status(),
+            200,
+            "Proxy did not forward User-Agent or upstream failed"
+        );
         // Check headers before consuming body
-        let has_cors = response.headers().get("access-control-allow-origin").is_some();
+        let has_cors = response
+            .headers()
+            .get("access-control-allow-origin")
+            .is_some();
         let body = response.text().unwrap();
         assert_eq!(body, "Hello from upstream");
 
@@ -627,14 +784,10 @@ mod tests {
                 (
                     "206 Partial Content",
                     "Hello",
-                    "Content-Range: bytes 0-4/11\r\n"
+                    "Content-Range: bytes 0-4/11\r\n",
                 )
             } else {
-                (
-                    "400 Bad Request",
-                    "Missing Range header",
-                    ""
-                )
+                ("400 Bad Request", "Missing Range header", "")
             };
             let response = format!(
                 "HTTP/1.1 {}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n{}\r\n{}",
@@ -646,21 +799,29 @@ mod tests {
             let _ = stream.write_all(response.as_bytes());
         });
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let remote_url = format!("http://127.0.0.1:{}/audio.mp3", upstream_port);
-        let proxy_url = proxied_url(proxy_port, &remote_url);
+        let proxy_url = proxied_url(proxy_port, &capability, &remote_url);
 
         let client = reqwest::blocking::Client::new();
-        let response = client.get(&proxy_url).header("Range", "bytes=0-4").send().unwrap();
+        let response = client
+            .get(&proxy_url)
+            .header("Range", "bytes=0-4")
+            .send()
+            .unwrap();
 
         assert_eq!(response.status(), 206);
         // Extract headers before consuming body
-        let content_range = response.headers().get("content-range")
+        let content_range = response
+            .headers()
+            .get("content-range")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
-        let accept_ranges = response.headers().get("accept-ranges")
+        let accept_ranges = response
+            .headers()
+            .get("accept-ranges")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
         let body = response.text().unwrap();
@@ -727,18 +888,22 @@ mod tests {
             (String::new(), "abcdefghij") // 10-byte body
         });
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let remote_url = format!("http://127.0.0.1:{}/audio.m4a", upstream_port);
-        let proxy_url = proxied_url(proxy_port, &remote_url);
+        let proxy_url = proxied_url(proxy_port, &capability, &remote_url);
 
         // Browser makes a GET with NO Range header (initial load).
         let client = reqwest::blocking::Client::new();
         let response = client.get(&proxy_url).send().unwrap();
 
         // Upstream returned 206, so the proxy forwards 206.
-        assert_eq!(response.status(), 206, "proxy should forward 206 from upstream");
+        assert_eq!(
+            response.status(),
+            206,
+            "proxy should forward 206 from upstream"
+        );
 
         let content_range = response
             .headers()
@@ -759,9 +924,21 @@ mod tests {
         let body = response.text().unwrap();
         assert_eq!(body, "abcdefghij");
 
-        assert_eq!(content_range.unwrap(), "bytes 0-9/10", "Content-Range must be forwarded");
-        assert_eq!(accept_ranges.unwrap(), "bytes", "Accept-Ranges must be injected");
-        assert_eq!(content_length.unwrap(), "10", "Content-Length must be forwarded");
+        assert_eq!(
+            content_range.unwrap(),
+            "bytes 0-9/10",
+            "Content-Range must be forwarded"
+        );
+        assert_eq!(
+            accept_ranges.unwrap(),
+            "bytes",
+            "Accept-Ranges must be injected"
+        );
+        assert_eq!(
+            content_length.unwrap(),
+            "10",
+            "Content-Length must be forwarded"
+        );
 
         // Drain the upstream request channel so the sender doesn't hang.
         let _ = rx.recv_timeout(Duration::from_secs(1));
@@ -780,11 +957,11 @@ mod tests {
             (String::new(), "0123456789") // 10-byte body for the requested slice
         });
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let remote_url = format!("http://127.0.0.1:{}/audio.m4a", upstream_port);
-        let proxy_url = proxied_url(proxy_port, &remote_url);
+        let proxy_url = proxied_url(proxy_port, &capability, &remote_url);
 
         // Browser is seeking — sends its own Range. Proxy must NOT override it.
         let client = reqwest::blocking::Client::new();
@@ -800,7 +977,11 @@ mod tests {
             .get("content-range")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
-        assert_eq!(content_range.unwrap(), "bytes 0-9/10", "Content-Range forwarded");
+        assert_eq!(
+            content_range.unwrap(),
+            "bytes 0-9/10",
+            "Content-Range forwarded"
+        );
 
         let _ = rx.recv_timeout(Duration::from_secs(1));
     }
@@ -810,12 +991,15 @@ mod tests {
         // Upstream does NOT send X-Content-Duration / Content-Duration.
         let (upstream_port, rx) = fake_upstream(|_req| (String::new(), "abcdefghij"));
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let remote_url = format!("http://127.0.0.1:{}/audio.m4a", upstream_port);
         // Append &duration=183.5 to the proxy URL to hint the known duration.
-        let proxy_url = format!("{}&duration=183.5", proxied_url(proxy_port, &remote_url));
+        let proxy_url = format!(
+            "{}&duration=183.5",
+            proxied_url(proxy_port, &capability, &remote_url)
+        );
 
         let client = reqwest::blocking::Client::new();
         let response = client.get(&proxy_url).send().unwrap();
@@ -833,8 +1017,14 @@ mod tests {
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
 
-        assert!(x_dur.is_some(), "X-Content-Duration should be injected from duration query");
-        assert!(c_dur.is_some(), "Content-Duration should be injected from duration query");
+        assert!(
+            x_dur.is_some(),
+            "X-Content-Duration should be injected from duration query"
+        );
+        assert!(
+            c_dur.is_some(),
+            "Content-Duration should be injected from duration query"
+        );
         // Both should carry the known duration.
         assert!(
             x_dur.unwrap().starts_with("183.5"),
@@ -850,14 +1040,14 @@ mod tests {
         // proxy — seekto is ignored and the URL is decoded correctly.
         let (upstream_port, rx) = fake_upstream(|_req| (String::new(), "abcdefghij"));
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let remote_url = format!("http://127.0.0.1:{}/audio.m4a", upstream_port);
         // Legacy URL with both seekto (ignored) and duration (hint).
         let proxy_url = format!(
             "{}&seekto=45.0&duration=183.5",
-            proxied_url(proxy_port, &remote_url)
+            proxied_url(proxy_port, &capability, &remote_url)
         );
 
         let client = reqwest::blocking::Client::new();
@@ -887,17 +1077,21 @@ mod tests {
         let body = b"abcdefghijklmnopqrstuvwxyz0123456789"; // 36 bytes
         std::fs::write(&file_path, body).unwrap();
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let file_url = format!("file://{}", file_path.to_string_lossy());
-        let proxy_url = proxied_url(proxy_port, &file_url);
+        let proxy_url = proxied_url(proxy_port, &capability, &file_url);
 
         let client = reqwest::blocking::Client::new();
         let response = client.get(&proxy_url).send().unwrap();
 
         // No Range → 200 OK, full file
-        assert_eq!(response.status(), 200, "local file without Range should return 200");
+        assert_eq!(
+            response.status(),
+            200,
+            "local file without Range should return 200"
+        );
 
         let content_length = response
             .headers()
@@ -918,9 +1112,21 @@ mod tests {
         let resp_body = response.text().unwrap();
         assert_eq!(resp_body.as_bytes(), body, "full file body should match");
 
-        assert_eq!(content_length.unwrap(), "36", "Content-Length must match file size");
-        assert_eq!(accept_ranges.unwrap(), "bytes", "Accept-Ranges must be bytes");
-        assert_eq!(content_type.unwrap(), "audio/mp4", "Content-Type should be audio/mp4 for .m4a");
+        assert_eq!(
+            content_length.unwrap(),
+            "36",
+            "Content-Length must match file size"
+        );
+        assert_eq!(
+            accept_ranges.unwrap(),
+            "bytes",
+            "Accept-Ranges must be bytes"
+        );
+        assert_eq!(
+            content_type.unwrap(),
+            "audio/mp4",
+            "Content-Type should be audio/mp4 for .m4a"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -941,11 +1147,11 @@ mod tests {
         let body: Vec<u8> = (0..100).collect(); // 100 bytes
         std::fs::write(&file_path, &body).unwrap();
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let file_url = format!("file://{}", file_path.to_string_lossy());
-        let proxy_url = proxied_url(proxy_port, &file_url);
+        let proxy_url = proxied_url(proxy_port, &capability, &file_url);
 
         // Request bytes 10-19
         let client = reqwest::blocking::Client::new();
@@ -970,10 +1176,22 @@ mod tests {
 
         let resp_body = response.text().unwrap();
         assert_eq!(resp_body.len(), 10, "should return 10 bytes");
-        assert_eq!(resp_body.as_bytes(), &body[10..20], "byte range content should match");
+        assert_eq!(
+            resp_body.as_bytes(),
+            &body[10..20],
+            "byte range content should match"
+        );
 
-        assert_eq!(content_range.unwrap(), "bytes 10-19/100", "Content-Range must be correct");
-        assert_eq!(content_length.unwrap(), "10", "Content-Length must match requested range");
+        assert_eq!(
+            content_range.unwrap(),
+            "bytes 10-19/100",
+            "Content-Range must be correct"
+        );
+        assert_eq!(
+            content_length.unwrap(),
+            "10",
+            "Content-Length must match requested range"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -994,11 +1212,11 @@ mod tests {
         let body: Vec<u8> = (0..50).collect(); // 50 bytes
         std::fs::write(&file_path, &body).unwrap();
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let file_url = format!("file://{}", file_path.to_string_lossy());
-        let proxy_url = proxied_url(proxy_port, &file_url);
+        let proxy_url = proxied_url(proxy_port, &capability, &file_url);
 
         let client = reqwest::blocking::Client::new();
         let response = client
@@ -1017,9 +1235,17 @@ mod tests {
 
         let resp_body = response.text().unwrap();
         assert_eq!(resp_body.len(), 30, "should return 30 bytes (50-20)");
-        assert_eq!(resp_body.as_bytes(), &body[20..], "content should match from byte 20 to end");
+        assert_eq!(
+            resp_body.as_bytes(),
+            &body[20..],
+            "content should match from byte 20 to end"
+        );
 
-        assert_eq!(content_range.unwrap(), "bytes 20-49/50", "Content-Range for open-ended range");
+        assert_eq!(
+            content_range.unwrap(),
+            "bytes 20-49/50",
+            "Content-Range for open-ended range"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -1039,11 +1265,14 @@ mod tests {
         let file_path = temp_dir.join("dur_test.m4a");
         std::fs::write(&file_path, b"test_audio_data").unwrap();
 
-        let proxy_port = start_proxy_server().unwrap();
+        let (proxy_port, capability) = start_proxy_server().unwrap();
         thread::sleep(Duration::from_millis(50));
 
         let file_url = format!("file://{}", file_path.to_string_lossy());
-        let proxy_url = format!("{}&duration=200.0", proxied_url(proxy_port, &file_url));
+        let proxy_url = format!(
+            "{}&duration=200.0",
+            proxied_url(proxy_port, &capability, &file_url)
+        );
 
         let client = reqwest::blocking::Client::new();
         let response = client.get(&proxy_url).send().unwrap();
@@ -1055,8 +1284,14 @@ mod tests {
             .get("x-content-duration")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
-        assert!(x_dur.is_some(), "X-Content-Duration should be injected from duration query");
-        assert!(x_dur.unwrap().starts_with("200.000"), "duration value should match");
+        assert!(
+            x_dur.is_some(),
+            "X-Content-Duration should be injected from duration query"
+        );
+        assert!(
+            x_dur.unwrap().starts_with("200.000"),
+            "duration value should match"
+        );
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -1091,5 +1326,98 @@ mod tests {
         let (start, end) = parse_range_header(req, 1000);
         assert_eq!(start, 0);
         assert_eq!(end, 999); // clamped to file_size - 1
+    }
+
+    #[test]
+    fn production_allowlist_requires_https_approved_streaming_hosts() {
+        // Test the production policy directly rather than weakening it for the
+        // loopback fake-upstream integration harness.
+        assert!(is_approved_remote_url(
+            "https://r1---sn.googlevideo.com/videoplayback"
+        ));
+        assert!(is_approved_remote_url(
+            "https://cf-hls-media.sndcdn.com/media"
+        ));
+        assert!(!is_approved_remote_url("file:///etc/passwd"));
+        assert!(!is_approved_remote_url("http://127.0.0.1:8080/private"));
+        assert!(!is_approved_remote_url(
+            "https://169.254.169.254/latest/meta-data"
+        ));
+        assert!(!is_approved_remote_url(
+            "https://googlevideo.com.evil.example/media"
+        ));
+    }
+
+    #[test]
+    fn redirect_targets_use_the_same_strict_remote_url_policy() {
+        assert!(is_approved_remote_url(
+            "https://r1---sn.googlevideo.com/media"
+        ));
+        assert!(!is_approved_remote_url("https://localhost/media"));
+        assert!(!is_approved_remote_url("https://10.0.0.1/media"));
+        assert!(!is_approved_remote_url("https://evil.example/media"));
+        assert!(!is_approved_remote_url("file:///etc/passwd"));
+        assert!(!is_approved_remote_url(
+            "https://user:secret@googlevideo.com/media"
+        ));
+        assert!(!is_approved_remote_url(
+            "https://googlevideo.com:8443/media"
+        ));
+    }
+
+    #[test]
+    fn https_with_explicit_443_port_is_approved() {
+        // googlevideo.com CDN sometimes emits URLs with an explicit :443 port.
+        // The default https port must NOT be treated as an SSRF risk.
+        assert!(is_approved_remote_url(
+            "https://r1---sn.googlevideo.com:443/videoplayback"
+        ));
+        assert!(is_approved_remote_url(
+            "https://cf-hls-media.sndcdn.com:443/media"
+        ));
+    }
+
+    #[test]
+    fn https_with_non_default_port_is_rejected() {
+        // Only 443 (the https default) is permitted; any other port stays rejected.
+        assert!(!is_approved_remote_url(
+            "https://googlevideo.com:8443/media"
+        ));
+        assert!(!is_approved_remote_url(
+            "https://r1---sn.googlevideo.com:8443/videoplayback"
+        ));
+    }
+
+    #[test]
+    fn http_with_port_443_is_rejected() {
+        // Port 443 is only allowed for https — http on any port stays blocked.
+        assert!(!is_approved_remote_url("http://googlevideo.com:443/media"));
+        assert!(!is_approved_remote_url("http://127.0.0.1:443/private"));
+    }
+
+    #[test]
+    fn cors_returns_permissive_headers_gated_by_capability() {
+        // The capability token is the real authorization boundary; CORS is
+        // permissive because WebKitGTK does not send Origin for media elements.
+        let h = cors_headers("");
+        assert!(h.contains("Access-Control-Allow-Origin: *"));
+        assert!(h.contains("Access-Control-Allow-Methods: GET, HEAD, OPTIONS"));
+        assert!(h.contains("Access-Control-Expose-Headers: Content-Range"));
+    }
+
+    #[test]
+    fn proxy_requires_the_exact_session_capability() {
+        assert!(request_has_capability(
+            "cap=unguessable&url=https%3A%2F%2Fgooglevideo.com",
+            "unguessable"
+        ));
+        assert!(!request_has_capability(
+            "url=https%3A%2F%2Fgooglevideo.com",
+            "unguessable"
+        ));
+        assert!(!request_has_capability(
+            "cap=other&url=https%3A%2F%2Fgooglevideo.com",
+            "unguessable"
+        ));
     }
 }

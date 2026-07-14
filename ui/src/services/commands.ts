@@ -208,8 +208,20 @@ export function getSuggestionCategories(): Promise<SuggestionCategory[]> {
 // ── Streaming & Playlist commands ──────────────────────────────────
 
 /** Play a remote track by resolving its stream URL. */
+let latestStreamRequestId = 0;
+
+/** Start a remote resolution and retain its correlation id for event filtering. */
 export function playStream(track: Track): Promise<void> {
-  return invokeCommand<void>('play_stream', { track });
+  const streamRequestId = ++latestStreamRequestId;
+  return invokeCommand<void>('play_stream', { track, streamRequestId });
+}
+
+export function isLatestStreamRequest(streamRequestId: number): boolean {
+  return streamRequestId !== 0 && streamRequestId === latestStreamRequestId;
+}
+
+export function invalidateStreamRequests(): void {
+  latestStreamRequestId++;
 }
 
 /** Download a remote stream URL to a local cache file for instant seeking.
@@ -373,6 +385,70 @@ export function setNormalizeAudio(enabled: boolean): Promise<void> {
 /** Set normalization on the local playback backend (immediate effect). */
 export function setPlaybackNormalizeAudio(enabled: boolean): Promise<void> {
   return invokeCommand<void>('set_playback_normalize_audio', { enabled });
+}
+
+// ── Privacy settings ─────────────────────────────────────────────────
+
+export interface TelemetrySettings {
+  enabled: boolean;
+}
+
+/** Bounded local-only failure summary; values contain no user content. */
+export interface OperationRate {
+  attempts: number;
+  failures: number;
+  errorRatePercent: number;
+}
+
+export interface LatencyMetric {
+  observations: number;
+  averageMs: number;
+  maxMs: number;
+}
+
+export interface OperationalAlert {
+  identifier: string;
+  thresholdPercent: number;
+  observedPercent: number;
+}
+
+export interface FailureDiagnostics {
+  counters: Record<string, number>;
+  recentEvents: string[];
+  eventsLastHour: number;
+  errorRatePercent: number;
+  operationRates: Record<string, OperationRate>;
+  latency: Record<string, LatencyMetric>;
+  alerts: OperationalAlert[];
+}
+
+export function getFailureDiagnostics(): Promise<FailureDiagnostics> {
+  return invokeCommand<FailureDiagnostics>('get_failure_diagnostics');
+}
+
+/** Read the persisted, explicit opt-in state for optional failure telemetry. */
+export function getTelemetrySettings(): Promise<TelemetrySettings> {
+  return invokeCommand<TelemetrySettings>('get_telemetry_settings');
+}
+
+/** Persist the user's remote telemetry choice. Disabled is the default. */
+export function setTelemetryEnabled(enabled: boolean): Promise<void> {
+  return invokeCommand<void>('set_telemetry_enabled', { enabled });
+}
+
+/** Record a redacted remote HTMLAudio failure with bounded elapsed time only. */
+export function reportRemoteAudioPlaybackFailure(elapsedMs: number): Promise<void> {
+  return invokeCommand<void>('report_remote_audio_playback_failure', { elapsedMs });
+}
+
+/** Record confirmed remote HTMLAudio playback start with bounded elapsed time only. */
+export function reportRemoteAudioPlaybackSuccess(elapsedMs: number): Promise<void> {
+  return invokeCommand<void>('report_remote_audio_playback_success', { elapsedMs });
+}
+
+/** Record a post-start remote HTMLAudio failure separately from start failures. */
+export function reportRemoteAudioPlaybackRuntimeFailure(elapsedMs: number): Promise<void> {
+  return invokeCommand<void>('report_remote_audio_playback_runtime_failure', { elapsedMs });
 }
 
 // ── Updater commands (Phase 1: notify-only) ────────────────────────────

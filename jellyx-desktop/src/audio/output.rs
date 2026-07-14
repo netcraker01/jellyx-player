@@ -14,9 +14,12 @@
 //! Mobile platforms will have their own implementations behind the `AudioBackend` trait.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 
-use super::pipeline::PcmBusSubscriber;
+use super::pipeline::{PcmBusSubscriber, PcmOutputTap};
 use super::{AudioBackend, AudioError, PlaybackState};
 
 /// Shared state between the main thread and the audio callback.
@@ -72,6 +75,9 @@ pub struct CpalBackend {
     stream_drop: Arc<Mutex<Option<cpal::Stream>>>,
     // The subscriber that feeds PCM data to the audio callback.
     subscriber: Arc<Mutex<Option<PcmBusSubscriber>>>,
+    // Receives only PCM samples consumed by the audio callback for FFT.
+    fft_tap: Arc<Mutex<Option<PcmOutputTap>>>,
+    stop_signal: Arc<AtomicBool>,
 }
 
 // SAFETY: CpalBackend is Send because:
@@ -95,6 +101,8 @@ impl CpalBackend {
             })),
             stream_drop: Arc::new(Mutex::new(None)),
             subscriber: Arc::new(Mutex::new(None)),
+            fft_tap: Arc::new(Mutex::new(None)),
+            stop_signal: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -103,6 +111,17 @@ impl CpalBackend {
     pub fn set_subscriber(&self, sub: PcmBusSubscriber) {
         let mut guard = self.subscriber.lock().unwrap();
         *guard = Some(sub);
+    }
+
+    /// Set the non-blocking FFT tap fed at the output-consumption boundary.
+    pub fn set_fft_tap(&self, tap: PcmOutputTap) {
+        let mut guard = self.fft_tap.lock().unwrap();
+        *guard = Some(tap);
+    }
+
+    /// Shared stop observation for decoder producers blocked by backpressure.
+    pub fn stop_signal(&self) -> Arc<AtomicBool> {
+        self.stop_signal.clone()
     }
 
     /// Choose the best output device, avoiding obvious virtual/loopback sinks.
@@ -160,6 +179,7 @@ impl CpalBackend {
         let prev = s.playback_state.clone();
         s.stream_error_reported = false;
         s.playback_state = PlaybackState::Playing;
+        self.stop_signal.store(false, Ordering::Release);
         prev
     }
 
@@ -172,6 +192,7 @@ impl CpalBackend {
         s.playback_state = prev;
         s.stream_error_reported = false;
         s.pcm_buffer.clear();
+        self.stop_signal.store(true, Ordering::Release);
     }
 
     /// Render one audio callback tick into `data`.
@@ -194,6 +215,7 @@ impl CpalBackend {
     fn render_callback(
         state: &Mutex<AudioState>,
         subscriber: &Mutex<Option<PcmBusSubscriber>>,
+        fft_tap: &Mutex<Option<PcmOutputTap>>,
         data: &mut [f32],
         source_channels: usize,
         output_channels: usize,
@@ -237,11 +259,15 @@ impl CpalBackend {
                 output_channels,
                 effective_volume,
             );
+            if consumed > 0 {
+                if let Some(tap) = fft_tap.lock().unwrap().as_ref() {
+                    tap.send_consumed(&s.pcm_buffer[..consumed]);
+                }
+            }
             s.pcm_buffer.drain(..consumed);
 
             // Update position estimate (only while playing, so pause keeps position)
-            let seconds_consumed =
-                consumed as f64 / (source_channels as f64 * sample_rate as f64);
+            let seconds_consumed = consumed as f64 / (source_channels as f64 * sample_rate as f64);
             if s.playback_state != PlaybackState::Paused {
                 s.position += seconds_consumed;
             }
@@ -273,118 +299,157 @@ impl CpalBackend {
         s.record_stream_error()
     }
 
+    /// Returns true only for the first terminal result of one start attempt.
+    fn record_stream_start_terminal(terminal: &AtomicBool) -> bool {
+        !terminal.swap(true, Ordering::AcqRel)
+    }
+
     /// Start audio playback by creating a cpal stream that reads from the subscriber.
     ///
     /// This is the internal method that actually creates the cpal audio stream.
     /// Called by `play_local()` and by streaming playback in PlaybackService.
     pub(crate) fn start_stream(&self, sample_rate: u32, channels: u16) -> Result<(), AudioError> {
-        use cpal::traits::{DeviceTrait, StreamTrait};
-        use cpal::{SampleFormat, StreamConfig};
+        let stream_start_terminal = Arc::new(AtomicBool::new(false));
+        let result = (|| {
+            use cpal::traits::{DeviceTrait, StreamTrait};
+            use cpal::{SampleFormat, StreamConfig};
 
-        let host = cpal::default_host();
-        let device = Self::select_output_device(&host)?;
+            let host = cpal::default_host();
+            let device = Self::select_output_device(&host)?;
 
-        // Find a supported config with f32 samples
-        let supported_config = device
-            .supported_output_configs()
-            .map_err(|e| AudioError::DeviceError(format!("Failed to query device configs: {}", e)))?
-            .find(|c| {
-                c.channels() == channels
-                    && c.sample_format() == SampleFormat::F32
-                    && c.min_sample_rate().0 <= sample_rate
-                    && c.max_sample_rate().0 >= sample_rate
-            })
-            .or_else(|| {
-                // Fallback: find any F32 config
-                device
-                    .supported_output_configs()
-                    .ok()?
-                    .find(|c| c.sample_format() == SampleFormat::F32 && c.channels() >= channels)
-            })
-            .ok_or_else(|| AudioError::UnsupportedFormat)?;
+            // Find a supported config with f32 samples
+            let supported_config = device
+                .supported_output_configs()
+                .map_err(|e| {
+                    AudioError::DeviceError(format!("Failed to query device configs: {}", e))
+                })?
+                .find(|c| {
+                    c.channels() == channels
+                        && c.sample_format() == SampleFormat::F32
+                        && c.min_sample_rate().0 <= sample_rate
+                        && c.max_sample_rate().0 >= sample_rate
+                })
+                .or_else(|| {
+                    // Fallback: find any F32 config
+                    device.supported_output_configs().ok()?.find(|c| {
+                        c.sample_format() == SampleFormat::F32 && c.channels() >= channels
+                    })
+                })
+                .ok_or_else(|| AudioError::UnsupportedFormat)?;
 
-        let config: StreamConfig = supported_config
-            .with_sample_rate(cpal::SampleRate(sample_rate))
-            .config();
+            let config: StreamConfig = supported_config
+                .with_sample_rate(cpal::SampleRate(sample_rate))
+                .config();
 
-        let actual_channels = config.channels as usize;
+            let actual_channels = config.channels as usize;
 
-        // Clone the Arcs for use in the audio callback.
-        //
-        // The cpal data/error callbacks are `FnMut` closures invoked from the
-        // audio thread. They capture `state`, `subscriber` and `state_err` by
-        // move and route through the pure `render_callback` / `handle_stream_error`
-        // helpers, which is what the behavior-level tests exercise directly.
-        let state = self.state.clone();
-        let state_err = self.state.clone();
-        let subscriber = self.subscriber.clone();
+            // Clone the Arcs for use in the audio callback.
+            //
+            // The cpal data/error callbacks are `FnMut` closures invoked from the
+            // audio thread. They capture `state`, `subscriber` and `state_err` by
+            // move and route through the pure `render_callback` / `handle_stream_error`
+            // helpers, which is what the behavior-level tests exercise directly.
+            let state = self.state.clone();
+            let state_err = self.state.clone();
+            let stop_signal_err = self.stop_signal.clone();
+            let subscriber = self.subscriber.clone();
+            let fft_tap = self.fft_tap.clone();
+            // A start attempt has one terminal outcome: either the first audio
+            // callback proves it became usable, or the first stream error proves it
+            // failed. This avoids recording a speculative success before an
+            // immediate asynchronous CPAL error.
+            let stream_start_success = stream_start_terminal.clone();
+            let stream_start_failure = stream_start_terminal.clone();
 
-        let stream = device
-            .build_output_stream(
-                &config,
-                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                    CpalBackend::render_callback(
-                        &state,
-                        &subscriber,
-                        data,
-                        channels as usize,
-                        actual_channels,
-                        config.sample_rate.0,
-                    );
-                },
-                move |err| {
-                    // Transition playback to a safe Stopped state and dedup the
-                    // log so repeated CPAL error callbacks do not spam the
-                    // console. Only the first error for the current stream
-                    // lifecycle is logged; subsequent invocations silently
-                    // update state (which is already Stopped) and return
-                    // without logging.
-                    if CpalBackend::handle_stream_error(&state_err) {
-                        eprintln!("Audio stream error: {}", err);
-                    }
-                },
-                None, // None = no timeout
-            )
-            .map_err(|e| AudioError::DeviceError(format!("Failed to build audio stream: {}", e)))?;
+            let stream = device
+                .build_output_stream(
+                    &config,
+                    move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                        if CpalBackend::record_stream_start_terminal(&stream_start_success) {
+                            crate::observability::record_operation("audio", "output_stream", true);
+                        }
+                        CpalBackend::render_callback(
+                            &state,
+                            &subscriber,
+                            &fft_tap,
+                            data,
+                            channels as usize,
+                            actual_channels,
+                            config.sample_rate.0,
+                        );
+                    },
+                    move |err| {
+                        // Transition playback to a safe Stopped state and dedup the
+                        // log so repeated CPAL error callbacks do not spam the
+                        // console. Only the first error for the current stream
+                        // lifecycle is logged; subsequent invocations silently
+                        // update state (which is already Stopped) and return
+                        // without logging.
+                        if CpalBackend::handle_stream_error(&state_err) {
+                            stop_signal_err.store(true, Ordering::Release);
+                            let _ = err;
+                            if CpalBackend::record_stream_start_terminal(&stream_start_failure) {
+                                crate::observability::record_operation(
+                                    "audio",
+                                    "output_stream",
+                                    false,
+                                );
+                            }
+                            crate::observability::expected_failure("audio", "stream_error");
+                        }
+                    },
+                    None, // None = no timeout
+                )
+                .map_err(|e| {
+                    AudioError::DeviceError(format!("Failed to build audio stream: {}", e))
+                })?;
 
-        // Mark the fresh stream lifecycle BEFORE going live.
-        //
-        // `stream.play()` activates the CPAL stream and the error callback can
-        // fire immediately afterwards (e.g. device invalidated, underrun). If we
-        // set `Playing` / clear `stream_error_reported` AFTER `play()`, an
-        // error callback firing in that window would:
-        //   1. transition state to `Stopped` (correct), then
-        //   2. be overwritten back to `Playing` by our late update, and
-        //   3. have its `stream_error_reported=true` clobbered back to `false`,
-        //      re-enabling duplicate logging for the same failed lifecycle.
-        //
-        // Preparing state first means the callback observes a correct fresh
-        // lifecycle and its `Stopped` transition survives.
-        let prev_state = self.prepare_for_stream_start();
+            // Mark the fresh stream lifecycle BEFORE going live.
+            //
+            // `stream.play()` activates the CPAL stream and the error callback can
+            // fire immediately afterwards (e.g. device invalidated, underrun). If we
+            // set `Playing` / clear `stream_error_reported` AFTER `play()`, an
+            // error callback firing in that window would:
+            //   1. transition state to `Stopped` (correct), then
+            //   2. be overwritten back to `Playing` by our late update, and
+            //   3. have its `stream_error_reported=true` clobbered back to `false`,
+            //      re-enabling duplicate logging for the same failed lifecycle.
+            //
+            // Preparing state first means the callback observes a correct fresh
+            // lifecycle and its `Stopped` transition survives.
+            let prev_state = self.prepare_for_stream_start();
 
-        let play_result = stream.play();
+            let play_result = stream.play();
 
-        if let Err(e) = play_result {
-            // `play()` failed — the stream never went live. Revert the
-            // speculative `Playing` state so we don't advertise a stream that
-            // is not running, and drop the stream handle.
-            self.revert_failed_stream_start(prev_state);
+            if let Err(e) = play_result {
+                // `play()` failed — the stream never went live. Revert the
+                // speculative `Playing` state so we don't advertise a stream that
+                // is not running, and drop the stream handle.
+                self.revert_failed_stream_start(prev_state);
+                let mut stream_guard = self.stream_drop.lock().unwrap();
+                *stream_guard = None;
+                return Err(AudioError::DeviceError(format!(
+                    "Failed to start audio stream: {}",
+                    e
+                )));
+            }
+            // Store the stream so it stays alive.
+            // SAFETY: This is called from the same thread context where the stream
+            // was created. The stream will be dropped when CpalBackend is dropped
+            // or when stop() is called.
             let mut stream_guard = self.stream_drop.lock().unwrap();
-            *stream_guard = None;
-            return Err(AudioError::DeviceError(format!(
-                "Failed to start audio stream: {}",
-                e
-            )));
+            *stream_guard = Some(stream);
+
+            Ok(())
+        })();
+
+        // Every synchronous startup error (device selection, configuration,
+        // stream construction, or play) is one failed terminal operation.
+        // The asynchronous callbacks retain their own one-shot terminal guard.
+        if result.is_err() && CpalBackend::record_stream_start_terminal(&stream_start_terminal) {
+            crate::observability::record_operation("audio", "output_stream", false);
         }
-
-        // Store the stream so it stays alive.
-        // SAFETY: This is called from the same thread context where the stream
-        // was created. The stream will be dropped when CpalBackend is dropped
-        // or when stop() is called.
-        let mut stream_guard = self.stream_drop.lock().unwrap();
-        *stream_guard = Some(stream);
-
-        Ok(())
+        result
     }
 
     /// Map interleaved source samples to interleaved output samples with channel conversion.
@@ -442,6 +507,7 @@ impl CpalBackend {
         // No stream is alive, so a future start_stream resets this flag anyway;
         // reset it here too for consistency and to avoid a stale-true state.
         s.stream_error_reported = false;
+        self.stop_signal.store(true, Ordering::Release);
 
         Ok(())
     }
@@ -706,6 +772,16 @@ mod tests {
     }
 
     #[test]
+    fn stream_start_attempt_records_exactly_one_terminal_outcome() {
+        let terminal = AtomicBool::new(false);
+
+        // An immediate asynchronous error wins the attempt; a later callback
+        // must not add a speculative success to its rate denominator.
+        assert!(CpalBackend::record_stream_start_terminal(&terminal));
+        assert!(!CpalBackend::record_stream_start_terminal(&terminal));
+    }
+
+    #[test]
     fn new_backend_has_error_flag_unset() {
         // A freshly created backend must start with stream_error_reported=false
         // so the first genuine error on the first stream is logged exactly once.
@@ -915,7 +991,10 @@ mod tests {
 
     /// Build a backend wired to a real PcmBus so behavior tests can pump PCM
     /// frames through the same path the cpal data callback uses.
-    fn backend_with_bus(sample_rate: u32, channels: u16) -> (CpalBackend, crate::audio::pipeline::PcmBusProducer) {
+    fn backend_with_bus(
+        sample_rate: u32,
+        channels: u16,
+    ) -> (CpalBackend, crate::audio::pipeline::PcmBusProducer) {
         let (producer, subscriber) = crate::audio::pipeline::PcmBus::new(sample_rate, channels);
         let backend = CpalBackend::new();
         backend.set_subscriber(subscriber);
@@ -943,6 +1022,7 @@ mod tests {
         CpalBackend::render_callback(
             &backend.state,
             &backend.subscriber,
+            &backend.fft_tap,
             &mut out,
             2,
             2,
@@ -972,6 +1052,47 @@ mod tests {
     }
 
     #[test]
+    fn fft_tap_follows_output_consumption_and_continues_across_callbacks() {
+        let (backend, producer) = backend_with_bus(48_000, 2);
+        let (tap, fft_subscriber) = crate::audio::pipeline::PcmBus::output_tap(2);
+        backend.set_fft_tap(tap);
+        backend.state.lock().unwrap().playback_state = PlaybackState::Playing;
+
+        let source = vec![0.1_f32, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8];
+        producer.send(source.clone()).unwrap();
+
+        // Decoder production alone must never make FFT input available.
+        assert!(fft_subscriber.try_recv().is_none());
+
+        let mut first_output = vec![0.0_f32; 4];
+        CpalBackend::render_callback(
+            &backend.state,
+            &backend.subscriber,
+            &backend.fft_tap,
+            &mut first_output,
+            2,
+            2,
+            48_000,
+        );
+        assert_eq!(first_output, source[..4]);
+        assert_eq!(fft_subscriber.try_recv().unwrap(), source[..4]);
+        assert!(fft_subscriber.try_recv().is_none());
+
+        let mut second_output = vec![0.0_f32; 4];
+        CpalBackend::render_callback(
+            &backend.state,
+            &backend.subscriber,
+            &backend.fft_tap,
+            &mut second_output,
+            2,
+            2,
+            48_000,
+        );
+        assert_eq!(second_output, source[4..]);
+        assert_eq!(fft_subscriber.try_recv().unwrap(), source[4..]);
+    }
+
+    #[test]
     fn data_callback_applies_user_volume_to_rendered_output() {
         // Behavior: the data callback honors `set_volume` and scales the output.
         let (backend, producer) = backend_with_bus(44100, 2);
@@ -987,6 +1108,7 @@ mod tests {
         CpalBackend::render_callback(
             &backend.state,
             &backend.subscriber,
+            &backend.fft_tap,
             &mut out,
             2,
             2,
@@ -1084,6 +1206,7 @@ mod tests {
         CpalBackend::render_callback(
             &backend.state,
             &backend.subscriber,
+            &backend.fft_tap,
             &mut out,
             2,
             2,
@@ -1128,6 +1251,7 @@ mod tests {
         CpalBackend::render_callback(
             &backend.state,
             &backend.subscriber,
+            &backend.fft_tap,
             &mut out,
             2,
             2,
@@ -1163,12 +1287,17 @@ mod tests {
         CpalBackend::render_callback(
             &backend.state,
             &backend.subscriber,
+            &backend.fft_tap,
             &mut out,
             2,
             2,
             44100,
         );
-        assert_eq!(out, vec![0.3_f32; 4], "Paused consumes frames but does not mute");
+        assert_eq!(
+            out,
+            vec![0.3_f32; 4],
+            "Paused consumes frames but does not mute"
+        );
         let s = backend.state.lock().unwrap();
         assert!(
             (s.position - 10.0).abs() < f64::EPSILON,
@@ -1194,6 +1323,7 @@ mod tests {
         CpalBackend::render_callback(
             &backend.state,
             &backend.subscriber,
+            &backend.fft_tap,
             &mut out,
             2,
             2,

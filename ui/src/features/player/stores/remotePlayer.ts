@@ -24,12 +24,28 @@
  */
 
 import { writable, get } from 'svelte/store';
-import { progress, isPlaying, currentTrack, volume, nextTrack, normalizeAudio, frequencyData } from './player';
+import {
+  progress,
+  isPlaying,
+  currentTrack,
+  volume,
+  nextTrack,
+  normalizeAudio,
+  publishFftFrame,
+  selectFftSource,
+  clearFftSource,
+} from './player';
 import { skipToNext } from './player';
 import { notifications } from '@shared/stores/notifications';
 import { t } from '@i18n';
-import { cacheRemoteStream } from '@services/commands';
+import {
+  cacheRemoteStream,
+  reportRemoteAudioPlaybackFailure,
+  reportRemoteAudioPlaybackRuntimeFailure,
+  reportRemoteAudioPlaybackSuccess,
+} from '@services/commands';
 import { convertFileSrc } from '@tauri-apps/api/core';
+import { extractErrorMessage } from '@shared/utils/errors';
 import type { Track, FrequencyData } from '@shared/types/models';
 import { Source } from '@shared/types/models';
 
@@ -76,9 +92,7 @@ let fftFloatBins: Float32Array | null = null;
  *  visualizer sees the same bin count regardless of source. */
 const REMOTE_FFT_SIZE = 1024;
 
-/** Parse the proxy port from a proxied stream URL like
- *  `http://127.0.0.1:8765/proxy?url=...`. Returns null if the URL is
- *  not a local proxy URL. */
+/** Parse the proxy port from a proxied stream URL. */
 function parseProxyPort(url: string): number | null {
   const m = url.match(/^https?:\/\/127\.0\.0\.1:(\d+)\/proxy\?/);
   return m ? Number(m[1]) : null;
@@ -90,11 +104,11 @@ function parseProxyPort(url: string): number | null {
  *  (asset://) when the proxy port cannot be derived — in that case the
  *  AnalyserNode simply won't produce real data for the cached file, but
  *  playback still works (mirrors pre-FFT behavior). */
-function proxyLocalUrl(port: number | null, path: string): string {
-  if (port == null) return convertFileSrc(path);
+export function proxyLocalUrl(port: number | null, capability: string | undefined, path: string): string {
+  if (port == null || !capability) return convertFileSrc(path);
   // Encode the file:// URL the same way the Rust proxy expects it.
   const fileUrl = `file://${path}`;
-  return `http://127.0.0.1:${port}/proxy?url=${encodeURIComponent(fileUrl)}`;
+  return `http://127.0.0.1:${port}/proxy?cap=${encodeURIComponent(capability)}&url=${encodeURIComponent(fileUrl)}`;
 }
 
 /** Lazily create the AudioContext + MediaElementSource + AnalyserNode.
@@ -149,7 +163,7 @@ function startRemoteFftLoop(): void {
       fftFloatBins[i] = v;
       if (v > peak) peak = v;
     }
-    frequencyData.set({
+    publishFftFrame('remote', {
       bins: fftFloatBins,
       sampleRate,
       peak,
@@ -166,7 +180,7 @@ function stopRemoteFftLoop(): void {
     cancelAnimationFrame(fftRafId);
     fftRafId = null;
   }
-  frequencyData.set(null);
+  clearFftSource('remote');
 }
 
 /** Resume the AudioContext if it was suspended (autoplay policy / WebKit
@@ -228,6 +242,74 @@ let seeking = false;
 let intentionallyStopping = false;
 /** Whether audio was playing before the seek started — used to resume after seek. */
 let wasPlayingBeforeSeek = false;
+
+/** Telemetry state belongs to the attempt captured by its browser callbacks. */
+interface RemotePlaybackAttempt {
+  readonly generation: number;
+  readonly startedAt: number;
+  sourceUrl: string;
+  startReported: boolean;
+  runtimeReported: boolean;
+}
+
+let remotePlaybackGeneration = 0;
+let activeRemotePlaybackAttempt: RemotePlaybackAttempt | null = null;
+let removeAttemptErrorHandler: (() => void) | null = null;
+
+function isCurrentAttempt(attempt: RemotePlaybackAttempt, audio: HTMLAudioElement): boolean {
+  return activeRemotePlaybackAttempt?.generation === attempt.generation && audio.src === attempt.sourceUrl;
+}
+
+function reportAttemptOutcome(attempt: RemotePlaybackAttempt, runtime: boolean, succeeded: boolean): void {
+  if ((runtime && attempt.runtimeReported) || (!runtime && attempt.startReported)) return;
+  if (runtime) attempt.runtimeReported = true;
+  else attempt.startReported = true;
+  const elapsedMs = Math.max(0, Math.min(60_000, Math.round(performance.now() - attempt.startedAt)));
+  const report = runtime
+    ? (succeeded ? reportRemoteAudioPlaybackSuccess : reportRemoteAudioPlaybackRuntimeFailure)
+    : (succeeded ? reportRemoteAudioPlaybackSuccess : reportRemoteAudioPlaybackFailure);
+  void report(elapsedMs).catch(() => {
+    // Observability must never alter the existing fallback/skip behavior.
+  });
+}
+
+function installAttemptErrorHandler(audio: HTMLAudioElement, attempt: RemotePlaybackAttempt): void {
+  removeAttemptErrorHandler?.();
+  const onError = (e: Event) => {
+    if (!isCurrentAttempt(attempt, audio)) return;
+    const target = e.target as HTMLAudioElement;
+    const errorCode = target.error?.code;
+
+    if (seeking || swappingSource || intentionallyStopping) return;
+
+    // An error before play() settles is a start failure; a later error is a
+    // separate runtime outcome and must remain visible after a successful start.
+    reportAttemptOutcome(attempt, attempt.startReported, false);
+
+    const translate = get(t);
+    let message = translate('playback.error_title', { default: 'Remote playback failed' });
+    switch (errorCode) {
+      case 1: // MEDIA_ERR_ABORTED
+        message = translate('playback.aborted', { default: 'Playback aborted' });
+        break;
+      case 2: // MEDIA_ERR_NETWORK
+        message = translate('playback.network_error', { default: 'Network error during playback' });
+        break;
+      case 3: // MEDIA_ERR_DECODE
+        message = translate('playback.decode_error', { default: 'Audio decoding error' });
+        break;
+      case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+        message = translate('playback.format_not_supported', { default: 'Audio format not supported' });
+        break;
+    }
+    notifications.push({ type: 'error', title: translate('playback.error_title', { default: 'Playback Error' }), message, dismissible: true });
+    isPlaying.set(false);
+    remoteActive.set(false);
+    skipToNext();
+  };
+  audio.addEventListener('error', onError);
+  removeAttemptErrorHandler = () => audio.removeEventListener('error', onError);
+}
 
 /** Whether a source swap (cache → local file) is in progress — suppresses errors. */
 let swappingSource = false;
@@ -297,40 +379,6 @@ function getAudio(): HTMLAudioElement {
       nextTrack();
     });
 
-    // Error handling
-    audioEl.addEventListener('error', (e) => {
-      const target = e.target as HTMLAudioElement;
-      const errorCode = target.error?.code;
-
-    // Suppress ALL errors during seek, source swap, or intentional stop —
-    // the browser fires error events when we change audio.src or clear it,
-    // and calling skipToNext() would cause an infinite loop of errors.
-    if (seeking || swappingSource || intentionallyStopping) {
-      return;
-    }
-
-      const translate = get(t);
-      let message = translate('playback.error_title', { default: 'Remote playback failed' });
-      switch (errorCode) {
-        case MediaError.MEDIA_ERR_ABORTED:
-          message = translate('playback.aborted', { default: 'Playback aborted' });
-          break;
-        case MediaError.MEDIA_ERR_NETWORK:
-          message = translate('playback.network_error', { default: 'Network error during playback' });
-          break;
-        case MediaError.MEDIA_ERR_DECODE:
-          message = translate('playback.decode_error', { default: 'Audio decoding error' });
-          break;
-        case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-          message = translate('playback.format_not_supported', { default: 'Audio format not supported' });
-          break;
-      }
-      notifications.push({ type: 'error', title: translate('playback.error_title', { default: 'Playback Error' }), message, dismissible: true });
-      isPlaying.set(false);
-      remoteActive.set(false);
-      // Auto-advance to the next track in the queue instead of stopping
-      skipToNext();
-    });
   }
   return audioEl;
 }
@@ -350,14 +398,25 @@ function getAudio(): HTMLAudioElement {
  *
  * SoundCloud tracks use the remote proxy URL directly (their seek works).
  */
-export async function loadRemoteStream(track: Track, streamUrl: string, remoteUrl?: string): Promise<void> {
+export async function loadRemoteStream(track: Track, streamUrl: string, remoteUrl?: string, proxyCapability?: string): Promise<void> {
+  selectFftSource('remote');
   const audio = getAudio();
+  // A new attempt supersedes a prior intentional source clear immediately.
+  intentionallyStopping = false;
 
   // Store the track's known duration from yt-dlp metadata as fallback.
   // YouTube m4a streams report Infinity for audioEl.duration.
   trackDuration = track.duration ?? 0;
   currentSource = track.source;
   streamOffset = 0;
+  const attempt: RemotePlaybackAttempt = {
+    generation: ++remotePlaybackGeneration,
+    startedAt: performance.now(),
+    sourceUrl: '',
+    startReported: false,
+    runtimeReported: false,
+  };
+  activeRemotePlaybackAttempt = attempt;
 
   // Stop any current playback, including any prior MSE session.
   audio.pause();
@@ -393,14 +452,22 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
   // (currentTime) for both YouTube and SoundCloud; the proxy exposes byte-range
   // metadata so the browser's media engine can seek accurately.
   audio.src = playableUrl;
+  attempt.sourceUrl = audio.src;
+  installAttemptErrorHandler(audio, attempt);
 
   // Start playback from the remote proxy URL immediately.
   // For YouTube, we'll swap to a local file once the cache download completes.
   try {
     await audio.play();
+    // A superseded promise can fulfill after a newer attempt has failed.
+    if (!isCurrentAttempt(attempt, audio)) return;
     remoteActive.set(true);
+    // A fulfilled play() promise confirms that the media element started.
+    reportAttemptOutcome(attempt, false, true);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
+    if (!isCurrentAttempt(attempt, audio)) return;
+    reportAttemptOutcome(attempt, false, false);
+    const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
     remoteActive.set(false);
     return; // Don't attempt cache download if playback failed
@@ -437,7 +504,7 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
         // AnalyserNode and zero out frequency data. The proxy serves
         // file:// URLs with the same CORS + Range headers as remote.
         const port = parseProxyPort(playableUrl);
-        const localUrl = proxyLocalUrl(port, localPath);
+        const localUrl = proxyLocalUrl(port, proxyCapability, localPath);
         // Preserve current playback position across the source swap.
         // The browser must load the new source's metadata before currentTime
         // can be set — setting it immediately after src change is a no-op.
@@ -455,6 +522,7 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
           audio.removeEventListener('error', onSwapError);
           // Restore the proxy URL and playback position.
           audio.src = playableUrl;
+          attempt.sourceUrl = audio.src;
           currentStreamUrl = playableUrl;
           const restorePos = () => {
             audio.currentTime = currentPosition;
@@ -495,12 +563,16 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
         }, 3000);
         audio.src = localUrl;
         currentStreamUrl = localUrl;
+        attempt.sourceUrl = audio.src;
       }
     } catch (e) {
       // Cache download failed (backend validation rejected the file, network
       // error, etc.) — continue playing from the remote proxy URL.
       // This is not a playback error; seek just won't be as fast.
       swappingSource = false;
+      // Cache failure is an expected degradation: preserve remote playback but
+      // leave a redacted, stable diagnostic signal for the backend telemetry.
+      console.warn('[cache] remote_stream_failed');
     } finally {
       cachingStream.set(false);
     }
@@ -521,7 +593,7 @@ export function resumeRemote(): void {
     // a user gesture (clicking play) is the right moment to resume it.
     resumeAudioCtx();
     audioEl.play().catch((e) => {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = extractErrorMessage(e, get(t));
       notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
     });
   }
@@ -657,6 +729,9 @@ export function stopRemote(): void {
   // Set flag to suppress the 'error' event that fires when we clear
   // audio.src — this is intentional, not a real playback error.
   intentionallyStopping = true;
+  activeRemotePlaybackAttempt = null;
+  removeAttemptErrorHandler?.();
+  removeAttemptErrorHandler = null;
   if (audioEl) {
     audioEl.pause();
     audioEl.src = '';

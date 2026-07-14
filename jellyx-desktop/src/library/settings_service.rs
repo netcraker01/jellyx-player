@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::errors::types::AppError;
 use crate::persistence::db::Database;
-use crate::persistence::models::{AudioSettings, SourceSetting};
+use crate::persistence::models::{AudioSettings, SourceSetting, TelemetrySettings};
 
 /// Service for managing application settings, including source enablement and audio normalization.
 pub struct SettingsService {
@@ -42,5 +42,17 @@ impl SettingsService {
     /// Set whether audio normalization is enabled.
     pub fn set_normalize_audio(&self, enabled: bool) -> Result<(), AppError> {
         self.db.set_normalize_audio(enabled).map_err(AppError::from)
+    }
+
+    pub fn get_telemetry_settings(&self) -> Result<TelemetrySettings, AppError> {
+        Ok(TelemetrySettings {
+            enabled: self.db.get_telemetry_enabled().map_err(AppError::from)?,
+        })
+    }
+
+    pub fn set_telemetry_enabled(&self, enabled: bool) -> Result<(), AppError> {
+        self.db
+            .set_telemetry_enabled(enabled)
+            .map_err(AppError::from)
     }
 }

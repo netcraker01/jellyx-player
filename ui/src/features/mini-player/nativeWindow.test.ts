@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { closeNativeWindow, enterNativeMiniWindow, minimizeNativeWindow, NORMAL_APP_MIN_SIZE, restoreNativeFullWindow } from './nativeWindow';
+import {
+  closeNativeWindow,
+  enterNativeMiniWindow,
+  minimizeNativeWindow,
+  NORMAL_APP_MIN_SIZE,
+  restoreNativeFullWindow,
+  updateMiniWindowSize,
+} from './nativeWindow';
 
 const mocks = vi.hoisted(() => ({
   window: {
@@ -55,6 +62,17 @@ describe('native mini-player window helpers', () => {
     expect(mocks.window.setDecorations).toHaveBeenCalledWith(false);
   });
 
+  it('applies decorations off before final size to avoid Windows client-area desync', async () => {
+    await enterNativeMiniWindow({ width: 320, height: 480 });
+
+    const decoIdx = mocks.window.setDecorations.mock.invocationCallOrder[0];
+    const sizeIdx = mocks.window.setSize.mock.invocationCallOrder[0];
+    const minSizeIdx = mocks.window.setMinSize.mock.invocationCallOrder[0];
+
+    expect(decoIdx).toBeLessThan(sizeIdx);
+    expect(decoIdx).toBeLessThan(minSizeIdx);
+  });
+
   it('records the previous hidden decoration state before entering mini mode', async () => {
     mocks.window.isDecorated.mockResolvedValueOnce(false);
 
@@ -86,6 +104,15 @@ describe('native mini-player window helpers', () => {
     const state = await enterNativeMiniWindow({ width: 320, height: 480 });
 
     expect(state.decorated).toBeNull();
+  });
+
+  it('restores decorations before final size to avoid Windows client-area desync', async () => {
+    await restoreNativeFullWindow({ size: { width: 1200, height: 800 }, position: { x: 40, y: 50 }, decorated: true, resizable: true });
+
+    const decoIdx = mocks.window.setDecorations.mock.invocationCallOrder[0];
+    const sizeIdx = mocks.window.setSize.mock.invocationCallOrder[0];
+
+    expect(decoIdx).toBeLessThan(sizeIdx);
   });
 
   it('restores normal minimum size before saved bounds', async () => {
@@ -136,5 +163,21 @@ describe('native mini-player window helpers', () => {
 
     expect(mocks.window.minimize).toHaveBeenCalledTimes(1);
     expect(mocks.window.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('updateMiniWindowSize resizes without re-centering', async () => {
+    await updateMiniWindowSize({ width: 240, height: 360 });
+
+    expect(mocks.window.setMinSize).toHaveBeenCalledWith({ width: 240, height: 360 });
+    expect(mocks.window.setSize).toHaveBeenCalledWith({ width: 240, height: 360 });
+    expect(mocks.window.setPosition).not.toHaveBeenCalled();
+    expect(mocks.window.setDecorations).not.toHaveBeenCalled();
+  });
+
+  it('updateMiniWindowSize sets size before min-size is irrelevant — both called', async () => {
+    await updateMiniWindowSize({ width: 200, height: 300 });
+
+    expect(mocks.window.setMinSize).toHaveBeenCalledTimes(1);
+    expect(mocks.window.setSize).toHaveBeenCalledTimes(1);
   });
 });

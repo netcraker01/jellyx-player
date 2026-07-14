@@ -6,8 +6,8 @@
 # macOS runners are scarce and queued runs can delay real release work.
 #
 # The release pipeline lives in .github/workflows/release.yml for Linux/Windows.
-# This workflow handles macOS DMGs separately and attaches them to the GitHub
-# Release on v* tags.
+# This workflow uploads DMGs only as artifacts. The release workflow invokes it
+# as a reusable workflow and publishes all platform assets after validation.
 #
 # Architecture support for the current alpha:
 #   - macos-14 runner (Apple Silicon M1) → builds aarch64-apple-darwin
@@ -24,23 +24,32 @@
 name: macOS DMG
 
 on:
-  push:
-    tags: ["v*"]
   pull_request:
     branches: [main]
   workflow_dispatch:
     inputs:
       release_ref:
-        description: "Git ref to build (example: v0.2.1)"
+        description: "Git ref to build (example: v0.4.1)"
         required: false
         type: string
+  workflow_call:
+    inputs:
+      release_ref:
+        required: true
+        type: string
+    outputs:
+      built_sha:
+        value: ${{ jobs.build-dmg.outputs.built_sha }}
+    secrets:
+      JELLYX_SENTRY_DSN:
+        required: false
 
 concurrency:
   group: macos-dmg-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -49,6 +58,8 @@ jobs:
   build-dmg:
     name: Build macOS DMG (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
+    outputs:
+      built_sha: ${{ steps.provenance.outputs.sha }}
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +72,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref }}
+          ref: ${{ inputs.release_ref || github.ref }}
+
+      - name: Record immutable build commit
+        id: provenance
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -77,15 +93,6 @@ jobs:
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v4
-        with:
-          path: |
-            target
-          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -106,8 +113,25 @@ jobs:
       - name: Install tauri-cli
         run: cargo install tauri-cli --locked
 
+      - name: Prepare ephemeral embedded Sentry DSN
+        env:
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: python scripts/prepare-sentry-dsn.py
+
       - name: Build DMG
+        env:
+          JELLYX_INSTALL_CHANNEL: macos-dmg
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
         run: cargo tauri build --bundles dmg --target ${{ matrix.target }}
+
+      - name: Verify Sentry DSN executable boundary
+        env:
+          JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
+        run: python scripts/verify-sentry-dsn-boundary.py target/${{ matrix.target }}/release/jellyx jellyx-desktop/target/${{ matrix.target }}/release/jellyx
+
+      - name: Remove ephemeral embedded Sentry DSN
+        if: always()
+        run: rm -f jellyx-desktop/.sentry-dsn.rs
 
       - name: Locate DMG output
         id: dmg
@@ -142,20 +166,28 @@ jobs:
             exit 1
           fi
 
-          dmg_name=$(basename "$dmg_file")
-          dmg_dir=$(dirname "$dmg_file")
-
-          # Generate SHA256 checksum
-          hash=$(shasum -a 256 "$dmg_file" | cut -d' ' -f1)
-          hash_file="${dmg_file}.sha256"
-          echo "${hash}  ${dmg_name}" > "$hash_file"
-
           # Extract version from the release ref, tag name, or Cargo.toml.
-          build_ref="${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref_name }}"
+          build_ref="${{ inputs.release_ref || github.ref_name }}"
+          build_ref="${build_ref#refs/tags/}"
           version="${build_ref#v}"
           if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
             version=$(grep '^version' jellyx-desktop/Cargo.toml | head -1 | cut -d'"' -f2)
           fi
+
+          # The release gate consumes this exact documented Apple Silicon name;
+          # normalize Tauri's bundle basename before generating its checksum.
+          dmg_dir=$(dirname "$dmg_file")
+          dmg_name="Jellyx.Player_${version}_aarch64.dmg"
+          normalized_dmg="$dmg_dir/$dmg_name"
+          if [ "$dmg_file" != "$normalized_dmg" ]; then
+            mv "$dmg_file" "$normalized_dmg"
+          fi
+          dmg_file="$normalized_dmg"
+
+          # Generate SHA256 checksum after normalization so it names the asset.
+          hash=$(shasum -a 256 "$dmg_file" | cut -d' ' -f1)
+          hash_file="${dmg_file}.sha256"
+          echo "${hash}  ${dmg_name}" > "$hash_file"
 
           echo "dmg_path=$dmg_file" >> "$GITHUB_OUTPUT"
           echo "dmg_name=$dmg_name" >> "$GITHUB_OUTPUT"
@@ -177,18 +209,6 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attach DMG to Release (on tag push only)
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && startsWith(inputs.release_ref, 'v'))
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Jellyx ${{ steps.dmg.outputs.version }}
-          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.release_ref || github.ref_name }}
-          files: |
-            ${{ steps.dmg.outputs.dmg_path }}
-            ${{ steps.dmg.outputs.sha256_file }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Output build summary
         shell: bash
         run: |
@@ -200,7 +220,7 @@ jobs:
           echo "Architecture:   ${{ matrix.target }}"
           echo "Version:        ${{ steps.dmg.outputs.version }}"
           echo ""
-          echo "To update the Homebrew cask, you need:"
+          echo "After a published release, update the Homebrew cask with:"
           echo "  1. Download the .sha256 file from the artifact"
           echo "  2. Update packaging/homebrew/Casks/jellyx-player.rb"
           echo "     with the version, URL, and SHA256 per architecture"

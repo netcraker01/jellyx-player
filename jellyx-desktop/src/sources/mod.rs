@@ -193,7 +193,11 @@ impl SourceRegistry {
 
     /// Search a specific source for playlists matching the given query.
     #[allow(dead_code)]
-    pub fn search_playlists_source(&self, source: &Source, query: &str) -> Result<Vec<Playlist>, SourceError> {
+    pub fn search_playlists_source(
+        &self,
+        source: &Source,
+        query: &str,
+    ) -> Result<Vec<Playlist>, SourceError> {
         for resolver in &self.resolvers {
             if resolver.source_type() == *source {
                 return resolver.search_playlists(query);
@@ -205,11 +209,7 @@ impl SourceRegistry {
     /// Resolve a playlist by source type and URL/identifier.
     ///
     /// Routes to the first resolver matching the given source type.
-    pub fn resolve_playlist(
-        &self,
-        source: &Source,
-        url: &str,
-    ) -> Result<Playlist, SourceError> {
+    pub fn resolve_playlist(&self, source: &Source, url: &str) -> Result<Playlist, SourceError> {
         for resolver in &self.resolvers {
             if resolver.source_type() == *source {
                 return resolver.resolve_playlist(url);
@@ -238,7 +238,12 @@ mod tests {
             Source::Local
         }
 
-        fn search(&self, _query: &str, _offset: usize, _limit: usize) -> Result<Vec<Track>, SourceError> {
+        fn search(
+            &self,
+            _query: &str,
+            _offset: usize,
+            _limit: usize,
+        ) -> Result<Vec<Track>, SourceError> {
             Ok(Vec::new())
         }
 
@@ -251,7 +256,10 @@ mod tests {
     fn default_search_playlists_returns_empty() {
         let resolver = StubResolver;
         let result = resolver.search_playlists("test query").unwrap();
-        assert!(result.is_empty(), "Default search_playlists should return empty vec");
+        assert!(
+            result.is_empty(),
+            "Default search_playlists should return empty vec"
+        );
     }
 
     #[test]
@@ -305,7 +313,9 @@ mod tests {
     fn registry_search_playlists_source_routes_to_matching_source() {
         let mut registry = SourceRegistry::new();
         registry.register(Box::new(StubResolver));
-        let result = registry.search_playlists_source(&Source::Local, "test").unwrap();
+        let result = registry
+            .search_playlists_source(&Source::Local, "test")
+            .unwrap();
         assert!(result.is_empty(), "Stub resolver returns empty playlists");
     }
 

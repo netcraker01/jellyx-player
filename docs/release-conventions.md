@@ -74,16 +74,14 @@ Every release MUST use this exact structure:
 
 | Platform | File | Type |
 |----------|------|------|
-| Linux | `Jellyx_{version}_amd64.AppImage` | AppImage |
-| Linux | `Jellyx_{version}_amd64.deb` | Debian package |
+| Linux | `Jellyx.Player_{version}_amd64.AppImage` | AppImage |
+| Linux | `Jellyx.Player_{version}_amd64.deb` | Debian package |
 | Linux | `Jellyx_{version}_amd64.tar.gz` | Portable tarball |
-| Linux | `Jellyx-0.2.0-1.x86_64.rpm` | RPM package |
-| Linux | `Jellyx_{version}_amd64.tar.gz` | Portable tarball |
-| Windows | `Jellyx_{version}_x64-setup.exe` | NSIS installer (recommended) |
-| Windows | `Jellyx_{version}_x64_en-US.msi` | MSI installer |
+| Linux | `Jellyx.Player-{version}-1.x86_64.rpm` | RPM package |
+| Windows | `Jellyx.Player_{version}_x64-setup.exe` | NSIS installer (recommended) |
+| Windows | `Jellyx.Player_{version}_x64_en-US.msi` | MSI installer |
 | Windows | `jellyx.exe` | Portable executable |
-| macOS (Apple Silicon) | `Jellyx_{version}_aarch64.dmg` | DMG |
-| macOS (Intel) | `Jellyx_{version}_x64.dmg` | DMG |
+| macOS (Apple Silicon) | `Jellyx.Player_{version}_aarch64.dmg` | DMG |
 
 > ⚠️ Windows builds are unsigned. See the [README](../README.md#windows) for SmartScreen workaround.
 
@@ -92,7 +90,7 @@ Every release MUST use this exact structure:
 Every binary has a corresponding `.sha256` file. Verify downloads:
 
 \`\`\`bash
-sha256sum -c Jellyx_0.2.0_amd64.AppImage.sha256
+sha256sum -c Jellyx.Player_0.2.0_amd64.AppImage.sha256
 \`\`\`
 
 ---
@@ -103,7 +101,7 @@ sha256sum -c Jellyx_0.2.0_amd64.AppImage.sha256
 ### Rules for the body
 
 1. **Section order is fixed**: What's New → Bug Fixes → Downloads → Checksums → Full Changelog
-2. **If a section has no items**, omit it entirely (do not leave empty headers)
+2. **If What's New or Bug Fixes has no items**, retain its header and use the generator's explicit `No new features in this release.` or `No bug fixes in this release.` placeholder
 3. **Downloads table** MUST list every artifact attached to the release
 4. **Full Changelog link** MUST use the `compare` URL with the previous tag
 5. **No auto-generated PR lists** — curate the content manually or via the release script
@@ -118,33 +116,32 @@ All release artifacts MUST follow these patterns:
 
 | Artifact | Pattern | Example |
 |----------|---------|---------|
-| AppImage | `Jellyx_{version}_amd64.AppImage` | `Jellyx_0.2.0_amd64.AppImage` |
-| Debian | `Jellyx_{version}_amd64.deb` | `Jellyx_0.2.0_amd64.deb` |
-| RPM | `Jellyx-{version}-1.x86_64.rpm` | `Jellyx-0.2.0-1.x86_64.rpm` |
+| AppImage | `Jellyx.Player_{version}_amd64.AppImage` | `Jellyx.Player_0.2.0_amd64.AppImage` |
+| Debian | `Jellyx.Player_{version}_amd64.deb` | `Jellyx.Player_0.2.0_amd64.deb` |
+| RPM | `Jellyx.Player-{version}-1.x86_64.rpm` | `Jellyx.Player-0.2.0-1.x86_64.rpm` |
 | Portable tarball | `Jellyx_{version}_amd64.tar.gz` | `Jellyx_0.2.0_amd64.tar.gz` |
 
 ### Windows
 
 | Artifact | Pattern | Example |
 |----------|---------|---------|
-| NSIS | `Jellyx_{version}_x64-setup.exe` | `Jellyx_0.2.0_x64-setup.exe` |
-| MSI | `Jellyx_{version}_x64_en-US.msi` | `Jellyx_0.2.0_x64_en-US.msi` |
+| NSIS | `Jellyx.Player_{version}_x64-setup.exe` | `Jellyx.Player_0.2.0_x64-setup.exe` |
+| MSI | `Jellyx.Player_{version}_x64_en-US.msi` | `Jellyx.Player_0.2.0_x64_en-US.msi` |
 | Portable | `jellyx.exe` | `jellyx.exe` |
 
 ### macOS
 
 | Artifact | Pattern | Example |
 |----------|---------|---------|
-| DMG (ARM) | `Jellyx_{version}_aarch64.dmg` | `Jellyx_0.2.0_aarch64.dmg` |
-| DMG (Intel) | `Jellyx_{version}_x64.dmg` | `Jellyx_0.2.0_x64.dmg` |
+| DMG (ARM) | `Jellyx.Player_{version}_aarch64.dmg` | `Jellyx.Player_0.2.0_aarch64.dmg` |
 
 ### Checksums
 
 Every binary MUST have a `.sha256` file with the same base name:
 
 ```
-Jellyx_0.2.0_amd64.AppImage
-Jellyx_0.2.0_amd64.AppImage.sha256
+Jellyx.Player_0.2.0_amd64.AppImage
+Jellyx.Player_0.2.0_amd64.AppImage.sha256
 jellyx.exe
 jellyx.exe.sha256
 ```
@@ -184,6 +181,14 @@ Before creating a release, verify ALL of the following:
 - [ ] Release body follows the template in section 4
 - [ ] Every binary has a `.sha256` checksum file
 - [ ] No missing platforms (Linux, Windows, macOS — unless intentionally skipped)
+
+### Staged publication and rollback boundary
+
+1. The release workflow builds Linux, Windows, and macOS assets as workflow artifacts.
+2. Its final job creates a clean **draft** release, validates the exact staged asset set and each checksum against its binary, uploads every asset, then publishes it.
+3. If staging or validation fails, the draft remains non-public. After fixing the cause, rerun the release workflow: its promotion step deletes the prior draft for that tag and creates a fresh draft before validation and upload. Do not publish a failed draft manually. No asset is public before the final promotion command.
+
+The updater reads GitHub's published-release API directly. Do not add or manually edit a static `latest.json`: a stale manifest can hide a valid release.
 
 ### Post-release updates (external channels)
 
@@ -265,7 +270,7 @@ For alpha, beta, or release candidates:
 
 The release pipeline is expected to enforce the convention automatically:
 
-- `softprops/action-gh-release` sets the public release title to `Jellyx {VERSION}`
+- `gh release create` stages the public release title as `Jellyx {VERSION}`
 - `scripts/validate-release.sh` validates the final title and required asset names
 - A release that drifts from the naming rules should fail CI rather than relying on manual cleanup afterward
 
@@ -282,13 +287,12 @@ Body:   ## What's New
         ## Checksums
         ---
         **Full Changelog**: compare link
-Files:  Jellyx_{ver}_amd64.AppImage + .sha256
-        Jellyx_{ver}_amd64.deb
+Files:  Jellyx.Player_{ver}_amd64.AppImage + .sha256
+        Jellyx.Player_{ver}_amd64.deb
         Jellyx_{ver}_amd64.tar.gz + .sha256
-        Jellyx-{ver}-1.x86_64.rpm
-        Jellyx_{ver}_x64-setup.exe + .sha256
-        Jellyx_{ver}_x64_en-US.msi + .sha256
+        Jellyx.Player-{ver}-1.x86_64.rpm
+        Jellyx.Player_{ver}_x64-setup.exe + .sha256
+        Jellyx.Player_{ver}_x64_en-US.msi + .sha256
         jellyx.exe + .sha256
-        Jellyx_{ver}_aarch64.dmg + .sha256
-        Jellyx_{ver}_x64.dmg + .sha256
+        Jellyx.Player_{ver}_aarch64.dmg + .sha256
 ```

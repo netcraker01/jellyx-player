@@ -9,6 +9,8 @@ import {
   getArtistDetail,
   getAlbumDetail,
   playAlbum,
+  playStream,
+  isLatestStreamRequest,
 } from '@services/commands';
 
 const mocks = vi.hoisted(() => ({
@@ -133,6 +135,19 @@ describe('Grouped search commands', () => {
     expect(mocks.invokeCommand).toHaveBeenCalledWith('play_local', {
       path: '/music/track.mp3',
     });
+  });
+
+  it('correlates repeated stream requests so an older same-track event is stale', async () => {
+    mocks.invokeCommand.mockResolvedValue(undefined);
+    const track = { id: 'same-track' } as any;
+    await playStream(track);
+    const firstId = mocks.invokeCommand.mock.calls.at(-1)?.[1].streamRequestId;
+    await playStream(track);
+    const secondId = mocks.invokeCommand.mock.calls.at(-1)?.[1].streamRequestId;
+
+    expect(secondId).toBeGreaterThan(firstId);
+    expect(isLatestStreamRequest(firstId)).toBe(false);
+    expect(isLatestStreamRequest(secondId)).toBe(true);
   });
 
   it('openMiniPlayer invokes open_mini_player', async () => {
