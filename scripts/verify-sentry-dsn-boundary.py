@@ -12,7 +12,10 @@ from pathlib import Path
 
 dsn = os.environ.get("JELLYX_SENTRY_DSN", "").encode()
 if not dsn:
-    raise SystemExit("JELLYX_SENTRY_DSN is required")
+    # PR/push CI builds do not embed the release Sentry DSN, so there is no
+    # boundary to verify. The release pipeline enforces its presence at
+    # .github/workflows/release.yml before invoking this workflow.
+    raise SystemExit(0)
 
 for candidate in map(Path, sys.argv[1:]):
     if candidate.is_file():

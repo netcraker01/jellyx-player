@@ -685,21 +685,51 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
 /// `ReplaceFileW` preserves replacement semantics when the marker exists;
 /// `MoveFileExW` safely publishes an absent target (and handles a target that
 /// appears after the existence check) with write-through durability.
+///
+/// `ReplaceFileW` can fail with `ERROR_SHARING_VIOLATION` (os error 32) when a
+/// transient handle (antivirus, search indexer) briefly holds the destination
+/// on Windows CI runners. The replacement is retried a bounded number of times
+/// with short backoff so durable marker transitions remain atomic without
+/// weakening the production migration contract.
+#[cfg(windows)]
+const SHARING_VIOLATION_RETRY_LIMIT: u32 = 5;
+
+#[cfg(windows)]
+const SHARING_VIOLATION_BACKOFF: Duration = Duration::from_millis(25);
+
 #[cfg(windows)]
 fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<()> {
     if marker_destination_exists(destination)? {
-        if replace_file_w(temporary, destination)? {
-            return Ok(());
-        }
+        let mut attempt = 0;
+        loop {
+            if replace_file_w(temporary, destination)? {
+                return Ok(());
+            }
 
-        let replace_error = io::Error::last_os_error();
-        // Only fall back when the destination disappeared after the check.
-        // For every other ReplaceFileW failure, leave the prior marker intact.
-        if marker_destination_exists(destination)? {
-            return Err(io::Error::other(format!(
-                "ReplaceFileW could not replace promotion marker {}: {replace_error}",
-                destination.display()
-            )));
+            let replace_error = io::Error::last_os_error();
+            // ERROR_SHARING_VIOLATION (32) is transient: another process briefly
+            // holds the destination. Retry a bounded number of times before
+            // falling back, so concurrent file access on CI does not fail the
+            // durable marker transition.
+            if replace_error.raw_os_error() == Some(32) && attempt < SHARING_VIOLATION_RETRY_LIMIT {
+                attempt += 1;
+                std::thread::sleep(SHARING_VIOLATION_BACKOFF);
+                // The destination may have disappeared while we waited.
+                if !marker_destination_exists(destination)? {
+                    break;
+                }
+                continue;
+            }
+
+            // Only fall back when the destination disappeared after the check.
+            // For every other ReplaceFileW failure, leave the prior marker intact.
+            if marker_destination_exists(destination)? {
+                return Err(io::Error::other(format!(
+                    "ReplaceFileW could not replace promotion marker {}: {replace_error}",
+                    destination.display()
+                )));
+            }
+            break;
         }
     }
 
