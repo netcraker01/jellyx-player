@@ -257,6 +257,42 @@ jobs:
         if: always()
         run: rm -f jellyx-desktop/.sentry-dsn.rs
 
+      # Tauri's productName ("Jellyx Player") produces artifacts with a space
+      # in the basename (e.g. "Jellyx Player_0.4.1_amd64.AppImage"), but the
+      # release conventions (docs/release-conventions.md) require a dot
+      # ("Jellyx.Player_0.4.1_amd64.AppImage"). Rename every "Jellyx Player*"
+      # artifact in the bundle output to "Jellyx.Player*" BEFORE generating
+      # checksums so the .sha256 sidecars and uploaded artifacts reference the
+      # dot-named files that the validation gate expects.
+      - name: Normalize Linux artifact names (Jellyx Player -> Jellyx.Player)
+        shell: bash
+        run: |
+          set -euo pipefail
+          search_root=""
+          for candidate in "target/release/bundle" "jellyx-desktop/target/release/bundle"; do
+            if [ -d "$candidate" ]; then
+              search_root="$candidate"
+              break
+            fi
+          done
+          if [ -z "$search_root" ]; then
+            echo "ERROR: No bundle directory found to normalize" >&2
+            exit 1
+          fi
+          renamed=0
+          while IFS= read -r -d '' src; do
+            dir="$(dirname "$src")"
+            base="$(basename "$src")"
+            new_name="Jellyx.Player${base#Jellyx Player}"
+            mv "$src" "$dir/$new_name"
+            echo "Renamed: $base -> $new_name"
+            renamed=$((renamed + 1))
+          done < <(find "$search_root" -type f -name 'Jellyx Player*' -print0)
+          echo "Renamed $renamed Linux artifact(s) from 'Jellyx Player' to 'Jellyx.Player'"
+          if [ "$renamed" -eq 0 ]; then
+            echo "WARNING: no 'Jellyx Player*' artifacts were found to rename" >&2
+          fi
+
       # Locate each artifact, generate a SHA256 checksum next to it, and
       # expose paths to later steps via $GITHUB_OUTPUT.
       - name: Locate artifacts and generate checksums
@@ -284,7 +320,7 @@ jobs:
           echo "Bundle root: $search_root"
 
           # --- AppImage ---
-          appimage_file="$(find "$search_root/appimage" -name '*.AppImage' -type f 2>/dev/null | head -1)"
+          appimage_file="$(find "$search_root/appimage" -name 'Jellyx.Player*.AppImage' -type f 2>/dev/null | head -1)"
           if [ -z "$appimage_file" ]; then
             echo "ERROR: No AppImage found under $search_root/appimage" >&2
             find "$search_root" -maxdepth 3 -type f >&2 || true
@@ -295,7 +331,7 @@ jobs:
           echo "${appimage_hash}  $(basename "$appimage_file")" > "$appimage_hash_file"
 
           # --- .deb ---
-          deb_file="$(find "$search_root/deb" -name '*.deb' -type f 2>/dev/null | head -1)"
+          deb_file="$(find "$search_root/deb" -name 'Jellyx.Player*.deb' -type f 2>/dev/null | head -1)"
           if [ -z "$deb_file" ]; then
             echo "ERROR: No .deb found under $search_root/deb" >&2
             exit 1
@@ -305,7 +341,7 @@ jobs:
           echo "${deb_hash}  $(basename "$deb_file")" > "$deb_hash_file"
 
           # --- .rpm ---
-          rpm_file="$(find "$search_root/rpm" -name '*.rpm' -type f 2>/dev/null | head -1)"
+          rpm_file="$(find "$search_root/rpm" -name 'Jellyx.Player*.rpm' -type f 2>/dev/null | head -1)"
           if [ -z "$rpm_file" ]; then
             echo "ERROR: No .rpm found under $search_root/rpm" >&2
             exit 1
@@ -553,6 +589,41 @@ jobs:
         shell: bash
         run: rm -f jellyx-desktop/.sentry-dsn.rs
 
+      # Tauri's productName ("Jellyx Player") produces installer artifacts
+      # with a space in the basename (e.g. "Jellyx Player_0.4.1_x64_en-US.msi"
+      # and "Jellyx Player_0.4.1_x64-setup.exe"), but the release conventions
+      # (docs/release-conventions.md) require a dot
+      # ("Jellyx.Player_0.4.1_x64_en-US.msi"). Rename every "Jellyx Player*"
+      # artifact in the MSI/NSIS bundle output to "Jellyx.Player*" BEFORE
+      # generating checksums so the .sha256 sidecars and uploaded artifacts
+      # reference the dot-named files that the validation gate expects. The
+      # portable jellyx.exe is not affected (it does not use productName).
+      - name: Normalize Windows artifact names (Jellyx Player -> Jellyx.Player)
+        shell: pwsh
+        run: |
+          $searchDirs = @(
+            "target/release/bundle/msi",
+            "target/release/bundle/nsis",
+            "jellyx-desktop/target/release/bundle/msi",
+            "jellyx-desktop/target/release/bundle/nsis"
+          )
+          $renamed = 0
+          foreach ($dir in $searchDirs) {
+            if (-not (Test-Path $dir)) { continue }
+            Get-ChildItem -Path $dir -Filter "Jellyx Player*" -File | ForEach-Object {
+              $newName = "Jellyx.Player" + $_.Name.Substring("Jellyx Player".Length)
+              $dest = Join-Path $_.DirectoryName $newName
+              Move-Item -Path $_.FullName -Destination $dest -Force
+              Write-Host "Renamed: $($_.Name) -> $newName"
+              $renamed++
+            }
+          }
+          Write-Host "Renamed $renamed Windows artifact(s) from 'Jellyx Player' to 'Jellyx.Player'"
+          if ($renamed -eq 0) {
+            Write-Error "No 'Jellyx Player*' artifacts were found to rename"
+            exit 1
+          }
+
       # Locate the raw release executable (no installer wrapper) and hash it.
       - name: Locate portable exe
         id: portable
@@ -600,8 +671,7 @@ jobs:
           $msiFile = $null
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
-              $candidate = Get-ChildItem -Path $dir -Filter "*.msi" |
-                Where-Object { $_.Name -like "*${version}_*.msi" } |
+              $candidate = Get-ChildItem -Path $dir -Filter "Jellyx.Player*${version}_*.msi" |
                 Select-Object -First 1
               if ($candidate) {
                 $msiFile = $candidate
@@ -620,8 +690,8 @@ jobs:
             exit 1
           }
 
-          if ($msiFile.Name -notlike "*$version*") {
-            Write-Error "Selected MSI '$($msiFile.Name)' does not contain expected version '$version'"
+          if ($msiFile.Name -notlike "Jellyx.Player*${version}*") {
+            Write-Error "Selected MSI '$($msiFile.Name)' does not match 'Jellyx.Player*${version}*'"
             exit 1
           }
 
@@ -655,16 +725,8 @@ jobs:
           $nsisFile = $null
           foreach ($dir in $searchDirs) {
             if (Test-Path $dir) {
-                $candidate = Get-ChildItem -Path $dir -Filter "*setup*.exe" |
-                Where-Object { $_.Name -like "*${version}_*setup*.exe" } |
+              $candidate = Get-ChildItem -Path $dir -Filter "Jellyx.Player*${version}_*setup*.exe" |
                 Select-Object -First 1
-              if (-not $candidate) {
-                # Fallback: any .exe in the nsis bundle dir (excluding the app executable)
-                $candidate = Get-ChildItem -Path $dir -Filter "*.exe" |
-                  Where-Object { $_.Name -like "*${version}_*.exe" } |
-
-                  Select-Object -First 1
-              }
               if ($candidate) {
                 $nsisFile = $candidate
                 break
@@ -682,8 +744,8 @@ jobs:
             exit 1
           }
 
-          if ($nsisFile.Name -notlike "*$version*") {
-            Write-Error "Selected NSIS '$($nsisFile.Name)' does not contain expected version '$version'"
+          if ($nsisFile.Name -notlike "Jellyx.Player*${version}*") {
+            Write-Error "Selected NSIS '$($nsisFile.Name)' does not match 'Jellyx.Player*${version}*'"
             exit 1
           }
 
