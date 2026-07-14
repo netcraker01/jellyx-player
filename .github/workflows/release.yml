@@ -996,7 +996,9 @@ jobs:
           tag_commit="$(git -C tag-verification rev-parse 'FETCH_HEAD^{commit}')"
           test "$tag_commit" = "$BUILT_SHA" || { echo "release tag commit targets another SHA" >&2; exit 1; }
           rm -rf tag-verification
-          gh release create "$release_tag" --repo "${GITHUB_REPOSITORY}" --target "$BUILT_SHA" --draft --title "Jellyx ${version}" --notes-file release-body/release-body.md
+          # The tag already exists and points to BUILT_SHA (verified above).
+          # gh release create with the tag name uses it as the release target.
+          gh release create "$release_tag" --repo "${GITHUB_REPOSITORY}" --draft --title "Jellyx ${version}" --notes-file release-body/release-body.md
           release_target="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$release_tag" --jq '.target_commitish')"
           test "$release_target" = "$BUILT_SHA" || {
             echo "draft release target does not match built commit" >&2; exit 1;
