@@ -12,9 +12,9 @@ from pathlib import Path
 
 dsn = os.environ.get("JELLYX_SENTRY_DSN", "").encode()
 if not dsn:
-    # PR/push CI builds do not embed the release Sentry DSN, so there is no
-    # boundary to verify. The release pipeline enforces its presence at
-    # .github/workflows/release.yml before invoking this workflow.
+    # The DSN is optional. When no DSN was embedded (absent/empty secret),
+    # there is no boundary to verify and no file was created by
+    # prepare-sentry-dsn.py. Telemetry stays completely off.
     raise SystemExit(0)
 
 for candidate in map(Path, sys.argv[1:]):
