@@ -975,9 +975,9 @@ jobs:
           # exact asset set and every sidecar checksum. Recheck all content
           # digests here before any write-token publication.
           sha256sum -c release-manifest/release-manifest.sha256
-          if gh release view "$release_tag" --json isDraft --jq '.isDraft' >/dev/null 2>&1; then
-            test "$(gh release view "$release_tag" --json isDraft --jq '.isDraft')" = "true"
-            gh release delete "$release_tag" --yes
+          if gh release view "$release_tag" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft' >/dev/null 2>&1; then
+            test "$(gh release view "$release_tag" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq '.isDraft')" = "true"
+            gh release delete "$release_tag" --repo "${GITHUB_REPOSITORY}" --yes
           fi
           # --- Recheck authorization immediately before publication ---
           # Recheck the protected branch immediately before every publication
@@ -995,7 +995,8 @@ jobs:
           git -C tag-verification fetch --depth=1 origin "refs/tags/${release_tag}"
           tag_commit="$(git -C tag-verification rev-parse 'FETCH_HEAD^{commit}')"
           test "$tag_commit" = "$BUILT_SHA" || { echo "release tag commit targets another SHA" >&2; exit 1; }
-          gh release create "$release_tag" --target "$BUILT_SHA" --draft --title "Jellyx ${version}" --notes-file release-body/release-body.md
+          rm -rf tag-verification
+          gh release create "$release_tag" --repo "${GITHUB_REPOSITORY}" --target "$BUILT_SHA" --draft --title "Jellyx ${version}" --notes-file release-body/release-body.md
           release_target="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$release_tag" --jq '.target_commitish')"
           test "$release_target" = "$BUILT_SHA" || {
             echo "draft release target does not match built commit" >&2; exit 1;
@@ -1007,13 +1008,13 @@ jobs:
             -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' -o -name '*.sha256' \
           \) ! -name 'release-body.md.sha256' ! -name 'release-manifest.sha256' | sort)
           test "${#assets[@]}" -gt 0
-          gh release upload "$release_tag" "${assets[@]}"
-          release_json="$(gh release view "$release_tag" --json name,assets)"
+          gh release upload "$release_tag" --repo "${GITHUB_REPOSITORY}" "${assets[@]}"
+          release_json="$(gh release view "$release_tag" --repo "${GITHUB_REPOSITORY}" --json name,assets)"
           test "$(printf '%s' "$release_json" | jq -r '.name')" = "Jellyx ${version}"
           actual_assets="$(printf '%s' "$release_json" | jq -r '.assets[].name')"
           expected_asset_count="$(grep -c ' release-assets/' release-manifest/release-manifest.sha256)"
           test "$(printf '%s\n' "$actual_assets" | sed '/^$/d' | wc -l | tr -d ' ')" = "$expected_asset_count"
-          gh release edit "$release_tag" --draft=false
+          gh release edit "$release_tag" --repo "${GITHUB_REPOSITORY}" --draft=false
 
           # Any failure above leaves a non-public draft with its staged assets
           # for inspection or deletion; no partial release is made public.
