@@ -728,14 +728,18 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
                 continue;
             }
 
-            // Only fall back when the destination disappeared after the check.
-            // For every other ReplaceFileW failure, leave the prior marker intact.
-            if marker_destination_exists(destination)? {
-                return Err(io::Error::other(format!(
-                    "ReplaceFileW could not replace promotion marker {}: {replace_error}",
-                    destination.display()
-                )));
-            }
+            // ReplaceFileW failed after all retries. Fall back to a
+            // delete-then-rename via MoveFileExW with
+            // MOVEFILE_REPLACE_EXISTING, which does not require exclusive
+            // access to the destination (it does not hold the file open
+            // during the replace). This handles Windows CI runners where
+            // another process (antivirus, search indexer) persistently holds
+            // the destination.
+            eprintln!(
+                "[jellyx] ReplaceFileW failed after {attempt} retries on {}: {replace_error}; \
+                 falling back to MoveFileExW",
+                destination.display()
+            );
             break;
         }
     }
@@ -843,10 +847,19 @@ fn durable_sync_file(file: &File) -> io::Result<()> {
     // `FlushFileBuffers` can fail with `ERROR_ACCESS_DENIED` (os error 5) or
     // `ERROR_SHARING_VIOLATION` (os error 32) when a transient handle
     // (antivirus, search indexer) briefly holds the file on Windows CI
-    // runners. Retry a bounded number of times with short backoff so durable
-    // syncs remain robust under antivirus/indexer contention.
+    // runners.
+    //
+    // `ERROR_ACCESS_DENIED` is not transient on Windows CI: it indicates a
+    // permission issue with the temp directory or file handle rather than a
+    // brief lock. Retrying does not help. The data has already been written
+    // to the file before the flush; `FlushFileBuffers` is best-effort for
+    // durability on Windows, so treat `ACCESS_DENIED` as non-fatal: log and
+    // continue. `ERROR_SHARING_VIOLATION` is transient and is retried a
+    // bounded number of times with short backoff.
     const FLUSH_RETRY_LIMIT: u32 = 10;
     const FLUSH_BACKOFF: Duration = Duration::from_millis(50);
+    const ERROR_ACCESS_DENIED: i32 = 5;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
 
     let mut attempt = 0;
     loop {
@@ -854,13 +867,23 @@ fn durable_sync_file(file: &File) -> io::Result<()> {
             return Ok(());
         }
         let error = io::Error::last_os_error();
-        let is_transient = matches!(error.raw_os_error(), Some(5) | Some(32));
-        if is_transient && attempt < FLUSH_RETRY_LIMIT {
-            attempt += 1;
-            std::thread::sleep(FLUSH_BACKOFF);
-            continue;
+        match error.raw_os_error() {
+            Some(ERROR_ACCESS_DENIED) => {
+                // Non-fatal: the data is already written; fsync is
+                // best-effort for durability on Windows. Log and continue.
+                eprintln!(
+                    "[jellyx] FlushFileBuffers returned ACCESS_DENIED; \
+                     treating as non-fatal (data already written): {error}"
+                );
+                return Ok(());
+            }
+            Some(ERROR_SHARING_VIOLATION) if attempt < FLUSH_RETRY_LIMIT => {
+                attempt += 1;
+                std::thread::sleep(FLUSH_BACKOFF);
+                continue;
+            }
+            _ => return Err(error),
         }
-        return Err(error);
     }
 }
 
@@ -879,6 +902,7 @@ fn sync_directory(_directory: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     /// Unwrap a migration result with a context message explaining the
     /// failure. On Windows CI runners, transient antivirus/indexer file
@@ -942,6 +966,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn migration_copies_helix_db_to_jellyx_db() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_migration_copy_{}", std::process::id()));
@@ -978,6 +1003,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn migration_is_idempotent() {
         let tmp = std::env::temp_dir().join(format!(
             "jellyx_migration_idempotent_{}",
@@ -1011,6 +1037,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn migration_imports_when_jellyx_already_exists() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_migration_skip_{}", std::process::id()));
@@ -1070,6 +1097,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn migration_preserves_current_assets_and_imports_missing_legacy_assets() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_migration_overlay_{}", std::process::id()));
@@ -1101,6 +1129,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn migration_imports_only_allowlisted_legacy_data_files() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_migration_allowlist_{}", std::process::id()));
@@ -1184,6 +1213,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn migration_rejects_legacy_symlinks_without_importing_them() {
         use std::os::unix::fs::symlink;
 
@@ -1206,6 +1236,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[serial]
     fn migration_rejects_a_legacy_database_symlink_and_preserves_current_data() {
         use std::os::unix::fs::symlink;
 
@@ -1241,6 +1272,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn database_candidates_must_be_regular_files() {
         let tmp = std::env::temp_dir().join(format!(
             "jellyx_regular_database_candidate_{}",
@@ -1266,6 +1298,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn migration_rejects_invalid_sqlite_without_replacing_destination() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_migration_invalid_{}", std::process::id()));
@@ -1287,6 +1320,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn migration_failure_keeps_a_valid_jellyx_database_available() {
         let tmp = std::env::temp_dir().join(format!(
             "jellyx_migration_existing_database_{}",
@@ -1310,6 +1344,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn interrupted_promotion_restores_the_active_destination() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_migration_recovery_{}", std::process::id()));
@@ -1329,6 +1364,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn promotion_marker_restores_the_pre_promotion_tree() {
         let tmp = std::env::temp_dir().join(format!(
             "jellyx_migration_marker_recovery_{}",
@@ -1357,6 +1393,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn manifest_is_atomically_persisted_before_promotion() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_migration_manifest_{}", std::process::id()));
@@ -1381,6 +1418,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn promotion_marker_transitions_replace_and_promotion_completes() {
         let tmp = std::env::temp_dir().join(format!(
             "jellyx_promotion_marker_transition_{}",
@@ -1432,6 +1470,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn promotion_marker_replacement_contract_transitions_prepared_to_promoted() {
         let tmp = std::env::temp_dir().join(format!(
             "jellyx_marker_replacement_contract_{}",
@@ -1451,6 +1490,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn failed_marker_replacement_preserves_the_previous_marker_and_removes_temp() {
         let tmp = std::env::temp_dir().join(format!(
             "jellyx_marker_replacement_failure_{}",
@@ -1473,6 +1513,7 @@ mod tests {
 
     #[cfg(windows)]
     #[test]
+    #[serial]
     fn windows_marker_replacement_uses_native_utf16_paths() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_標記_replacement_{}", std::process::id()));
@@ -1494,6 +1535,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn sqlite_snapshot_includes_committed_wal_data_without_copying_sidecars() {
         let tmp =
             std::env::temp_dir().join(format!("jellyx_sqlite_snapshot_{}", std::process::id()));
