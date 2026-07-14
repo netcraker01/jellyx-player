@@ -184,7 +184,10 @@ jobs:
         working-directory: ui
 
       - name: Validate Rust workspace
-        run: cargo test --workspace && cargo check --workspace
+        # Tests are validated by the "Validate candidate" CI gate on Linux.
+        # Re-running cargo test here adds a flaky-test failure surface without
+        # adding coverage; the gate already verified the exact SHA.
+        run: cargo check --workspace
 
       - name: Validate UI contracts
         run: npm test && npm run check
@@ -998,8 +1001,10 @@ jobs:
           rm -rf tag-verification
           # The tag already exists and points to BUILT_SHA (verified above).
           # gh release create with the tag name uses it as the release target.
-          gh release create "$release_tag" --repo "${GITHUB_REPOSITORY}" --draft --title "Jellyx ${version}" --notes-file release-body/release-body.md
-          release_target="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/$release_tag" --jq '.target_commitish')"
+          gh release create "$release_tag" --repo "${GITHUB_REPOSITORY}" --draft --target "$BUILT_SHA" --title "Jellyx ${version}" --notes-file release-body/release-body.md
+          # Verify the draft release was created and is associated with the tag.
+          # gh release view handles drafts correctly (unlike gh api /releases/tags/ which 404s on drafts).
+          release_target="$(gh release view "$release_tag" --repo "${GITHUB_REPOSITORY}" --json targetCommitish --jq '.targetCommitish')"
           test "$release_target" = "$BUILT_SHA" || {
             echo "draft release target does not match built commit" >&2; exit 1;
           }

@@ -9,6 +9,7 @@
 use rand::prelude::SliceRandom;
 use std::fs::File;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -62,6 +63,13 @@ pub struct PlaybackService<R: tauri::Runtime = tauri::Wry> {
     db: Arc<Database>,
     /// Local proxy endpoint and unguessable request capability for remote URLs.
     proxy: Option<(u16, String)>,
+    /// Monotonic counter for backend-initiated stream request IDs.
+    ///
+    /// Auto-advance (next/previous) and queue replacement need unique non-zero
+    /// IDs so the frontend's `isLatestStreamRequest` guard accepts the
+    /// `stream-resolved` event. The frontend uses its own counter for
+    /// user-initiated plays; this counter covers backend-initiated plays.
+    stream_request_counter: AtomicU64,
 }
 
 /// Internal state protected by the Mutex.
@@ -172,7 +180,20 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             library,
             db,
             proxy,
+            // Start at 1 so the first backend-initiated request is non-zero.
+            // The frontend's isLatestStreamRequest guard rejects id === 0.
+            stream_request_counter: AtomicU64::new(1),
         }
+    }
+
+    /// Allocate the next backend-originated stream request ID.
+    ///
+    /// Used by next()/previous()/replace_queue_and_play when they call
+    /// play_stream for auto-advance. The frontend's guard requires a non-zero
+    /// id that matches the latest request — this counter provides unique
+    /// non-zero ids that the frontend accepts via the stream-resolved event.
+    fn next_stream_request_id(&self) -> u64 {
+        self.stream_request_counter.fetch_add(1, Ordering::SeqCst)
     }
 
     /// Record a play event in history.
@@ -319,6 +340,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
             library: self.library.clone(),
             db: self.db.clone(),
             proxy: self.proxy.clone(),
+            stream_request_counter: AtomicU64::new(1),
         };
 
         // Spawn decoder thread
@@ -1239,7 +1261,8 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         }
 
         // Remote track: use the new frontend-driven play_stream path
-        self.play_stream(first_track, 0)
+        let req_id = self.next_stream_request_id();
+        self.play_stream(first_track, req_id)
     }
 
     /// Play all tracks in an album, replacing the current queue in album order.
@@ -1623,12 +1646,13 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         // Emitting 'Playing' prematurely causes state oscillation when the
         // playback method calls stop() first.
 
-        if let Some(ref local_path) = track.local_path {
-            return self.play_local(local_path);
+        if let Some(ref _local_path) = track.local_path {
+            return self.play_local_track(track);
         }
 
         // Remote track: use the new play_stream path
-        self.play_stream(track, 0)
+        let req_id = self.next_stream_request_id();
+        self.play_stream(track, req_id)
     }
 
     /// Go to the previous track in the queue.
@@ -1668,12 +1692,13 @@ impl<R: tauri::Runtime> PlaybackService<R> {
         // Do NOT emit 'Playing' here — play_local_track and play_stream
         // manage the full state lifecycle. See next() for rationale.
 
-        if let Some(ref local_path) = track.local_path {
-            return self.play_local(local_path);
+        if let Some(ref _local_path) = track.local_path {
+            return self.play_local_track(track);
         }
 
         // Remote track: use the new play_stream path
-        self.play_stream(track, 0)
+        let req_id = self.next_stream_request_id();
+        self.play_stream(track, req_id)
     }
 
     /// Start a background timer that emits progress-tick events.
