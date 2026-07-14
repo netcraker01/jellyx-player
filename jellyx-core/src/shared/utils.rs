@@ -707,11 +707,13 @@ fn replace_file_atomically(temporary: &Path, destination: &Path) -> io::Result<(
             }
 
             let replace_error = io::Error::last_os_error();
-            // ERROR_SHARING_VIOLATION (32) is transient: another process briefly
-            // holds the destination. Retry a bounded number of times before
-            // falling back, so concurrent file access on CI does not fail the
-            // durable marker transition.
-            if replace_error.raw_os_error() == Some(32) && attempt < SHARING_VIOLATION_RETRY_LIMIT {
+            // ERROR_SHARING_VIOLATION (32) and ERROR_ACCESS_DENIED (5) are
+            // transient on Windows CI: antivirus/indexer briefly holds the
+            // destination. Retry a bounded number of times before falling
+            // back, so concurrent file access does not fail the durable
+            // marker transition.
+            let is_transient = matches!(replace_error.raw_os_error(), Some(32) | Some(5));
+            if is_transient && attempt < SHARING_VIOLATION_RETRY_LIMIT {
                 attempt += 1;
                 std::thread::sleep(SHARING_VIOLATION_BACKOFF);
                 // The destination may have disappeared while we waited.
