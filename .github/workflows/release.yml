@@ -485,7 +485,9 @@ jobs:
         working-directory: ui
 
       - name: Validate Rust workspace
-        run: cargo test --workspace && cargo check --workspace
+        run: cargo check --workspace
+        # Tests are validated by the "Validate candidate" CI gate on Linux.
+        # Windows runners crash on PlaybackService tests that open TCP/CPAL.
 
       - name: Validate UI contracts
         run: npm test && npm run check
