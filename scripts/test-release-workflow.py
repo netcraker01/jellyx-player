@@ -43,7 +43,7 @@ require(release, "sha256sum -c release-manifest/release-manifest.sha256", "relea
 require(release, "! -name 'release-manifest.sha256'", "release.yml internal manifest exclusion")
 if release.count("contents: write") != 1:
     raise SystemExit("release.yml: only the final promotion job may receive contents:write")
-require(release, "gh release create \"$release_tag\" --repo \"${GITHUB_REPOSITORY}\" --target \"$BUILT_SHA\" --draft", "release.yml")
+require(release, "gh release create \"$release_tag\" --repo \"${GITHUB_REPOSITORY}\" --draft", "release.yml")
 require(release, "gh release delete \"$release_tag\" --repo \"${GITHUB_REPOSITORY}\" --yes", "release.yml")
 require(release, "--json isDraft", "release.yml")
 require(release, 'name: jellyx-release-body', "release.yml release body artifact")
@@ -183,7 +183,7 @@ for tag_ref in (
 ):
     if dereference_tag(tag_ref) != "main-sha":
         raise SystemExit("release tag authorization must compare the peeled commit SHA")
-require(release, 'gh release create "$release_tag" --repo "${GITHUB_REPOSITORY}" --target "$BUILT_SHA" --draft', "release.yml draft target")
+require(release, 'gh release create "$release_tag" --repo "${GITHUB_REPOSITORY}" --draft', "release.yml draft target")
 require(release, 'test "$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq \'.object.sha\')" = "$BUILT_SHA"', "release.yml immediate remote-head recheck")
 stage = release.split("stage-and-publish-release:", 1)[1]
 if "actions/checkout" in stage or "git push" in stage or "./scripts/" in stage:
