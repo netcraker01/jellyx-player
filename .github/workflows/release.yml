@@ -797,10 +797,43 @@ jobs:
           )
           mapfile -t staged_names < <(printf '%s\n' "${assets[@]}" | xargs -n1 basename | sort)
           mapfile -t expected_names < <(printf '%s\n' "${required[@]}" | sort)
-          test "${staged_names[*]}" = "${expected_names[*]}"
+
+          # --- Diagnostic context (point 4) ---
+          echo "Found ${#assets[@]} staged asset file(s) with full paths:"
+          for f in "${assets[@]}"; do echo "  $f"; done
+          echo ""
+          echo "Staged:"
+          for name in "${staged_names[@]}"; do echo "  $name"; done
+          echo ""
+          echo "Expected:"
+          for name in "${expected_names[@]}"; do echo "  $name"; done
+          echo ""
+
+          # --- Compare staged vs expected (points 1 & 2) ---
+          if [ "${staged_names[*]}" != "${expected_names[*]}" ]; then
+            echo "ERROR: staged asset names do not match expected names" >&2
+            echo "" >&2
+            echo "Missing (expected but not staged):" >&2
+            comm -23 <(printf '%s\n' "${expected_names[@]}") <(printf '%s\n' "${staged_names[@]}") >&2
+            echo "" >&2
+            echo "Extra (staged but not expected):" >&2
+            comm -13 <(printf '%s\n' "${expected_names[@]}") <(printf '%s\n' "${staged_names[@]}") >&2
+            exit 1
+          fi
+
+          # --- Verify each checksum sidecar (point 3) ---
           for checksum in "${assets[@]}"; do
             [[ "$checksum" == *.sha256 ]] || continue
-            (cd "$(dirname "$checksum")" && sha256sum -c "$(basename "$checksum")")
+            echo "Verifying checksum: $checksum"
+            echo "  Content: $(cat "$checksum")"
+            echo "  Directory listing of $(dirname "$checksum"):"
+            ls -1 "$(dirname "$checksum")" | sed 's/^/    /'
+            if (cd "$(dirname "$checksum")" && sha256sum -c "$(basename "$checksum")"); then
+              echo "  Result: OK"
+            else
+              echo "  Result: FAILED — see sha256sum output above" >&2
+              exit 1
+            fi
           done
           sha256sum "${assets[@]}" release-body/release-body.md > release-manifest.sha256
       - name: Upload validated content manifest
