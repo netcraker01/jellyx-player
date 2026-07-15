@@ -54,7 +54,8 @@
     "artists": "Artists",
     "local": "Local",
     "play_playlist": "Play playlist",
-    "suggestions": "Suggestions"
+    "suggestions": "Suggestions",
+    "recent": "Recent searches"
   },
   "now_playing": {
     "no_track": "Nothing is playing",
@@ -113,9 +114,9 @@
     "normalize_audio_desc": "Even out volume differences between tracks. Quiet tracks are boosted, loud peaks are compressed.",
     "appearance": "Appearance",
     "appearance_desc": "Customize the application window.",
-    "cinematic_mode": "Cinematic mode",
+    "cinematic_mode": "Cinema mode",
     "cinematic_mode_desc": "Show a soft, music-reactive ambient background behind the app. Only active while audio is playing and the fullscreen visualizer is off.",
-    "cinematic_intensity": "Cinematic intensity",
+    "cinematic_intensity": "Cinema intensity",
     "hide_title_bar": "Hide title bar",
     "hide_title_bar_desc": "Remove the native window title bar for a cleaner look. Restart the app to restore the title bar.",
     "mini_player_skins": "Mini player skins",
@@ -193,7 +194,8 @@
     "close": "Close",
     "search": "Search",
     "play": "Play",
-    "back": "Back"
+    "back": "Back",
+    "clear": "Clear"
   },
   "artist": {
     "top_tracks": "Top tracks",
@@ -204,6 +206,18 @@
     "play_album": "Play Album",
     "tracks": "Tracks",
     "not_found": "Album not found"
+  },
+  "welcome": {
+    "version": "Version",
+    "opensource_message": "Jellyx Player is a free and open-source project built with care by the community.",
+    "community_message": "If you enjoy using it, your support helps keep the project growing and improving for everyone.",
+    "telemetry_label": "Share anonymous error signals",
+    "telemetry_desc": "Helps identify and fix crashes. Only error events are sent — no music, paths, URLs, or personal data.",
+    "telemetry_policy": "Telemetry policy",
+    "star_github": "Star on GitHub",
+    "get_started": "Get Started",
+    "made_with": "Made with love",
+    "repo": "Source code"
   },
   "toasts": {
     "track_added_to_list": "Track added to list",

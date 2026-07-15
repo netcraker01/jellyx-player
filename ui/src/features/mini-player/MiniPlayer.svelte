@@ -12,6 +12,7 @@
   } from '@features/player/stores/player';
   import { miniPlayerScale, resolveMiniPlayerSkin, resolveMiniPlayerSkinScale, resolveMiniPlayerWindowSize, selectedMiniPlayerSkinId } from './skins';
   import { updateMiniWindowSize } from './nativeWindow';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import MiniVisualizer from './MiniVisualizer.svelte';
 
   $: skin = resolveMiniPlayerSkin($selectedMiniPlayerSkinId);
@@ -51,6 +52,19 @@
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
   }
+
+  // Tauri's `data-tauri-drag-region` is unreliable on Windows with frameless
+  // + transparent windows: the compositor has no opaque surface to hit-test,
+  // and inline/img child elements intercept the mousedown. Calling
+  // `startDragging()` directly issues the native SC_MOVE command, which works
+  // reliably on all platforms. We keep `data-tauri-drag-region` as a fallback
+  // for Linux/macOS.
+  function startDrag(e: MouseEvent): void {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('button')) return;
+    getCurrentWindow().startDragging().catch(() => undefined);
+  }
 </script>
 
 <main
@@ -58,54 +72,57 @@
   style="--skin-card-width: {skin.window.width}px; --skin-card-height: {skin.window.height}px; --skin-window-width: {skinSize.width}px; --skin-window-height: {skinSize.height}px; --skin-scale: {skinScale}; --skin-shell: {skin.theme.shell}; --skin-shell-edge: {skin.theme.shellEdge}; --skin-screen: {skin.theme.screen}; --skin-screen-text: {skin.theme.screenText}; --skin-accent: {skin.theme.accent}; --skin-control-surface: {skin.theme.controlSurface}; --skin-control-text: {skin.theme.controlText};"
   aria-label="Mini player"
 >
-  <section class="device" class:compact={skinScale < 0.5} data-skin={skin.id} data-kind={skin.kind} data-shape={skin.shape} aria-label={skin.name}>
-    <div class="window-controls" aria-label="Mini player window controls">
-      <button class="window-control restore-btn" type="button" on:click={exitMiniPlayer} aria-label="Return to full app">
-        <Maximize2 size={14} />
-        <span>Full app</span>
-      </button>
-      <button class="window-control icon-btn" type="button" on:click={minimizeMiniPlayer} aria-label="Minimize mini player">
-        <Minus size={14} />
-      </button>
-      <button class="window-control icon-btn close-btn" type="button" on:click={quitFromMiniPlayer} aria-label="Quit Jellyx Player">
-        <X size={14} />
-      </button>
-    </div>
+  <div class="device-wrapper">
+    <section class="device" class:compact={skinScale < 0.5} data-skin={skin.id} data-kind={skin.kind} data-shape={skin.shape} aria-label={skin.name}>
+      <div class="window-controls" aria-label="Mini player window controls">
+        <button class="window-control restore-btn" type="button" on:click={exitMiniPlayer} aria-label="Return to full app">
+          <Maximize2 size={14} />
+          <span>Full app</span>
+        </button>
+        <button class="window-control icon-btn" type="button" on:click={minimizeMiniPlayer} aria-label="Minimize mini player">
+          <Minus size={14} />
+        </button>
+        <button class="window-control icon-btn close-btn" type="button" on:click={quitFromMiniPlayer} aria-label="Quit Jellyx Player">
+          <X size={14} />
+        </button>
+      </div>
 
-    <div class="screen" data-tauri-drag-region>
-      <div class="track-card" data-tauri-drag-region>
-        {#if $currentTrack && albumArtUrl($currentTrack.thumbnail)}
-          <img src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" class="artwork" data-tauri-drag-region />
-        {:else}
-          <div class="artwork placeholder" data-tauri-drag-region>Jellyx</div>
-        {/if}
-        <div class="metadata" data-tauri-drag-region>
-          <strong data-tauri-drag-region>{$currentTrack?.title ?? 'No track selected'}</strong>
-          <span data-tauri-drag-region>{$currentTrack?.artist ?? skin.name}</span>
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div class="screen" data-tauri-drag-region on:mousedown={startDrag} role="region" aria-label="Mini player display">
+        <div class="track-card" data-tauri-drag-region>
+          {#if $currentTrack && albumArtUrl($currentTrack.thumbnail)}
+            <img src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" class="artwork" data-tauri-drag-region />
+          {:else}
+            <div class="artwork placeholder" data-tauri-drag-region>Jellyx</div>
+          {/if}
+          <div class="metadata" data-tauri-drag-region>
+            <strong data-tauri-drag-region>{$currentTrack?.title ?? 'No track selected'}</strong>
+            <span data-tauri-drag-region>{$currentTrack?.artist ?? skin.name}</span>
+          </div>
         </div>
+        <div class="progress" aria-label="Playback progress" data-tauri-drag-region>
+          <span style="width: {progressPct}%" data-tauri-drag-region></span>
+        </div>
+        <div class="times" data-tauri-drag-region>
+          <span data-tauri-drag-region>{formatTime($progress.position)}</span>
+          <span data-tauri-drag-region>{formatTime($progress.duration)}</span>
+        </div>
+        <MiniVisualizer />
       </div>
-      <div class="progress" aria-label="Playback progress" data-tauri-drag-region>
-        <span style="width: {progressPct}%" data-tauri-drag-region></span>
-      </div>
-      <div class="times" data-tauri-drag-region>
-        <span data-tauri-drag-region>{formatTime($progress.position)}</span>
-        <span data-tauri-drag-region>{formatTime($progress.duration)}</span>
-      </div>
-      <MiniVisualizer />
-    </div>
 
-    <div class="click-wheel" aria-label="Playback controls">
-      <button class="wheel-btn prev" aria-label="Previous" on:click={previousTrack}><SkipBack size={18} /></button>
-      <button class="wheel-btn next" aria-label="Next" on:click={nextTrack}><SkipForward size={18} /></button>
-      <button class="wheel-btn center" aria-label={$isPlaying ? 'Pause' : 'Play'} on:click={togglePlayPause}>
-        {#if $isPlaying}
-          <Pause size={28} />
-        {:else}
-          <Play size={28} />
-        {/if}
-      </button>
-    </div>
-  </section>
+      <div class="click-wheel" aria-label="Playback controls">
+        <button class="wheel-btn prev" aria-label="Previous" on:click={previousTrack}><SkipBack size={18} /></button>
+        <button class="wheel-btn next" aria-label="Next" on:click={nextTrack}><SkipForward size={18} /></button>
+        <button class="wheel-btn center" aria-label={$isPlaying ? 'Pause' : 'Play'} on:click={togglePlayPause}>
+          {#if $isPlaying}
+            <Pause size={28} />
+          {:else}
+            <Play size={28} />
+          {/if}
+        </button>
+      </div>
+    </section>
+  </div>
 </main>
 
 <style>
@@ -135,7 +152,21 @@
     color: var(--skin-control-text);
     box-sizing: border-box;
     transform: scale(var(--skin-scale));
-    transform-origin: center;
+    transform-origin: top left;
+  }
+
+  /* The .device layout box is the unscaled skin base (e.g. 320x480), visually
+   * scaled by `transform`. To make the *layout* box match the window's scaled
+   * size so grid centering works, we wrap it in a container sized to the
+   * scaled window dimension. Without this, `transform: scale()` doesn't
+   * change the layout box, so the grid centers an oversized box → overflow.
+   */
+  .device-wrapper {
+    width: var(--skin-window-width);
+    height: var(--skin-window-height);
+    overflow: hidden;
+    display: grid;
+    place-items: start;
   }
 
   .window-controls {

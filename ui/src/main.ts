@@ -13,17 +13,37 @@ import {
   loadPrefs,
   check as checkUpdates,
 } from '@features/updater/updater.store';
+import { checkWelcome } from '@features/welcome/welcomeStore';
 import { mount } from 'svelte';
 import App from './app/App.svelte';
+import { getMigratedItem } from '@shared/utils/storage';
 
 // Global styles
 import './styles/global.css';
+
+/** Restore the persisted window decorations preference on Linux.
+ *  Tauri always creates the window decorated; we must strip the title bar
+ *  here if the user previously opted to hide it, so the state survives restart. */
+function restoreDecorations(): void {
+  if (typeof navigator === 'undefined' || !/Linux/.test(navigator.userAgent)) return;
+  if (getMigratedItem('hide-title-bar') !== 'true') return;
+  import('@tauri-apps/api/window')
+    .then(({ getCurrentWindow }) => getCurrentWindow().setDecorations(false))
+    .catch(() => undefined);
+}
 
 async function bootstrap() {
   try {
     await initI18n();
     mount(App, {
       target: document.getElementById('app')!,
+    });
+
+    restoreDecorations();
+
+    // Check whether the welcome modal should show (once per version).
+    checkWelcome().catch((err) => {
+      console.error('[Jellyx] Welcome check failed:', err);
     });
 
     initPlayerEvents().catch((err) => {

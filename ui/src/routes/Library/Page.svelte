@@ -49,6 +49,13 @@
   }
 
   $: folderCount = (folderPath: string) => $tracksByFolder.get(folderPath)?.length ?? 0;
+
+  /** Extract the final folder name from a path. Falls back to the full
+   *  path if no separator is found (e.g. bare folder name on some platforms). */
+  function folderName(path: string): string {
+    const parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+    return parts.length > 0 ? parts[parts.length - 1] : path;
+  }
 </script>
 
 <div class="page-library">
@@ -88,20 +95,20 @@
             on:keydown={(e) => e.key === 'Enter' && openFolder(folder.path)}
             role="button"
             tabindex="0"
-            aria-label="{$t('library.open_folder')} {folder.path}"
+            aria-label="{$t('library.open_folder')} {folderName(folder.path)}"
           >
             <div class="folder-icon">
               <Folder size={28} />
             </div>
             <div class="folder-info">
-              <span class="folder-path">{folder.path}</span>
+              <span class="folder-path" title={folder.path}>{folderName(folder.path)}</span>
               <span class="folder-count">{folderCount(folder.path)} {$t('library.folder_tracks')}</span>
             </div>
             <button
               class="btn-remove"
               on:click|stopPropagation={() => handleRemoveFolder(folder.path)}
               title="Remove folder"
-              aria-label="Remove folder {folder.path}"
+              aria-label="Remove folder {folderName(folder.path)}"
             >
               ✕
             </button>

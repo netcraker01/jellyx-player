@@ -48,11 +48,12 @@ export function renderMirror(
     }
     const magnitude = count > 0 ? sum / count : 0;
     const normalizedHeight = peak > 0 ? magnitude / peak : 0;
-    const halfBar = Math.max(barMinHeight / 2, (normalizedHeight * height * 0.42));
+    const shaped = Math.pow(normalizedHeight, 0.85);
+    const halfBar = Math.max(barMinHeight / 2, shaped * height * 0.45);
 
     const x = i * (barWidth + barGap);
 
-    ctx.globalAlpha = 0.6 + normalizedHeight * 0.4;
+    ctx.globalAlpha = 0.5 + shaped * 0.5;
     // Upper half (grows upward from the center)
     ctx.fillRect(x, midY - halfBar, barWidth, halfBar);
     // Lower half (mirrored, grows downward)

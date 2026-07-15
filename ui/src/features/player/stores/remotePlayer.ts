@@ -549,7 +549,7 @@ export async function loadRemoteStream(track: Track, streamUrl: string, remoteUr
           notifications.push({
             type: 'warning',
             title: 'Usando transmisión remota',
-            message: 'No se pudo usar la caché local; el seek puede ser más lento.',
+            message: 'No se pudo usar la caché local; la búsqueda de posición puede ser más lenta.',
             dismissible: true,
           });
         };

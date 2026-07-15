@@ -52,7 +52,10 @@ export function renderAurora(
   const low = bandEnergy(bins, 0, lowEnd);
   const mid = bandEnergy(bins, lowEnd, midEnd);
   const high = bandEnergy(bins, midEnd, n);
-  const norm = (v: number) => (peak > 0 ? v / peak : 0);
+  const norm = (v: number) => {
+    const raw = peak > 0 ? v / peak : 0;
+    return Math.pow(raw, 0.85);
+  };
   const lowN = norm(low);
   const midN = norm(mid);
   const highN = norm(high);

@@ -54,7 +54,8 @@
     "artists": "Artistas",
     "local": "Local",
     "play_playlist": "Reproducir lista",
-    "suggestions": "Sugerencias"
+    "suggestions": "Sugerencias",
+    "recent": "Búsquedas recientes"
   },
   "now_playing": {
     "no_track": "Nada está reproduciéndose",
@@ -97,29 +98,29 @@
     "theme": "Tema",
     "audio": "Audio",
     "privacy": "Privacidad",
-    "telemetry": "Compartir señales anónimas de fallos",
+    "telemetry": "Compartir señales anónimas de errores",
     "telemetry_desc": "Está desactivado de forma predeterminada. Actívalo solo si quieres ayudar a identificar problemas de fiabilidad.",
     "telemetry_details": "Cuando está activado, Jellyx envía solo identificadores de componentes redactados y métricas de tiempo acotadas, y únicamente si el operador configuró un servicio de telemetría. Nunca envía música, rutas, URL, datos de cuenta, identificadores de dispositivo ni detalles de errores sin procesar. Puedes desactivarlo en cualquier momento para detener futuras transmisiones.",
     "about": "Acerca de Jellyx Player",
     "version": "Versión",
-    "about_description": "Reproductor de música de fondo para escritorio pensado para personas que trabajan con música puesta. Escuchá YouTube, SoundCloud y archivos locales sin cuentas, sin suscripciones y sin reproducción de vídeo innecesaria.",
+    "about_description": "Reproductor de música de fondo para escritorio pensado para personas que trabajan con música. Escucha YouTube, SoundCloud y archivos locales sin cuentas, sin suscripciones y sin reproducción de video innecesaria.",
     "about_repo": "Código fuente",
     "about_releases": "Versiones",
     "about_issues": "Reportar un error",
     "about_credits": "Hecho con cuidado por netcraker · © 2026 · Licencia AGPL-3.0",
     "sources": "Fuentes",
-    "sources_desc": "Habilitá o deshabilitá las fuentes de búsqueda. Las fuentes deshabilitadas no aparecerán en los resultados.",
+    "sources_desc": "Habilita o deshabilita las fuentes de búsqueda. Las fuentes deshabilitadas no aparecerán en los resultados.",
     "normalize_audio": "Normalizar audio",
-    "normalize_audio_desc": "Equilibrá las diferencias de volumen entre pistas. Las pistas quietas se amplifican, los picos fuertes se comprimen.",
+    "normalize_audio_desc": "Equilibra las diferencias de volumen entre pistas. Las pistas silenciosas se amplifican y los picos fuertes se comprimen.",
     "appearance": "Apariencia",
-    "appearance_desc": "Personalizá la ventana de la aplicación.",
-    "cinematic_mode": "Modo cinematográfico",
-    "cinematic_mode_desc": "Muestra un fondo ambiental suave que reacciona a la música detrás de la app. Solo está activo mientras hay audio reproduciéndose y el visualizador en pantalla completa está apagado.",
-    "cinematic_intensity": "Intensidad cinematográfica",
+    "appearance_desc": "Personaliza la ventana de la aplicación.",
+    "cinematic_mode": "Modo cine",
+    "cinematic_mode_desc": "Muestra un fondo ambiental suave que reacciona a la música detrás de la aplicación. Solo está activo mientras hay audio reproduciéndose y el visualizador en pantalla completa está apagado.",
+    "cinematic_intensity": "Intensidad cine",
     "hide_title_bar": "Ocultar barra de título",
-    "hide_title_bar_desc": "Eliminá la barra de título nativa para un aspecto más limpio. Reiniciá la app para restaurarla.",
-    "mini_player_skins": "Skins del mini reproductor",
-    "mini_player_skins_desc": "Elegí el skin declarativo del mini reproductor. Los skins definen layout, colores y tamaño de ventana sin ejecutar scripts.",
+    "hide_title_bar_desc": "Elimina la barra de título nativa para un aspecto más limpio. Reinicia la aplicación para restaurarla.",
+    "mini_player_skins": "Apariencias del mini reproductor",
+    "mini_player_skins_desc": "Elige la apariencia del mini reproductor. Las apariencias definen el diseño, los colores y el tamaño de ventana sin ejecutar scripts.",
     "mini_player_size": "Tamaño del mini reproductor",
     "skin_activate": "Activar",
     "skin_active": "Activo",
@@ -138,7 +139,7 @@
     "STREAM_NOT_FOUND": "Stream no encontrado. Puede que no esté disponible.",
     "DEVICE_NOT_FOUND": "Dispositivo de audio no encontrado.",
     "PLUGIN_LOAD_FAILED": "Error al cargar plugin: {name}",
-    "UNKNOWN_ERROR": "Algo salió mal. Intenta de nuevo."
+    "UNKNOWN_ERROR": "Ha habido un error. Inténtalo de nuevo."
   },
   "playback": {
     "error_title": "Error de reproducción",
@@ -146,7 +147,7 @@
     "aborted": "Reproducción cancelada",
     "network_error": "Error de red durante la reproducción",
     "decode_error": "Error de decodificación de audio",
-    "format_not_supported": "Formato de audio no soportado"
+    "format_not_supported": "Formato de audio no compatible"
   },
   "playlists": {
     "title": "Listas",
@@ -162,14 +163,14 @@
     "empty_list": "Esta lista está vacía",
     "artist_favorites": "Artistas favoritos",
     "import_url": "Importar desde URL",
-    "import_url_desc": "Pegá una URL de lista de YouTube o SoundCloud para importar sus pistas.",
+    "import_url_desc": "Pega una URL de lista de YouTube o SoundCloud para importar sus pistas.",
     "import": "Importar",
     "importing": "Importando pistas",
     "generate_by_artist": "Generar listas por artista",
     "generating": "Generando...",
     "generated_count": "Se generaron {count} listas de tu biblioteca local",
     "from_folder": "De carpeta",
-    "folder_badge": "Esta lista se generó a partir de una carpeta supervisada",
+    "folder_badge": "Esta lista se generó a partir de una carpeta vigilada",
     "child_playlists": "Listas anidadas",
     "show_all_sources": "Mostrar todas las fuentes"
   },
@@ -193,7 +194,8 @@
     "close": "Cerrar",
     "search": "Buscar",
     "play": "Reproducir",
-    "back": "Volver"
+    "back": "Volver",
+    "clear": "Limpiar"
   },
   "artist": {
     "top_tracks": "Mejores canciones",
@@ -205,12 +207,24 @@
     "tracks": "Canciones",
     "not_found": "Álbum no encontrado"
   },
+  "welcome": {
+    "version": "Versión",
+    "opensource_message": "Jellyx Player es un proyecto gratuito y de código abierto, creado con dedicación por la comunidad.",
+    "community_message": "Si te gusta usarlo, tu apoyo ayuda a que el proyecto siga creciendo y mejorando para todos.",
+    "telemetry_label": "Compartir señales anónimas de errores",
+    "telemetry_desc": "Ayuda a identificar y corregir fallos. Solo se envían eventos de error — sin música, rutas, URL ni datos personales.",
+    "telemetry_policy": "Política de telemetría",
+    "star_github": "Estrella en GitHub",
+    "get_started": "Empezar",
+    "made_with": "Hecho con amor",
+    "repo": "Código fuente"
+  },
   "toasts": {
-    "track_added_to_list": "Pista añadida a la lista",
-    "track_removed_from_list": "Pista eliminada de la lista",
+    "track_added_to_list": "Canción añadida a la lista",
+    "track_removed_from_list": "Canción eliminada de la lista",
     "scan_completed": "Escaneo completado: {count} archivos añadidos",
-    "track_added_to_queue": "Pista añadida a la cola",
-    "play_next_set": "Pista añadida para reproducir después",
+    "track_added_to_queue": "Canción añadida a la cola",
+    "play_next_set": "Canción añadida para reproducir después",
     "queue_cleared": "Cola vaciada",
     "yt_dlp_missing": "yt-dlp no está instalado. Instálalo para buscar y reproducir desde YouTube."
   }

@@ -66,10 +66,12 @@ vi.mock('@i18n', () => {
 
 import SearchPage from './Page.svelte';
 import { Source } from '@shared/types/models';
+import { searchQuery } from '@features/search/stores/search';
 
 describe('Search page', () => {
   beforeEach(() => {
     mocks.searchGroupedCmd.mockReset();
+    searchQuery.set('');
   });
 
   afterEach(() => {

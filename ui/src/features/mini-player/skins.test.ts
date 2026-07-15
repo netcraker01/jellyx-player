@@ -23,14 +23,14 @@ function installLocalStorage() {
 describe('mini player skins', () => {
   it('ships an iPod-like default skin', () => {
     const skin = resolveMiniPlayerSkin(DEFAULT_MINI_PLAYER_SKIN);
-    expect(skin.id).toBe('ipod-classic');
+    expect(skin.id).toBe('classic-jellyx');
     expect(skin.window).toMatchObject({ width: 320, height: 480, resizable: false });
     expect(skin.layout.controls).toEqual(['previous', 'playPause', 'next']);
   });
 
   it('ships only declarative skins with sizing contracts', () => {
     expect(MINI_PLAYER_SKINS.length).toBeGreaterThan(1);
-    expect(MINI_PLAYER_SKINS.map((skin) => skin.id)).toEqual(expect.arrayContaining(['ipod-classic']));
+    expect(MINI_PLAYER_SKINS.map((skin) => skin.id)).toEqual(expect.arrayContaining(['classic-jellyx']));
     expect(MINI_PLAYER_SKINS.every((skin) => skin.window.width > 0 && skin.window.height > 0)).toBe(true);
     expect(MINI_PLAYER_SKINS.every((skin) => !('script' in skin))).toBe(true);
   });

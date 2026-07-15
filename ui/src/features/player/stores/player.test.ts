@@ -181,7 +181,10 @@ describe('player event bootstrap FFT ownership', () => {
 
     let value: FrequencyData | null = null;
     const unsubscribe = bootstrapFrequencyData.subscribe((frame) => { value = frame; });
-    expect(value).toBe(localFrame);
+    // Rolling peak overrides peak — verify data was published.
+    expect(value).not.toBeNull();
+    expect(value?.bins[0]).toBeCloseTo(0.2);
+    expect(value?.sampleRate).toBe(44_100);
 
     selectBootstrapSource('remote');
     onFrame?.(localFrame);
@@ -189,7 +192,8 @@ describe('player event bootstrap FFT ownership', () => {
 
     const remoteFrame = { bins: new Float32Array([0.8]), sampleRate: 44_100, peak: 0.8 };
     publishBootstrapFrame('remote', remoteFrame);
-    expect(value).toBe(remoteFrame);
+    expect(value).not.toBeNull();
+    expect(value?.bins[0]).toBeCloseTo(0.8);
 
     selectBootstrapSource('local');
     publishBootstrapFrame('remote', remoteFrame);

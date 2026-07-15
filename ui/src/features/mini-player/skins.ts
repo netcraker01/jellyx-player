@@ -52,9 +52,9 @@ export const MINI_PLAYER_SCALE_BOUNDS = {
 
 export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
   {
-    id: 'ipod-classic',
-    name: 'iPod Classic',
-    description: 'A compact click-wheel inspired skin for the first Jellyx mini player.',
+    id: 'classic-jellyx',
+    name: 'Classic Jellyx',
+    description: 'The original Jellyx mini player design.',
     author: 'Jellyx',
     kind: 'ipod',
     shape: 'rounded-rectangle',
@@ -75,13 +75,13 @@ export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
     },
   },
   {
-    id: 'graphite-pocket',
-    name: 'Graphite Pocket',
-    description: 'A smaller graphite skin for compact desktop placement.',
+    id: 'graphite-jellyx',
+    name: 'Graphite Jellyx',
+    description: 'A dark graphite skin with the same compact design.',
     author: 'Jellyx',
     kind: 'ipod',
     shape: 'rounded-rectangle',
-    window: { width: 300, height: 480, resizable: false },
+    window: { width: 320, height: 480, resizable: false },
     layout: {
       artwork: 'screen',
       controls: ['previous', 'playPause', 'next'],
@@ -101,7 +101,7 @@ export const MINI_PLAYER_SKINS: readonly MiniPlayerSkin[] = [
 
 export type MiniPlayerSkinId = (typeof MINI_PLAYER_SKINS)[number]['id'];
 
-export const DEFAULT_MINI_PLAYER_SKIN: MiniPlayerSkinId = 'ipod-classic';
+export const DEFAULT_MINI_PLAYER_SKIN: MiniPlayerSkinId = 'classic-jellyx';
 
 const MINI_PLAYER_SKIN_SUFFIX = 'mini-player-skin';
 const MINI_PLAYER_SCALE_SUFFIX = 'mini-player-scale';

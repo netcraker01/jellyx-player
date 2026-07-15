@@ -46,9 +46,12 @@ impl LibraryService {
         self.db.insert_history(track).map_err(AppError::from)
     }
 
-    /// Get play history, ordered by most recent first (max 100 entries).
-    pub fn get_history(&self) -> Result<Vec<HistoryEntry>, AppError> {
-        self.db.get_history().map_err(AppError::from)
+    /// Get recently played tracks deduplicated by track_id.
+    ///
+    /// Returns only the most recent entry per track so the same track doesn't
+    /// appear multiple times in the "recently played" list.
+    pub fn get_recent_unique(&self, limit: u32) -> Result<Vec<HistoryEntry>, AppError> {
+        self.db.get_recent_unique(limit).map_err(AppError::from)
     }
 
     /// Clear all play history.
@@ -281,12 +284,10 @@ impl LibraryService {
     /// renders immediately. Use `get_home_recommendations` for the heavy
     /// computation.
     pub fn get_home_snapshot(&self) -> Result<HomeSnapshot, AppError> {
-        let history = self.db.get_history().map_err(AppError::from)?;
-        let recently_played = history
-            .iter()
-            .take(Self::RECENTLY_PLAYED_LIMIT)
-            .cloned()
-            .collect();
+        let recently_played = self
+            .db
+            .get_recent_unique(Self::RECENTLY_PLAYED_LIMIT as u32)
+            .map_err(AppError::from)?;
         Ok(HomeSnapshot {
             recently_played,
             recommendations: vec![],
@@ -488,7 +489,7 @@ mod tests {
         let track = sample_track("t1");
         svc.record_play(&track).unwrap();
 
-        let history = svc.get_history().unwrap();
+        let history = svc.db.get_history().unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].track.id, "t1");
     }
@@ -501,7 +502,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         svc.record_play(&track).unwrap();
 
-        let history = svc.get_history().unwrap();
+        let history = svc.db.get_history().unwrap();
         assert_eq!(history.len(), 2);
     }
 
@@ -511,7 +512,7 @@ mod tests {
         svc.record_play(&sample_track("t1")).unwrap();
         svc.record_play(&sample_track("t2")).unwrap();
         svc.clear_history().unwrap();
-        assert_eq!(svc.get_history().unwrap().len(), 0);
+        assert_eq!(svc.db.get_history().unwrap().len(), 0);
     }
 
     // ── Grouped search tests (REQ-MS-1/2) ────────────────────────────────

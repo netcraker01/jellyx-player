@@ -8,8 +8,9 @@
   import {
     suggestionCategories,
     isLoadingCategories,
-    loadSuggestionCategories,
+    reloadSuggestionCategories,
   } from '@features/search/stores/suggestions';
+  import { recentSearches, addRecentSearch, clearRecentSearches } from '@features/search/stores/recentSearches';
 
   type SearchFilter = 'all' | 'videos' | 'artists' | 'local';
 
@@ -18,11 +19,15 @@
   let currentFilter: SearchFilter = 'all';
 
   onMount(() => {
-    loadSuggestionCategories();
+    reloadSuggestionCategories();
+    if ($searchQuery.trim()) {
+      searchGrouped($searchQuery, mapFilter(currentFilter));
+    }
   });
 
   function handleSearch(e: CustomEvent<{ query: string }>) {
     searchQuery.set(e.detail.query);
+    addRecentSearch(e.detail.query);
     searchGrouped(e.detail.query, mapFilter(currentFilter));
   }
 
@@ -54,6 +59,27 @@
   <div class="search-container">
     <SearchBar on:search={handleSearch} disabled={$isSearchingGrouped} />
   </div>
+
+  {#if !hasSearched && $recentSearches.length > 0}
+    <div class="suggestions-section">
+      <div class="suggestions-header">
+        <p class="suggestions-label">{$t('search.recent') ?? 'Recent searches'}</p>
+        <button class="clear-btn" on:click={clearRecentSearches} aria-label="Clear recent searches">
+          {$t('common.clear') ?? 'Clear'}
+        </button>
+      </div>
+      <div class="suggestions-chips">
+        {#each $recentSearches as query}
+          <button
+            class="suggestion-chip recent-chip"
+            on:click={() => handleSuggestionClick(query)}
+          >
+            {query}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
   {#if !hasSearched && $suggestionCategories.length > 0}
     <div class="suggestions-section">
@@ -106,6 +132,33 @@
 
   .suggestions-section {
     margin-bottom: 1.5rem;
+  }
+
+  .suggestions-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.75rem;
+  }
+
+  .clear-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary, #9ca3af);
+    font-size: 0.75rem;
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    opacity: 0.7;
+  }
+
+  .clear-btn:hover {
+    opacity: 1;
+    color: var(--color-accent, #6366f1);
+  }
+
+  .recent-chip {
+    --chip-color: var(--text-secondary, #9ca3af);
   }
 
   .suggestions-label {

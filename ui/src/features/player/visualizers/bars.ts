@@ -64,12 +64,13 @@ export function renderBars(
     }
     const magnitude = count > 0 ? sum / count : 0;
     const normalizedHeight = peak > 0 ? magnitude / peak : 0;
-    const barHeight = Math.max(barMinHeight, normalizedHeight * height * 0.85);
+    const shaped = Math.pow(normalizedHeight, 0.85);
+    const barHeight = Math.max(barMinHeight, shaped * height * 0.9);
 
     const x = i * (barWidth + barGap);
     const y = height - barHeight;
 
-    ctx.globalAlpha = 0.6 + normalizedHeight * 0.4;
+    ctx.globalAlpha = 0.5 + shaped * 0.5;
     ctx.fillRect(x, y, barWidth, barHeight);
   }
 
