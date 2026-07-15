@@ -666,10 +666,7 @@ impl Database {
     /// first. Used by the Home page "recently played" list so the same track
     /// doesn't appear multiple times. The full event log (with duplicates) is
     /// still available via `get_history` for play counts and recommendations.
-    pub fn get_recent_unique(
-        &self,
-        limit: u32,
-    ) -> Result<Vec<HistoryEntry>, PersistenceError> {
+    pub fn get_recent_unique(&self, limit: u32) -> Result<Vec<HistoryEntry>, PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
         })?;
@@ -685,7 +682,10 @@ impl Database {
                  LIMIT ?1",
             )
             .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to prepare recent-unique query: {}", e))
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare recent-unique query: {}",
+                    e
+                ))
             })?;
 
         let entries = stmt
@@ -2434,8 +2434,14 @@ mod tests {
         assert_eq!(unique.len(), 2, "Should deduplicate to 2 unique tracks");
 
         // Most recent play of 'a' should be first (last inserted)
-        assert_eq!(unique[0].track.id, "a", "Most recently played unique track first");
-        assert_eq!(unique[1].track.id, "b", "Second most recently played unique track second");
+        assert_eq!(
+            unique[0].track.id, "a",
+            "Most recently played unique track first"
+        );
+        assert_eq!(
+            unique[1].track.id, "b",
+            "Second most recently played unique track second"
+        );
     }
 
     #[test]
