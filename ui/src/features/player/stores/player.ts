@@ -107,14 +107,36 @@ let activeFftSource: FftSource = 'local';
 export function selectFftSource(source: FftSource): void {
   if (activeFftSource === source) return;
   activeFftSource = source;
+  rollingPeak = 0;
   frequencyData.set(null);
 }
 
-/** Publish a frame only when it belongs to the active playback pipeline. */
+/**
+ * Publish a frame only when it belongs to the active playback pipeline.
+ *
+ * Overrides `peak` with a rolling maximum that decays slowly (0.97/frame ≈
+ * 1s half-life at 60fps) and rises instantly to the current peak. This gives
+ * all visualizers a stable amplitude reference that still shows frame-to-frame
+ * dynamics — quiet sections are immediately visible, loud sections don't saturate.
+ */
+const PEAK_DECAY = 0.97;
+let rollingPeak = 0;
+
 export function publishFftFrame(source: FftSource, data: FrequencyData): void {
-  if (activeFftSource === source) {
-    frequencyData.set(data);
+  if (activeFftSource !== source) return;
+
+  // Rise instantly, decay slowly.
+  if (data.peak > rollingPeak) {
+    rollingPeak = data.peak;
+  } else {
+    rollingPeak *= PEAK_DECAY;
   }
+
+  frequencyData.set({
+    bins: data.bins,
+    sampleRate: data.sampleRate,
+    peak: rollingPeak,
+  });
 }
 
 /** Clear the shared frame only when the stopped pipeline is still active. */
@@ -468,12 +490,16 @@ export async function skipToNext(): Promise<void> {
 
 /** Pause current playback. */
 export async function pauseTrack(): Promise<void> {
+  isPlaying.set(false);
   try {
     if (get(remoteActive)) {
       pauseRemote();
+      commands.pause().catch(() => {});
+    } else {
+      await commands.pause();
     }
-    await commands.pause();
   } catch (e) {
+    isPlaying.set(true);
     const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
@@ -481,12 +507,16 @@ export async function pauseTrack(): Promise<void> {
 
 /** Resume paused playback. */
 export async function resumeTrack(): Promise<void> {
+  isPlaying.set(true);
   try {
     if (get(remoteActive)) {
       resumeRemote();
+      commands.resume().catch(() => {});
+    } else {
+      await commands.resume();
     }
-    await commands.resume();
   } catch (e) {
+    isPlaying.set(false);
     const msg = extractErrorMessage(e, get(t));
     notifications.push({ type: 'error', title: 'Playback Error', message: msg, dismissible: true });
   }
@@ -554,9 +584,7 @@ export async function setVolume(value: number): Promise<void> {
 
 /** Toggle play/pause based on current state. */
 export async function togglePlayPause(): Promise<void> {
-  let playing = false;
-  isPlaying.subscribe((v) => (playing = v))();
-  if (playing) {
+  if (get(isPlaying)) {
     await pauseTrack();
   } else {
     await resumeTrack();

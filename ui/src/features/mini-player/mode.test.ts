@@ -62,7 +62,7 @@ describe('mini player mode', () => {
     mocks.restoreNativeFullWindow.mockReset().mockResolvedValue(undefined);
     mocks.minimizeNativeWindow.mockReset().mockResolvedValue(undefined);
     mocks.closeNativeWindow.mockReset().mockResolvedValue(undefined);
-    activateMiniPlayerSkin('ipod-classic');
+    activateMiniPlayerSkin('classic-jellyx');
     setMiniPlayerScale(1);
   });
 
@@ -75,11 +75,11 @@ describe('mini player mode', () => {
   });
 
   it('uses the selected skin dimensions for native mini mode', async () => {
-    activateMiniPlayerSkin('graphite-pocket');
+    activateMiniPlayerSkin('graphite-jellyx');
 
     await enterMiniPlayer();
 
-    expect(enterNativeMiniWindow).toHaveBeenCalledWith({ width: 300, height: 480 });
+    expect(enterNativeMiniWindow).toHaveBeenCalledWith({ width: 320, height: 480 });
   });
 
   it('uses the persisted mini-player scale for native mini mode', async () => {

@@ -249,6 +249,7 @@ pub fn build_app() -> tauri::Builder<tauri::Wry> {
             crate::ipc::commands::remind_update_later,
             crate::ipc::commands::get_update_prefs,
             crate::ipc::commands::open_release_page,
+            crate::ipc::commands::open_external_url,
             crate::ipc::commands::get_updater_current_version,
             crate::ipc::commands::updater_now_iso,
         ])

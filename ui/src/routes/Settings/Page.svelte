@@ -6,6 +6,7 @@
   import { normalizeAudio, toggleNormalizeAudio, cinematicMode, toggleCinematicMode, cinematicIntensity, setCinematicIntensity } from '@features/player/stores/player';
   import { Library, Languages, Plug, Volume2, Monitor, Github, ExternalLink, Palette, Activity } from 'lucide-svelte';
   import { MINI_PLAYER_SCALE_BOUNDS, MINI_PLAYER_SKINS, activateMiniPlayerSkin, miniPlayerScale, selectedMiniPlayerSkinId, setMiniPlayerScale } from '@features/mini-player/skins';
+  import { getMigratedItem, setMigratedItem } from '@shared/utils/storage';
 
   let version = '';
   let versionError: string | null = null;
@@ -24,7 +25,7 @@
 
   onMount(() => {
     if (isLinux) {
-      hideTitleBar = (localStorage.getItem('jellyx-hide-title-bar') ?? localStorage.getItem('helix-hide-title-bar')) === 'true';
+      hideTitleBar = getMigratedItem('hide-title-bar') === 'true';
     }
     getVersion()
       .then((v) => {
@@ -116,7 +117,7 @@
 
   async function handleTitleBarToggle() {
     hideTitleBar = !hideTitleBar;
-    localStorage.setItem('jellyx-hide-title-bar', String(hideTitleBar));
+    setMigratedItem('hide-title-bar', String(hideTitleBar));
     try {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().setDecorations(!hideTitleBar);
@@ -151,11 +152,11 @@
 
   $: currentLocale = $locale;
 
-  const JELLYX_REPO_URL = 'https://github.com/netcraker01/jellyx-player';
+  import { JELLYX_REPO_URL, JELLYX_RELEASES_URL, JELLYX_ISSUES_URL } from '@shared/constants';
   const JELLYX_LINKS = [
     { key: 'settings.about_repo', url: JELLYX_REPO_URL },
-    { key: 'settings.about_releases', url: `${JELLYX_REPO_URL}/releases` },
-    { key: 'settings.about_issues', url: `${JELLYX_REPO_URL}/issues` },
+    { key: 'settings.about_releases', url: JELLYX_RELEASES_URL },
+    { key: 'settings.about_issues', url: JELLYX_ISSUES_URL },
   ];
 </script>
 
@@ -181,43 +182,88 @@
     </div>
   </section>
 
-  <section class="settings-section" aria-label={$t('settings.diagnostics_title')}>
+  <section class="settings-section">
     <div class="section-header">
-      <Activity size={20} />
-      <h2>{$t('settings.diagnostics_title')}</h2>
+      <Plug size={20} />
+      <h2>{$t('settings.sources')}</h2>
     </div>
-    <p class="section-desc">{$t('settings.diagnostics_desc')}</p>
-    {#if diagnostics}
+    <p class="section-desc">{$t('settings.sources_desc')}</p>
+    {#each sourceSettings as setting (setting.source)}
       <div class="setting-row">
-        <span class="setting-label">{$t('settings.diagnostics_events_last_hour')}</span>
-        <span class="setting-value">{diagnostics.eventsLastHour}</span>
+        <span class="setting-label">{setting.label}</span>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            checked={setting.enabled}
+            on:change={() => handleToggle(setting.source, setting.enabled)}
+          />
+          <span class="toggle-slider"></span>
+        </label>
       </div>
-      <div class="setting-row">
-        <span class="setting-label">{$t('settings.diagnostics_error_rate')}</span>
-        <span class="setting-value">{diagnostics.errorRatePercent.toFixed(1)}%</span>
-      </div>
-    {:else if diagnosticsError}
-      <p class="section-desc">{$t('settings.diagnostics_unavailable')}</p>
-    {/if}
-    <button class="diagnostics-refresh" type="button" on:click={refreshDiagnostics} disabled={diagnosticsLoading}>
-      {diagnosticsLoading ? $t('settings.diagnostics_refreshing') : $t('settings.diagnostics_refresh')}
-    </button>
+    {/each}
   </section>
 
   <section class="settings-section">
     <div class="section-header">
-      <Plug size={20} />
-      <h2>{$t('settings.privacy')}</h2>
+      <Languages size={20} />
+      <h2>{$t('settings.language')}</h2>
     </div>
-    <p class="section-desc">{$t('settings.telemetry_desc')}</p>
     <div class="setting-row">
-      <span class="setting-label">{$t('settings.telemetry')}</span>
+      <label for="locale-select">{$t('settings.language')}</label>
+      <select id="locale-select" value={currentLocale} on:change={handleLocaleChange}>
+        {#each SUPPORTED_LOCALES as loc}
+          <option value={loc.code}>{loc.label}</option>
+        {/each}
+      </select>
+    </div>
+  </section>
+
+  <section class="settings-section">
+    <div class="section-header">
+      <Monitor size={20} />
+      <h2>{$t('settings.appearance')}</h2>
+    </div>
+    <p class="section-desc">{$t('settings.cinematic_mode_desc')}</p>
+    <div class="setting-row">
+      <span class="setting-label">{$t('settings.cinematic_mode')}</span>
       <label class="toggle">
-        <input type="checkbox" checked={telemetryEnabled} on:change={handleTelemetryToggle} aria-label={$t('settings.telemetry')} />
+        <input
+          type="checkbox"
+          checked={$cinematicMode}
+          on:change={handleCinematicToggle}
+        />
         <span class="toggle-slider"></span>
       </label>
     </div>
-    <p class="section-desc">{$t('settings.telemetry_details')}</p>
+    <div class="setting-row">
+      <span class="setting-label">{$t('settings.cinematic_intensity')}</span>
+      <input
+        class="slider"
+        type="range"
+        min="0"
+        max="1"
+        step="0.05"
+        value={$cinematicIntensity}
+        on:input={handleCinematicIntensity}
+        aria-label={$t('settings.cinematic_intensity')}
+      />
+      <span class="setting-value">{$cinematicIntensity.toFixed(2)}</span>
+    </div>
+
+    {#if isLinux}
+      <div class="setting-row">
+        <span class="setting-label">{$t('settings.hide_title_bar')}</span>
+        <label class="toggle">
+          <input
+            type="checkbox"
+            checked={hideTitleBar}
+            on:change={handleTitleBarToggle}
+          />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <p class="section-desc">{$t('settings.hide_title_bar_desc')}</p>
+    {/if}
   </section>
 
   <section class="settings-section">
@@ -274,86 +320,41 @@
 
   <section class="settings-section">
     <div class="section-header">
-      <Monitor size={20} />
-      <h2>{$t('settings.appearance')}</h2>
+      <Plug size={20} />
+      <h2>{$t('settings.privacy')}</h2>
     </div>
-    <p class="section-desc">{$t('settings.cinematic_mode_desc')}</p>
+    <p class="section-desc">{$t('settings.telemetry_desc')}</p>
     <div class="setting-row">
-      <span class="setting-label">{$t('settings.cinematic_mode')}</span>
+      <span class="setting-label">{$t('settings.telemetry')}</span>
       <label class="toggle">
-        <input
-          type="checkbox"
-          checked={$cinematicMode}
-          on:change={handleCinematicToggle}
-        />
+        <input type="checkbox" checked={telemetryEnabled} on:change={handleTelemetryToggle} aria-label={$t('settings.telemetry')} />
         <span class="toggle-slider"></span>
       </label>
     </div>
-    <div class="setting-row">
-      <span class="setting-label">{$t('settings.cinematic_intensity')}</span>
-      <input
-        class="slider"
-        type="range"
-        min="0"
-        max="1"
-        step="0.05"
-        value={$cinematicIntensity}
-        on:input={handleCinematicIntensity}
-        aria-label={$t('settings.cinematic_intensity')}
-      />
-      <span class="setting-value">{$cinematicIntensity.toFixed(2)}</span>
-    </div>
+    <p class="section-desc">{$t('settings.telemetry_details')}</p>
+  </section>
 
-    {#if isLinux}
+  <section class="settings-section" aria-label={$t('settings.diagnostics_title')}>
+    <div class="section-header">
+      <Activity size={20} />
+      <h2>{$t('settings.diagnostics_title')}</h2>
+    </div>
+    <p class="section-desc">{$t('settings.diagnostics_desc')}</p>
+    {#if diagnostics}
       <div class="setting-row">
-        <span class="setting-label">{$t('settings.hide_title_bar')}</span>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            checked={hideTitleBar}
-            on:change={handleTitleBarToggle}
-          />
-          <span class="toggle-slider"></span>
-        </label>
+        <span class="setting-label">{$t('settings.diagnostics_events_last_hour')}</span>
+        <span class="setting-value">{diagnostics.eventsLastHour}</span>
       </div>
-      <p class="section-desc">{$t('settings.hide_title_bar_desc')}</p>
+      <div class="setting-row">
+        <span class="setting-label">{$t('settings.diagnostics_error_rate')}</span>
+        <span class="setting-value">{diagnostics.errorRatePercent.toFixed(1)}%</span>
+      </div>
+    {:else if diagnosticsError}
+      <p class="section-desc">{$t('settings.diagnostics_unavailable')}</p>
     {/if}
-  </section>
-
-  <section class="settings-section">
-    <div class="section-header">
-      <Plug size={20} />
-      <h2>{$t('settings.sources')}</h2>
-    </div>
-    <p class="section-desc">{$t('settings.sources_desc')}</p>
-    {#each sourceSettings as setting (setting.source)}
-      <div class="setting-row">
-        <span class="setting-label">{setting.label}</span>
-        <label class="toggle">
-          <input
-            type="checkbox"
-            checked={setting.enabled}
-            on:change={() => handleToggle(setting.source, setting.enabled)}
-          />
-          <span class="toggle-slider"></span>
-        </label>
-      </div>
-    {/each}
-  </section>
-
-  <section class="settings-section">
-    <div class="section-header">
-      <Languages size={20} />
-      <h2>{$t('settings.language')}</h2>
-    </div>
-    <div class="setting-row">
-      <label for="locale-select">{$t('settings.language')}</label>
-      <select id="locale-select" value={currentLocale} on:change={handleLocaleChange}>
-        {#each SUPPORTED_LOCALES as loc}
-          <option value={loc.code}>{loc.label}</option>
-        {/each}
-      </select>
-    </div>
+    <button class="diagnostics-refresh" type="button" on:click={refreshDiagnostics} disabled={diagnosticsLoading}>
+      {diagnosticsLoading ? $t('settings.diagnostics_refreshing') : $t('settings.diagnostics_refresh')}
+    </button>
   </section>
 
   <section class="settings-section about-jellyx">
@@ -559,8 +560,8 @@
 
   select {
     background: var(--bg-elevated, #1f2937);
-    color: var(--text-primary, #e0e0e0);
-    border: 1px solid var(--border-color, #1f2937);
+    color: var(--text-secondary, #9ca3af);
+    border: 1px solid var(--border-color, #374151);
     border-radius: 6px;
     padding: 0.4rem 0.6rem;
     font-size: 0.9rem;

@@ -6,13 +6,16 @@
     * it remains accurate across route and mini-player window changes.
    */
   import { onMount, onDestroy } from 'svelte';
-  import { frequencyData } from '@features/player/stores/player';
+  import { frequencyData, currentTrack } from '@features/player/stores/player';
   import { renderBars } from '@features/player/visualizers/bars';
+  import { limitFrequencyRange, createActiveRange, type ActiveRangeState } from '@features/player/visualizers/activeRange';
   import type { VisualizerTheme } from '@features/player/visualizers/types';
   import type { FrequencyData } from '@shared/types/models';
 
   let canvas: HTMLCanvasElement;
   let rafId: number | null = null;
+
+  const activeRange: ActiveRangeState = createActiveRange();
 
   // Local reference to frequency data for the rAF loop (avoids reactive churn
   // inside the animation frame — same pattern as the main Visualizer).
@@ -25,6 +28,18 @@
     barGap: 1,
     barMinHeight: 1,
   };
+
+  let cachedCtx: CanvasRenderingContext2D | null = null;
+
+  function getCtx(): CanvasRenderingContext2D | null {
+    if (cachedCtx) return cachedCtx;
+    cachedCtx = canvas.getContext('2d', {
+      alpha: true, // mini viz floats over the skin, needs transparency
+      desynchronized: true,
+      willReadFrequently: false,
+    }) as CanvasRenderingContext2D | null;
+    return cachedCtx;
+  }
 
   function handleResize(): void {
     if (!canvas) return;
@@ -39,6 +54,7 @@
       }
       canvas.width = Math.max(1, width);
       canvas.height = Math.max(1, height);
+      cachedCtx = null; // canvas resize resets the context
     }
   }
 
@@ -50,16 +66,19 @@
         const rect = parent.getBoundingClientRect();
         canvas.width = Math.max(1, Math.floor(rect.width));
         canvas.height = Math.max(1, Math.floor(rect.height));
+        cachedCtx = null;
       }
       if (canvas.width === 0 || canvas.height === 0) {
         canvas.width = 80;
         canvas.height = 12;
+        cachedCtx = null;
       }
     }
-    const ctx = canvas.getContext('2d');
+    const ctx = getCtx();
     if (!ctx) return;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const data = currentData ?? { bins: new Float32Array(0), sampleRate: 44100, peak: 0 };
+    const raw = currentData ?? { bins: new Float32Array(0), sampleRate: 44100, peak: 0 };
+    const data = limitFrequencyRange(activeRange, raw, $currentTrack?.id);
     renderBars(ctx, canvas.width, canvas.height, data, theme);
   }
 

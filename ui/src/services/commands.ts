@@ -502,6 +502,11 @@ export function openReleasePage(url: string): Promise<void> {
   return invokeCommand<void>('open_release_page', { url });
 }
 
+/** Open any external URL in the system default browser via the backend shell plugin. */
+export function openExternalUrl(url: string): Promise<void> {
+  return invokeCommand<void>('open_external_url', { url });
+}
+
 /** Return the current app version (used for "You're up to date" display). */
 export function getUpdaterCurrentVersion(): Promise<string> {
   return invokeCommand<string>('get_updater_current_version');

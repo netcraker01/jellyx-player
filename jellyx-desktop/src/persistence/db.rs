@@ -660,6 +660,59 @@ impl Database {
         Ok(entries)
     }
 
+    /// Get recently played tracks deduplicated by track_id.
+    ///
+    /// Returns only the most recent entry per track_id, ordered by most recent
+    /// first. Used by the Home page "recently played" list so the same track
+    /// doesn't appear multiple times. The full event log (with duplicates) is
+    /// still available via `get_history` for play counts and recommendations.
+    pub fn get_recent_unique(&self, limit: u32) -> Result<Vec<HistoryEntry>, PersistenceError> {
+        let conn = self.conn.lock().map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+        })?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT h.id, h.track_id, h.track_json, h.played_at
+                 FROM history h
+                 WHERE h.id = (
+                     SELECT MAX(h2.id) FROM history h2 WHERE h2.track_id = h.track_id
+                 )
+                 ORDER BY h.played_at DESC, h.id DESC
+                 LIMIT ?1",
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to prepare recent-unique query: {}",
+                    e
+                ))
+            })?;
+
+        let entries = stmt
+            .query_map(params![limit], |row| {
+                let track_json: String = row.get(2)?;
+                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        track_json.len(),
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })?;
+                Ok(HistoryEntry {
+                    id: row.get(0)?,
+                    track,
+                    played_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to query recent-unique: {}", e))
+            })?
+            .filter_map(|e| e.ok())
+            .collect();
+
+        Ok(entries)
+    }
+
     /// Clear all history entries.
     pub fn clear_history(&self) -> Result<(), PersistenceError> {
         let conn = self.conn.lock().map_err(|e| {
@@ -2357,6 +2410,38 @@ mod tests {
 
         let history = db.get_history_with_limit(3).unwrap();
         assert_eq!(history.len(), 3, "Should respect limit");
+    }
+
+    #[test]
+    fn recent_unique_deduplicates_by_track_id() {
+        let db = Database::open_in_memory().unwrap();
+        let track_a = sample_track("a");
+        let track_b = sample_track("b");
+
+        // Insert: a, b, a, b, a  (5 rows, 2 unique tracks)
+        db.insert_history(&track_a).unwrap();
+        db.insert_history(&track_b).unwrap();
+        db.insert_history(&track_a).unwrap();
+        db.insert_history(&track_b).unwrap();
+        db.insert_history(&track_a).unwrap();
+
+        // get_history returns all 5
+        let full = db.get_history().unwrap();
+        assert_eq!(full.len(), 5, "Full history should have 5 entries");
+
+        // get_recent_unique returns 2 (one per track)
+        let unique = db.get_recent_unique(100).unwrap();
+        assert_eq!(unique.len(), 2, "Should deduplicate to 2 unique tracks");
+
+        // Most recent play of 'a' should be first (last inserted)
+        assert_eq!(
+            unique[0].track.id, "a",
+            "Most recently played unique track first"
+        );
+        assert_eq!(
+            unique[1].track.id, "b",
+            "Second most recently played unique track second"
+        );
     }
 
     #[test]

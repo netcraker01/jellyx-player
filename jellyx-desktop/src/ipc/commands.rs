@@ -209,10 +209,10 @@ pub fn restore_full_player(app: tauri::AppHandle) -> Result<(), AppError> {
 
 // ── Library commands (fast SQLite) ──────────────────────────────────
 
-/// Get play history, ordered by most recent first (max 100 entries).
+/// Get recently played tracks, deduplicated by track_id, most recent first.
 #[tauri::command]
 pub fn get_history(state: tauri::State<AppState>) -> Result<Vec<HistoryEntry>, AppError> {
-    state.library.get_history()
+    state.library.get_recent_unique(100)
 }
 
 /// Clear all play history.
@@ -1196,6 +1196,21 @@ pub fn open_release_page(app: tauri::AppHandle, url: String) -> Result<(), AppEr
     #[allow(deprecated)]
     app.shell().open(url, None).map_err(|e| AppError {
         code: "OPEN_RELEASE_PAGE_FAILED".into(),
+        details: Some(format!("{}", e)),
+    })
+}
+
+/// Open any external URL in the system default browser.
+///
+/// Unlike `open_release_page`, this is not restricted to an allowlist.
+/// The frontend is responsible for only passing trusted URLs (e.g. the
+/// Jellyx GitHub repo).
+#[tauri::command]
+pub fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), AppError> {
+    use tauri_plugin_shell::ShellExt;
+    #[allow(deprecated)]
+    app.shell().open(url, None).map_err(|e| AppError {
+        code: "OPEN_URL_FAILED".into(),
         details: Some(format!("{}", e)),
     })
 }

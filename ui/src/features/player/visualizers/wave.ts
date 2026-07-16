@@ -47,8 +47,9 @@ export function renderWave(
   for (let i = 0; i < n; i++) {
     const magnitude = bins[i];
     const normalized = peak > 0 ? magnitude / peak : 0;
-    // Map normalized 0..1 to ±0.4 * height around the midline.
-    const y = midY - (normalized - 0.5) * 2 * (height * 0.4);
+    const shaped = Math.pow(normalized, 0.85);
+    // Map shaped 0..1 to ±0.45 * height around the midline.
+    const y = midY - (shaped - 0.5) * 2 * (height * 0.45);
     ctx.lineTo(i * stepX, y);
   }
   ctx.lineTo(width, midY);
@@ -63,7 +64,8 @@ export function renderWave(
   for (let i = 0; i < n; i++) {
     const magnitude = bins[i];
     const normalized = peak > 0 ? magnitude / peak : 0;
-    const y = midY - (normalized - 0.5) * 2 * (height * 0.4);
+    const shaped = Math.pow(normalized, 0.85);
+    const y = midY - (shaped - 0.5) * 2 * (height * 0.45);
     ctx.lineTo(i * stepX, y);
   }
   ctx.lineTo(width, midY);

@@ -64,13 +64,14 @@ export function renderRadial(
     }
     const magnitude = count > 0 ? sum / count : 0;
     const normalized = peak > 0 ? magnitude / peak : 0;
-    const barLength = Math.max(barMinHeight, normalized * maxBarLength);
+    const shaped = Math.pow(normalized, 0.85);
+    const barLength = Math.max(barMinHeight, shaped * maxBarLength);
 
     // Rotate to the bar's angle. Bars start at the top (-PI/2) and go clockwise.
     const angle = -Math.PI / 2 + i * angleStep;
     ctx.save();
     ctx.rotate(angle);
-    ctx.globalAlpha = 0.6 + normalized * 0.4;
+    ctx.globalAlpha = 0.5 + shaped * 0.5;
     // Draw a thin radial rectangle: x is along the radius, y straddles 0.
     const barThickness = Math.max(1, innerRadius * barAngle);
     ctx.fillRect(innerRadius, -barThickness / 2, barLength, barThickness);

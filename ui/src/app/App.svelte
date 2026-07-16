@@ -1,5 +1,6 @@
 <script lang="ts">
   import Sidebar from './layout/Sidebar.svelte';
+  import { sidebarCollapsed } from './layout/sidebar';
   import BottomBar from './layout/BottomBar.svelte';
   import ToastContainer from '@shared/components/ToastContainer.svelte';
   import { currentPath } from './router/navigation';
@@ -16,7 +17,9 @@ import AlbumPage from '../routes/Album/Page.svelte';
 import MiniPlayer from '@features/mini-player/MiniPlayer.svelte';
 import Visualizer from '@features/player/components/Visualizer.svelte';
 import { frequencyData, cinematicMode, cinematicIntensity, modoCineActive } from '@features/player/stores/player';
-import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte';
+  import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte';
+  import WelcomeModal from '@features/welcome/WelcomeModal.svelte';
+  import GlobalSearchBar from './layout/GlobalSearchBar.svelte';
 
   // Cinematic ambient background is active when the Settings cinematic-mode
   // toggle is ON and there is frequency data available. This is INDEPENDENT
@@ -72,7 +75,7 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
 {#if route.name === 'mini-player'}
   <MiniPlayer />
 {:else}
-<div class="app-shell" class:cinematic-active={cineOn}>
+<div class="app-shell" class:cinematic-active={cineOn} class:sidebar-collapsed={$sidebarCollapsed}>
   <!-- Cinematic ambient background: layered reactive gradients/glow that paint
        BEHIND app content (z-index: -1 within an isolated stacking context on
        .app-shell). Only rendered when the user opted in and frequency data is
@@ -92,6 +95,9 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
 
   <Sidebar />
   <main class="content">
+    {#if route.name !== 'search' && route.name !== 'home' && route.name !== 'settings'}
+      <GlobalSearchBar />
+    {/if}
     {#if route.name === 'search'}
       <Search />
     {:else if route.name === 'playlists'}
@@ -117,6 +123,7 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
   <BottomBar />
   <ToastContainer />
   <UpdateAvailableModal />
+  <WelcomeModal />
   {#if $modoCineActive}
     <div class="visualizer-embed">
       <Visualizer />
@@ -129,7 +136,8 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
   .app-shell {
     display: grid;
     grid-template-columns: 240px 1fr;
-    grid-template-rows: 1fr auto;
+    grid-template-rows: minmax(0, 1fr) auto;
+    transition: grid-template-columns 0.25s ease;
     grid-template-areas:
       "sidebar content"
       "sidebar bottombar";
@@ -141,6 +149,10 @@ import UpdateAvailableModal from '@features/updater/UpdateAvailableModal.svelte'
     /* Create a new stacking context so the cinematic background (z-index: -1)
        stays scoped to the shell and paints behind the static grid children. */
     isolation: isolate;
+  }
+
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 80px 1fr;
   }
 
   .content {

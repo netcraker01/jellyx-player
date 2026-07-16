@@ -77,7 +77,7 @@ describe('Settings page', () => {
     mocks.getAudioSettings.mockResolvedValue({ normalizeAudio: true });
     mocks.getTelemetrySettings.mockResolvedValue({ enabled: false });
     mocks.getFailureDiagnostics.mockResolvedValue({ eventsLastHour: 2, errorRatePercent: 1.5, counters: {}, recentEvents: [], operationRates: {}, latency: {}, alerts: [] });
-    activateMiniPlayerSkin('ipod-classic');
+    activateMiniPlayerSkin('classic-jellyx');
     setMiniPlayerScale(1);
     translations.set({
       'app.title': 'Jellyx',
@@ -215,20 +215,20 @@ describe('Settings page', () => {
     await vi.waitFor(() => expect(toggle.checked).toBe(false));
   });
 
-  it('activates the Graphite Pocket mini-player skin and updates active state', async () => {
+  it('activates the Graphite Jellyx mini-player skin and updates active state', async () => {
     mocks.getVersion.mockResolvedValueOnce('0.1.0');
     render(SettingsPage);
 
-    expect(get(selectedMiniPlayerSkinId)).toBe('ipod-classic');
-    expect(screen.getByText('Graphite Pocket')).toBeTruthy();
-    expect(screen.getByText('A smaller graphite skin for compact desktop placement.')).toBeTruthy();
-    const activateButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Activate Graphite Pocket' });
+    expect(get(selectedMiniPlayerSkinId)).toBe('classic-jellyx');
+    expect(screen.getByText('Graphite Jellyx')).toBeTruthy();
+    expect(screen.getByText('A dark graphite skin with the same compact design.')).toBeTruthy();
+    const activateButton = screen.getByRole<HTMLButtonElement>('button', { name: 'Activate Graphite Jellyx' });
 
     expect(activateButton.textContent).toBe('Activate');
     await fireEvent.click(activateButton);
 
-    expect(get(selectedMiniPlayerSkinId)).toBe('graphite-pocket');
-    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Active Graphite Pocket' }).disabled).toBe(true);
+    expect(get(selectedMiniPlayerSkinId)).toBe('graphite-jellyx');
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Active Graphite Jellyx' }).disabled).toBe(true);
   });
 
   it('updates the persisted mini-player size scale from the slider', async () => {

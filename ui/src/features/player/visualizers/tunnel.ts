@@ -47,8 +47,8 @@ export function renderTunnel(
     const midEnd = Math.max(lowEnd + 1, Math.floor((2 * n) / 3));
     let sum = 0;
     for (let i = 0; i < midEnd; i++) sum += bins[i];
-    energy = peak > 0 ? sum / midEnd / peak : 0;
-    if (energy > 1) energy = 1;
+    const avg = sum / midEnd;
+    energy = peak > 0 ? Math.pow(avg / peak, 0.85) : 0;
   }
 
   const cx = width / 2;

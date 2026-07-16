@@ -4,6 +4,7 @@
   import { enterMiniPlayer } from '@features/mini-player/mode';
   import JellyxLogo from '@shared/components/JellyxLogo.svelte';
   import { albumArtUrl } from '@shared/utils/assetUrl';
+  import { navigate } from '@app/router/navigation';
   import {
     currentTrack,
     isPlaying,
@@ -84,7 +85,10 @@
 </script>
 
 <div class="bottom-bar">
-  <div class="track-info">
+  <div class="track-info" class:clickable={$currentTrack} role={$currentTrack ? 'button' : undefined} tabindex={$currentTrack ? 0 : -1} aria-label={$currentTrack ? `{$currentTrack.title} — {$currentTrack.artist ?? ''}` : undefined}
+    on:click={() => $currentTrack && navigate('/now-playing')}
+    on:keydown={(e) => e.key === 'Enter' && $currentTrack && navigate('/now-playing')}
+  >
     {#if $currentTrack && albumArtUrl($currentTrack.thumbnail)}
       <img class="track-thumbnail" src={albumArtUrl($currentTrack.thumbnail)} alt="Album art" />
     {:else}
@@ -196,6 +200,15 @@
     border-top: 1px solid var(--border-color, #1f2937);
     padding: 0.5rem 1.5rem;
     height: 72px;
+    position: relative;
+    z-index: 1;
+  }
+
+  :global(.app-shell.cine-background) .bottom-bar {
+    background: rgba(10, 10, 15, 0.5);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    border-top-color: rgba(255, 255, 255, 0.06);
   }
 
   .track-info {
@@ -204,9 +217,18 @@
     align-items: center;
     gap: 0.75rem;
     min-width: 0;
-    max-width: 280px;
+    width: 280px;
     flex-shrink: 0;
     overflow: hidden;
+  }
+
+  .track-info.clickable {
+    cursor: pointer;
+    border-radius: 8px;
+  }
+
+  .track-info.clickable:hover .track-title {
+    color: var(--color-accent, #6366f1);
   }
 
   .track-thumbnail {

@@ -7,6 +7,9 @@ const mocks = vi.hoisted(() => ({
   loadWatchedFolders: vi.fn(),
   loadLocalTracks: vi.fn(),
   getVersion: vi.fn(),
+  getTelemetrySettings: vi.fn().mockResolvedValue({ enabled: false }),
+  setTelemetryEnabled: vi.fn().mockResolvedValue(undefined),
+  openExternalUrl: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('@features/library/stores/library', () => ({
@@ -24,6 +27,9 @@ vi.mock('@features/library/stores/library', () => ({
 
 vi.mock('@services/commands', () => ({
   getVersion: mocks.getVersion,
+  getTelemetrySettings: mocks.getTelemetrySettings,
+  setTelemetryEnabled: mocks.setTelemetryEnabled,
+  openExternalUrl: mocks.openExternalUrl,
 }));
 
 describe('App sidebar runtime navigation', () => {

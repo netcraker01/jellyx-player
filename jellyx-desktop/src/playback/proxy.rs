@@ -112,6 +112,16 @@ pub fn start_proxy_server() -> Result<(u16, String), ProxyError> {
 
             match stream {
                 Ok(stream) => {
+                    // Disable Nagle's algorithm so small writes (HTTP headers,
+                    // tail chunks) are not delayed by up to 200ms. This is
+                    // especially important on Windows where Nagle is enabled
+                    // by default and the proxy flushes after every 32KB chunk.
+                    let _ = stream.set_nodelay(true);
+                    // Bound stalled connections so a browser that disappears
+                    // without closing the socket doesn't leak a thread forever.
+                    let _ = stream.set_read_timeout(Some(Duration::from_secs(60)));
+                    let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
+
                     // Spawn a thread per connection so slow upstream responses
                     // don't block other requests (e.g. seek opens a new connection
                     // while the previous one is still streaming).
@@ -144,6 +154,25 @@ pub fn proxied_url(port: u16, capability: &str, remote_url: &str) -> String {
     format!(
         "http://127.0.0.1:{}/proxy?cap={}&url={}",
         port, capability, encoded
+    )
+}
+
+/// Classify a write error as a benign peer disconnect (browser closed the
+/// connection mid-stream) or a real failure worth reporting.
+///
+/// On Linux, the kernel reports `BrokenPipe` or `ConnectionReset` when the
+/// peer closes the socket. On Windows, Winsock reports `ConnectionAborted`
+/// (`WSAECONNABORTED`, code 1236) for the same situation — especially when
+/// the browser media engine closes a `Connection: close` response to open
+/// a new one for seeking. All three must be treated as benign to avoid
+/// false-positive telemetry on Windows.
+fn is_benign_disconnect(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::BrokenPipe
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::NotConnected
     )
 }
 
@@ -430,9 +459,7 @@ fn serve_local_file(
             break;
         }
         if let Err(e) = stream.write_all(&buf[..n]) {
-            if e.kind() != std::io::ErrorKind::BrokenPipe
-                && e.kind() != std::io::ErrorKind::ConnectionReset
-            {
+            if !is_benign_disconnect(&e) {
                 let _ = e;
                 crate::observability::expected_failure("proxy", "local_file_write_error");
             }
@@ -622,9 +649,7 @@ fn forward_request(
             Ok(0) => break,
             Ok(n) => {
                 if let Err(e) = stream.write_all(&buf[..n]) {
-                    if e.kind() != std::io::ErrorKind::BrokenPipe
-                        && e.kind() != std::io::ErrorKind::ConnectionReset
-                    {
+                    if !is_benign_disconnect(&e) {
                         let _ = (total_written, e);
                         crate::observability::expected_failure("proxy", "response_write_error");
                     }
@@ -1415,5 +1440,42 @@ mod tests {
             "cap=other&url=https%3A%2F%2Fgooglevideo.com",
             "unguessable"
         ));
+    }
+
+    #[test]
+    fn benign_disconnect_covers_windows_connection_aborted() {
+        // Windows Winsock reports WSAECONNABORTED (1236) when the browser media
+        // engine closes a Connection: close response mid-stream. Rust maps this
+        // to ErrorKind::ConnectionAborted. It must be treated as benign alongside
+        // BrokenPipe and ConnectionReset (the Linux variants).
+        assert!(is_benign_disconnect(&std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "broken pipe",
+        )));
+        assert!(is_benign_disconnect(&std::io::Error::new(
+            std::io::ErrorKind::ConnectionReset,
+            "connection reset",
+        )));
+        assert!(is_benign_disconnect(&std::io::Error::new(
+            std::io::ErrorKind::ConnectionAborted,
+            "connection aborted",
+        )));
+    }
+
+    #[test]
+    fn benign_disconnect_rejects_real_errors() {
+        // Genuine I/O failures must NOT be classified as benign disconnects.
+        assert!(!is_benign_disconnect(&std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "permission denied",
+        )));
+        assert!(!is_benign_disconnect(&std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "timed out",
+        )));
+        assert!(!is_benign_disconnect(&std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "invalid data",
+        )));
     }
 }

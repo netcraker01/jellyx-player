@@ -60,9 +60,10 @@ export function renderGrid(
     }
     const magnitude = count > 0 ? sum / count : 0;
     const normalized = peak > 0 ? magnitude / peak : 0;
+    const shaped = Math.pow(normalized, 0.85);
 
-    // Number of lit rows from the bottom, based on normalized energy.
-    const litRows = Math.min(GRID_ROWS, Math.floor(normalized * GRID_ROWS + 0.5));
+    // Number of lit rows from the bottom, based on shaped energy.
+    const litRows = Math.min(GRID_ROWS, Math.floor(shaped * GRID_ROWS + 0.5));
     const x = gap + col * (cellW + gap);
 
     for (let row = 0; row < GRID_ROWS; row++) {

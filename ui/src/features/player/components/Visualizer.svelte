@@ -3,12 +3,15 @@
   import { frequencyData, modoCineActive, visualizerMode, currentTrack } from '../stores/player';
   import type { FrequencyData } from '@shared/types/models';
   import { resolveVisualizerMode, type VisualizerModeEntry } from '../visualizers/registry';
+  import { limitFrequencyRange, createActiveRange, type ActiveRangeState } from '../visualizers/activeRange';
   import type { VisualizerTheme } from '../visualizers/types';
   import VisualizerSelector from './VisualizerSelector.svelte';
 
   let canvas: HTMLCanvasElement;
   let overlayEl: HTMLDivElement | null = null;
   let rafId: number | null = null;
+
+  const activeRange: ActiveRangeState = createActiveRange();
 
   // ── Auto-hide overlay chrome ────────────────────────────────────
   /** Whether the overlay chrome (close button + selector) is currently visible.
@@ -26,11 +29,6 @@
    *  Long enough that the user can read/aim the controls, short enough that the
    *  view returns to a clean state quickly once idle. */
   const CHROME_IDLE_DELAY = 2500;
-  /** Highest frequency we render in the visualizer.
-   *  The raw FFT covers the whole Nyquist range, but the upper tail is often
-   *  visually dead in real-world tracks. Capping the rendered spectrum keeps
-   *  the visualization denser and avoids long zones that look stuck at zero. */
-  const MAX_VISUAL_FREQ_HZ = 12_000;
 
   /** Arm/re-arm the idle timer that hides the overlay chrome. */
   function scheduleChromeHide(): void {
@@ -89,10 +87,12 @@
   // mode switch takes effect on the next frame with no effect churn.
   let activeMode: VisualizerModeEntry = resolveVisualizerMode($visualizerMode);
   $: activeMode = resolveVisualizerMode($visualizerMode);
+  $: { $visualizerMode; refreshTheme(); }
 
   onMount(() => {
-    // Initial canvas sizing
+    // Initial canvas sizing and theme cache
     handleResize();
+    refreshTheme();
 
     // Start rAF loop
     startRenderLoop();
@@ -123,21 +123,47 @@
     rafId = requestAnimationFrame(frame);
   }
 
-  /** Resolve theme tokens from CSS custom properties once per frame.
-   *  Reading computed style every frame is cheap (no layout/reflow) and keeps
-   *  the renderers stateless. */
-  function resolveTheme(): VisualizerTheme {
+  /** Cache theme tokens so we don't call getComputedStyle every frame.
+   *  Refreshed on mode change and on resize (theme may change with route). */
+  let cachedTheme: VisualizerTheme = { accentColor: '#6366f1', barGap: 2, barMinHeight: 2 };
+
+  function refreshTheme(): VisualizerTheme {
     const styles = getComputedStyle(document.documentElement);
     const accentColor = styles.getPropertyValue('--viz-color-accent').trim() || '#6366f1';
     const barGap = parseInt(styles.getPropertyValue('--viz-bar-gap')) || 2;
     const barMinHeight = parseInt(styles.getPropertyValue('--viz-bar-min-height')) || 2;
-    return { accentColor, barGap, barMinHeight };
+    cachedTheme = { accentColor, barGap, barMinHeight };
+    return cachedTheme;
+  }
+
+  /** Max backing-store dimensions for the canvas. The visualizer is a background
+   *  effect — rendering at full monitor resolution (e.g. 4K) is visually
+   *  indistinguishable from 1280×720 but 4-9× slower on CPU Canvas2D. CSS scales
+   *  the bitmap up to fill the viewport. */
+  const MAX_CANVAS_WIDTH = 1280;
+  const MAX_CANVAS_HEIGHT = 720;
+
+  /** Cached 2D context. Requested once with GPU-friendly options.
+   *  Modo cine needs alpha:true so the CSS gradient background of
+   *  .visualizer.modo-cine shows through the clearRect'd canvas.
+   *  desynchronized:true decouples paint from the event loop for lower latency.
+   *  willReadFrequently:false hints the browser to use hardware-accelerated Canvas2D. */
+  let cachedCtx: CanvasRenderingContext2D | null = null;
+
+  function getCtx(): CanvasRenderingContext2D | null {
+    if (cachedCtx) return cachedCtx;
+    cachedCtx = canvas.getContext('2d', {
+      alpha: true,
+      desynchronized: true,
+      willReadFrequently: false,
+    }) as CanvasRenderingContext2D | null;
+    return cachedCtx;
   }
 
   function renderFrame(): void {
     if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = getCtx();
     if (!ctx) return;
 
     const width = canvas.width;
@@ -149,40 +175,28 @@
     // Render only the musically-useful part of the spectrum. The raw FFT spans
     // the full Nyquist range; trimming the upper tail avoids bars/cells that
     // sit at zero most of the time and makes all visualizers feel more alive.
-    const displayData = currentData ? limitFrequencyRange(currentData) : null;
+    const displayData = currentData ? limitFrequencyRange(activeRange, currentData, $currentTrack?.id) : null;
 
     // Dispatch to the active renderer (pure Canvas2D, no state).
-    activeMode.render(ctx, width, height, displayData, resolveTheme());
-  }
-
-  function limitFrequencyRange(data: FrequencyData): FrequencyData {
-    const nyquist = data.sampleRate > 0 ? data.sampleRate / 2 : 22_050;
-    const cappedHz = Math.min(MAX_VISUAL_FREQ_HZ, nyquist);
-    const maxIndex = Math.max(1, Math.min(
-      data.bins.length,
-      Math.ceil((cappedHz / nyquist) * data.bins.length)
-    ));
-
-    const bins = data.bins.subarray(0, maxIndex);
-    let peak = 0;
-    for (let i = 0; i < bins.length; i++) {
-      if (bins[i] > peak) peak = bins[i];
-    }
-
-    return {
-      bins,
-      sampleRate: data.sampleRate,
-      peak,
-    };
+    activeMode.render(ctx, width, height, displayData, cachedTheme);
   }
 
   function handleResize(): void {
     if (!canvas) return;
     const parent = canvas.parentElement;
     if (parent) {
-      canvas.width = parent.clientWidth;
-      canvas.height = parent.clientHeight;
+      let w = parent.clientWidth;
+      let h = parent.clientHeight;
+      // Cap the backing store so CPU Canvas2D doesn't paint millions of
+      // pixels per frame on high-DPI monitors. CSS scales the bitmap up.
+      w = Math.min(w, MAX_CANVAS_WIDTH);
+      h = Math.min(h, MAX_CANVAS_HEIGHT);
+      canvas.width = Math.max(1, w);
+      canvas.height = Math.max(1, h);
+      // Setting canvas.width/height resets the context — invalidate cache.
+      cachedCtx = null;
     }
+    refreshTheme();
   }
 
   onDestroy(() => {
@@ -205,14 +219,16 @@
       // Resize to parent container
       setTimeout(handleResize, 0);
     } else {
-      // Resize canvas for fullscreen cinema mode
+      // Resize canvas for modo cine fullscreen — the visualizer is in a
+      // fixed full-viewport overlay (.visualizer-embed) inside .app-shell.
       setTimeout(() => {
         if (canvas) {
-          canvas.width = window.innerWidth;
-          canvas.height = window.innerHeight;
+          canvas.width = Math.min(window.innerWidth, MAX_CANVAS_WIDTH);
+          canvas.height = Math.min(window.innerHeight, MAX_CANVAS_HEIGHT);
+          cachedCtx = null; // canvas resize resets the context
+          refreshTheme();
         }
       }, 0);
-      // Reveal chrome only ON ENTRY, not on every unrelated component update.
       revealChrome();
     }
   }
@@ -234,10 +250,10 @@
     {#if controlsVisible}
       <div class="chrome-controls visible">
         <VisualizerSelector />
-        <button class="modo-cine-close" aria-label="Exit fullscreen" on:click={() => modoCineActive.set(false)}>
-          ✕
-        </button>
       </div>
+      <button class="modo-cine-close" aria-label="Exit fullscreen" on:click={() => modoCineActive.set(false)}>
+        ✕
+      </button>
     {/if}
   {/if}
 </div>
@@ -250,13 +266,14 @@
     overflow: hidden;
   }
 
+  /* Modo cine: fills the full viewport as a fullscreen overlay. The parent
+     .visualizer-embed is fixed with z-index 99. */
   .visualizer.modo-cine {
     position: fixed;
     top: 0;
     left: 0;
     width: 100vw;
     height: 100vh;
-    z-index: 100;
     background:
       radial-gradient(ellipse 80% 60% at 50% -20%, rgba(138, 92, 255, 0.12), transparent),
       radial-gradient(ellipse 60% 50% at 80% 100%, rgba(0, 229, 255, 0.08), transparent),
@@ -270,12 +287,15 @@
   }
 
   /* ── Track title ─────────────────────────────────────────────── */
+  /* Track title and chrome controls must paint above the sidebar/content/bottombar
+     (z-index: 1). They live inside .visualizer-embed (z-index: 99) so they
+     are already above all app content. */
   .track-title {
-    position: absolute;
+    position: fixed;
     top: 1.5rem;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 101;
+    z-index: 50;
     max-width: 70vw;
     color: var(--text-primary, #e0e0e0);
     font-size: 1.05rem;
@@ -298,6 +318,11 @@
   /* Wraps the auto-hiding controls. They fade out together when the mouse
      is idle and reappear the instant it moves. */
   .chrome-controls {
+    position: fixed;
+    bottom: 90px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 50;
     transition: opacity 0.3s ease;
     pointer-events: none; /* allow mouse events to reach the window handler */
     visibility: visible;
@@ -316,10 +341,10 @@
   }
 
   .modo-cine-close {
-    position: absolute;
+    position: fixed;
     top: 1rem;
     right: 1rem;
-    z-index: 101;
+    z-index: 50;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
     color: var(--text-primary, #e0e0e0);

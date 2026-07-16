@@ -9,6 +9,10 @@ const nativeWindow = vi.hoisted(() => ({
   updateMiniWindowSize: vi.fn().mockResolvedValue(undefined),
 }));
 
+const tauriWindow = vi.hoisted(() => ({
+  startDragging: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('./mode', () => ({
   exitMiniPlayer: vi.fn().mockResolvedValue(undefined),
   minimizeMiniPlayer: vi.fn().mockResolvedValue(undefined),
@@ -17,9 +21,13 @@ vi.mock('./mode', () => ({
 
 vi.mock('./nativeWindow', () => nativeWindow);
 
+vi.mock('@tauri-apps/api/window', () => ({
+  getCurrentWindow: () => tauriWindow,
+}));
+
 describe('MiniPlayer', () => {
   afterEach(() => {
-    activateMiniPlayerSkin('ipod-classic');
+    activateMiniPlayerSkin('classic-jellyx');
     setMiniPlayerScale(1);
     vi.clearAllMocks();
   });
@@ -63,20 +71,20 @@ describe('MiniPlayer', () => {
   });
 
   it('renders the selected skin contract, sizing, and theme', () => {
-    activateMiniPlayerSkin('graphite-pocket');
+    activateMiniPlayerSkin('graphite-jellyx');
     setMiniPlayerScale(0.3);
 
     const { container } = render(MiniPlayer);
     const shell = screen.getByLabelText('Mini player');
     const device = container.querySelector<HTMLElement>('.device');
 
-    expect(device?.dataset.skin).toBe('graphite-pocket');
+    expect(device?.dataset.skin).toBe('graphite-jellyx');
     expect(device?.dataset.kind).toBe('ipod');
     expect(device?.dataset.shape).toBe('rounded-rectangle');
-    expect(screen.getByLabelText('Graphite Pocket')).toBeTruthy();
-    expect(shell.getAttribute('style')).toContain('--skin-card-width: 300px');
+    expect(screen.getByLabelText('Graphite Jellyx')).toBeTruthy();
+    expect(shell.getAttribute('style')).toContain('--skin-card-width: 320px');
     expect(shell.getAttribute('style')).toContain('--skin-card-height: 480px');
-    expect(shell.getAttribute('style')).toContain('--skin-window-width: 90px');
+    expect(shell.getAttribute('style')).toContain('--skin-window-width: 96px');
     expect(shell.getAttribute('style')).toContain('--skin-window-height: 144px');
     expect(shell.getAttribute('style')).toContain('--skin-scale: 0.3');
     expect(shell.getAttribute('style')).toContain('--skin-shell: #2f343d');
@@ -107,6 +115,36 @@ describe('MiniPlayer', () => {
     // Either transparent or rgba with 0 alpha
     expect(bodyBg).toMatch(/rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)|transparent/);
     expect(mainBg).toMatch(/rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)|transparent/);
+  });
+
+  it('calls startDragging on mousedown in the screen area for cross-platform window dragging', async () => {
+    const { container } = render(MiniPlayer);
+    const screen = container.querySelector<HTMLElement>('.screen');
+    expect(screen).toBeTruthy();
+
+    await fireEvent.mouseDown(screen!, { button: 0 });
+    expect(tauriWindow.startDragging).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not start dragging when clicking a button inside the screen', async () => {
+    render(MiniPlayer);
+    // The window-control buttons are inside .device but outside .screen,
+    // so mousedown on them does not reach the .screen drag handler.
+    const restoreBtn = screen.getByRole('button', { name: 'Return to full app' });
+    await fireEvent.mouseDown(restoreBtn, { button: 0 });
+    expect(tauriWindow.startDragging).not.toHaveBeenCalled();
+  });
+
+  it('wraps the device in a scaled layout box matching the window size', () => {
+    const { container } = render(MiniPlayer);
+
+    const wrapper = container.querySelector<HTMLElement>('.device-wrapper');
+    expect(wrapper).toBeTruthy();
+    // The wrapper CSS uses --skin-window-width/height (scaled), not the card
+    // (unscaled) dimensions, so the layout box matches the window size.
+    const main = container.querySelector<HTMLElement>('.mini-player');
+    expect(main?.getAttribute('style')).toContain('--skin-window-width: 320px');
+    expect(main?.getAttribute('style')).toContain('--skin-window-height: 480px');
   });
 
   it('serializes overlapping size updates and finishes at the latest requested size', async () => {

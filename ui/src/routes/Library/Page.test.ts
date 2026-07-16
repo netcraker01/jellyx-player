@@ -153,9 +153,12 @@ describe('Library page', () => {
     // No flat track table should be present.
     expect(container.querySelector('table.track-table')).toBeNull();
 
-    // Folder paths should appear in the cards.
-    expect(container.textContent).toContain('/music/rock');
-    expect(container.textContent).toContain('/music/jazz');
+    // Folder names (final segment) should appear in the cards.
+    expect(container.textContent).toContain('rock');
+    expect(container.textContent).toContain('jazz');
+    // Full path should be available as a tooltip on the folder-path element.
+    const folderPath = container.querySelector('.folder-path[title="/music/rock"]');
+    expect(folderPath).toBeTruthy();
   });
 
   it('navigates to folder detail when a folder card is clicked', async () => {

@@ -15,10 +15,15 @@ use serde::{Deserialize, Serialize};
 const MAX_RECENT_EVENTS: usize = 64;
 const MAX_COUNTERS: usize = 64;
 const RATE_WINDOW_SECONDS: u64 = 60 * 60;
+/// Cooldown for re-sending the same operational alert to Sentry.
+/// Independent from RATE_WINDOW_SECONDS so a sustained error rate doesn't
+/// spam Sentry every time the window shifts. One alert per identifier per
+/// cooldown period.
+const ALERT_COOLDOWN_SECONDS: u64 = 6 * 60 * 60;
 /// Alert thresholds for the bounded rolling operation window, in percent.
 const ERROR_RATE_ALERT_THRESHOLDS_PERCENT: [f64; 3] = [1.0, 2.0, 5.0];
-/// Alert when a measured operation takes at least two seconds.
-const LATENCY_ALERT_THRESHOLD_MS: u64 = 2_000;
+/// Alert when a measured operation takes at least three seconds.
+const LATENCY_ALERT_THRESHOLD_MS: u64 = 3_000;
 const DIAGNOSTICS_FILE: &str = "failure-diagnostics.json";
 const MAX_REPORTED_LATENCY_MS: u64 = 60_000;
 
@@ -211,7 +216,7 @@ fn capture_alerts_if_opted_in(
     for alert in alerts {
         if last_sent
             .get(&alert.identifier)
-            .is_some_and(|previous| now.saturating_sub(*previous) <= RATE_WINDOW_SECONDS)
+            .is_some_and(|previous| now.saturating_sub(*previous) <= ALERT_COOLDOWN_SECONDS)
         {
             continue;
         }
@@ -678,11 +683,11 @@ mod tests {
     #[test]
     fn latency_metrics_are_bounded_redacted_and_surface_threshold_alerts() {
         let mut collector = FailureCollector::default();
-        collector.record_latency(stable_identifier("updater", "latest_release_fetch"), 2_001);
+        collector.record_latency(stable_identifier("updater", "latest_release_fetch"), 3_001);
         let diagnostics = collector.diagnostics(100);
         assert_eq!(
             diagnostics.latency["updater:latest_release_fetch"].average_ms,
-            2_001
+            3_001
         );
         assert!(diagnostics.alerts.iter().any(|alert| {
             alert.identifier == "updater:latest_release_fetch:latency_high"
@@ -882,7 +887,7 @@ mod tests {
             },
             &alerts,
             &mut last_sent,
-            100 + RATE_WINDOW_SECONDS + 1,
+            100 + ALERT_COOLDOWN_SECONDS + 1,
         );
         assert_eq!(sink.0.lock().unwrap().len(), 1);
         capture_alerts_if_opted_in(
@@ -890,7 +895,7 @@ mod tests {
             enabled,
             &alerts,
             &mut last_sent,
-            100 + RATE_WINDOW_SECONDS + 1,
+            100 + ALERT_COOLDOWN_SECONDS + 1,
         );
         assert_eq!(sink.0.lock().unwrap().len(), 2);
     }
