@@ -2478,6 +2478,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "jellyx-engine"
+version = "0.4.3"
+
+[[package]]
 name = "jellyx-ffi"
 version = "0.4.3"
 dependencies = [

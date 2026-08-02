@@ -41,11 +41,11 @@ fn public_module_surface_is_intact() {
 // per Strict TDD (RED) and drive the skeleton creation (GREEN).
 // ---------------------------------------------------------------------------
 
-/// The workspace MUST include `jellyx-core`, `jellyx-cli`, and `jellyx-ffi`
-/// as members alongside `jellyx-desktop` (spec: workspace-structure,
-/// consumer-scaffolding).
+/// The workspace MUST include `jellyx-core`, `jellyx-cli`, `jellyx-ffi`, and
+/// `jellyx-engine` as members alongside `jellyx-desktop` (spec:
+/// workspace-structure, consumer-scaffolding).
 #[test]
-fn workspace_members_include_all_four_crates() {
+fn workspace_members_include_all_five_crates() {
     // Integration tests run with CWD = the `jellyx-desktop` package dir, so the
     // root workspace manifest is one level up.
     let manifest = std::fs::read_to_string("../Cargo.toml")
@@ -63,6 +63,10 @@ fn workspace_members_include_all_four_crates() {
     assert!(
         manifest.contains("\"jellyx-ffi\""),
         "workspace members MUST list jellyx-ffi, got:\n{manifest}"
+    );
+    assert!(
+        manifest.contains("\"jellyx-engine\""),
+        "workspace members MUST list jellyx-engine, got:\n{manifest}"
     );
 }
 
@@ -199,11 +203,11 @@ fn jellyx_desktop_depends_on_local_jellyx_core() {
 // structure rather than trivially passing on empty strings / missing files.
 // ---------------------------------------------------------------------------
 
-/// The root workspace member list MUST list exactly four members in the
+/// The root workspace member list MUST list exactly five members in the
 /// canonical order (spec: workspace-structure). Catches accidental extras or
 /// reordering that the per-member checks above would miss.
 #[test]
-fn workspace_member_list_is_exactly_four_canonical_members() {
+fn workspace_member_list_is_exactly_five_canonical_members() {
     let manifest =
         std::fs::read_to_string("../Cargo.toml").expect("root Cargo.toml must be readable");
     // Locate the members array line and assert its exact content.
@@ -213,8 +217,8 @@ fn workspace_member_list_is_exactly_four_canonical_members() {
         .expect("root Cargo.toml MUST declare a workspace members array");
     assert_eq!(
         members_line.trim(),
-        "members = [\"jellyx-desktop\", \"jellyx-core\", \"jellyx-cli\", \"jellyx-ffi\"]",
-        "workspace members MUST be exactly the four canonical crates in order"
+        "members = [\"jellyx-desktop\", \"jellyx-core\", \"jellyx-cli\", \"jellyx-ffi\", \"jellyx-engine\"]",
+        "workspace members MUST be exactly the five canonical crates in order"
     );
 }
 

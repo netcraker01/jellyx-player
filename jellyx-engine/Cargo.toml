@@ -1,0 +1,10 @@
+[package]
+name = "jellyx-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-neutral application boundary shared by Jellyx frontends"
+
+[lib]
+name = "jellyx_engine"
+path = "src/lib.rs"
