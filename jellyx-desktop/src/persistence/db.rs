@@ -13,7 +13,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use jellyx_engine::migration_lock::MigrationLock;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::errors::types::PersistenceError;
 use crate::focus::models::{
@@ -298,34 +298,45 @@ impl Database {
         // v5 → v6: subfolder_path on local_tracks, folder/parent/kind on
         // user_playlists, composite PK + source columns on artist_favorites.
         if needs_v6 {
-            Self::migrate_to_v6(&conn)?;
+            Self::run_migration_step(&mut conn, SCHEMA_VERSION_V6, Self::migrate_to_v6)?;
         }
 
         // v6 → v7: add the `update_prefs` table for the channel-aware updater.
         // Idempotent: only creates the table if it doesn't already exist.
         if needs_v7 {
-            Self::migrate_to_v7(&conn)?;
+            Self::run_migration_step(&mut conn, SCHEMA_VERSION_V7, Self::migrate_to_v7)?;
         }
 
         // v7 → v8: persist an explicit, default-off remote telemetry choice.
         if needs_v8 {
-            Self::migrate_to_v8(&conn)?;
+            Self::run_migration_step(&mut conn, SCHEMA_VERSION_V8, Self::migrate_to_v8)?;
         }
 
         if needs_v10 {
-            Self::migrate_to_v10(&mut conn)?;
+            Self::run_migration_step(&mut conn, SCHEMA_VERSION_V10, Self::migrate_to_v10)?;
         }
 
-        // Record the new schema version.
-        conn.execute(
-            "UPDATE _meta SET value = ?1 WHERE key = 'schema_version'",
-            params![SCHEMA_VERSION],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to update schema version: {}", e))
-        })?;
-
         Ok(())
+    }
+
+    fn run_migration_step(
+        conn: &mut Connection,
+        version: u32,
+        migrate: fn(&Connection) -> Result<(), PersistenceError>,
+    ) -> Result<(), PersistenceError> {
+        let transaction = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(database_error)?;
+        migrate(&transaction)?;
+        transaction
+            .execute(
+                "UPDATE _meta
+                 SET value = CAST(MAX(CAST(value AS INTEGER), ?1) AS TEXT)
+                 WHERE key = 'schema_version'",
+                params![version],
+            )
+            .map_err(database_error)?;
+        transaction.commit().map_err(database_error)
     }
 
     /// Add a column to a table if it does not already exist.
@@ -515,9 +526,8 @@ impl Database {
         })
     }
 
-    fn migrate_to_v10(conn: &mut Connection) -> Result<(), PersistenceError> {
-        let transaction = conn.transaction().map_err(database_error)?;
-        transaction
+    fn migrate_to_v10(conn: &Connection) -> Result<(), PersistenceError> {
+        conn
             .execute_batch(
                 "CREATE TABLE IF NOT EXISTS focus_sessions (
                     id TEXT PRIMARY KEY,
@@ -575,23 +585,21 @@ impl Database {
             )
             .map_err(database_error)?;
 
-        if !Self::column_exists(&transaction, "focus_sessions", "goal") {
-            transaction
-                .execute(
-                    "ALTER TABLE focus_sessions ADD COLUMN goal TEXT NOT NULL DEFAULT ''",
-                    [],
-                )
-                .map_err(database_error)?;
+        if !Self::column_exists(conn, "focus_sessions", "goal") {
+            conn.execute(
+                "ALTER TABLE focus_sessions ADD COLUMN goal TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .map_err(database_error)?;
         }
-        if !Self::column_exists(&transaction, "focus_sessions", "first_action") {
-            transaction
-                .execute(
-                    "ALTER TABLE focus_sessions ADD COLUMN first_action TEXT NOT NULL DEFAULT ''",
-                    [],
-                )
-                .map_err(database_error)?;
+        if !Self::column_exists(conn, "focus_sessions", "first_action") {
+            conn.execute(
+                "ALTER TABLE focus_sessions ADD COLUMN first_action TEXT NOT NULL DEFAULT ''",
+                [],
+            )
+            .map_err(database_error)?;
         }
-        transaction.commit().map_err(database_error)
+        Ok(())
     }
 
     // ── Update Prefs ──────────────────────────────────────────────────
@@ -2720,6 +2728,106 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let version = db.schema_version().unwrap();
         assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn failed_migration_rolls_back_schema_data_and_version_then_retries() {
+        let path = std::env::temp_dir().join(format!(
+            "jellyx-atomic-migration-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE local_tracks (
+                file_path TEXT PRIMARY KEY,
+                track_json TEXT NOT NULL,
+                folder_path TEXT NOT NULL,
+                file_modified_at TEXT
+            );
+            CREATE TABLE user_playlists (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO user_playlists (id, title) VALUES ('playlist-1', 'Legacy');
+            CREATE TABLE artist_favorites (
+                artist_id TEXT PRIMARY KEY,
+                artist_name TEXT NOT NULL,
+                thumbnail TEXT,
+                added_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO artist_favorites (artist_id, artist_name)
+                VALUES ('artist-1', 'Legacy Artist');
+            CREATE TABLE artist_favorites_v6 (conflict TEXT);
+            CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO _meta (key, value) VALUES ('schema_version', '5');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let error = match Database::open(&path) {
+            Err(error) => error,
+            Ok(_) => panic!("conflicting v6 fixture unexpectedly migrated"),
+        };
+        let PersistenceError::DatabaseError(message) = error else {
+            panic!("unexpected migration error: {error:?}");
+        };
+        assert!(message.contains("failed to rebuild artist_favorites for v6"));
+
+        let conn = Connection::open(&path).unwrap();
+        assert!(!Database::column_exists(
+            &conn,
+            "local_tracks",
+            "subfolder_path"
+        ));
+        assert!(!Database::column_exists(&conn, "user_playlists", "kind"));
+        assert_eq!(
+            conn.query_row(
+                "SELECT artist_name FROM artist_favorites WHERE artist_id = 'artist-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "Legacy Artist"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT value FROM _meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "5"
+        );
+
+        conn.execute("DROP TABLE artist_favorites_v6", []).unwrap();
+        drop(conn);
+
+        let db = Database::open(&path).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        let conn = db.conn.lock().unwrap();
+        assert!(Database::column_exists(
+            &conn,
+            "local_tracks",
+            "subfolder_path"
+        ));
+        assert!(Database::column_exists(&conn, "user_playlists", "kind"));
+        assert_eq!(
+            conn.query_row(
+                "SELECT source FROM artist_favorites WHERE artist_id = 'artist-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "local"
+        );
+        drop(conn);
+        drop(db);
+
+        for suffix in ["", "-wal", "-shm", ".migration.lock"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
     }
 
     fn sample_focus_session(id: &str) -> FocusSession {
