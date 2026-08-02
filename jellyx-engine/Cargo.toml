@@ -8,3 +8,9 @@ description = "Platform-neutral application boundary shared by Jellyx frontends"
 [lib]
 name = "jellyx_engine"
 path = "src/lib.rs"
+
+[dependencies]
+fs4 = "1.1"
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }

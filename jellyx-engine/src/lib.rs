@@ -5,3 +5,5 @@
 
 /// Identifies the intentionally dependency-free Unit 1 boundary.
 pub const BOUNDARY_ESTABLISHED: bool = true;
+
+pub mod migration_lock;

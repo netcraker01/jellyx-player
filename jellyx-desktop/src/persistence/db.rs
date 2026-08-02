@@ -10,7 +10,9 @@
 
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::Duration;
 
+use jellyx_engine::migration_lock::MigrationLock;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::errors::types::PersistenceError;
@@ -82,8 +84,16 @@ impl Database {
             })?;
         }
 
+        let _migration_lock =
+            MigrationLock::acquire(path, Duration::from_secs(5)).map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to acquire migration lock: {e}"))
+            })?;
+
         let conn = Connection::open(path).map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to open database: {}", e))
+        })?;
+        conn.busy_timeout(Duration::from_secs(5)).map_err(|e| {
+            PersistenceError::DatabaseError(format!("failed to set database busy timeout: {e}"))
         })?;
 
         // Enable WAL mode for concurrent reads
