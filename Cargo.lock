@@ -2494,6 +2494,8 @@ version = "0.4.3"
 dependencies = [
  "fs4",
  "rustix",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -3,7 +3,7 @@ use jellyx_engine::preferences::{PreferencesRepository, RepositoryError, SourceP
 use super::db::Database;
 use crate::errors::types::PersistenceError;
 
-fn storage_error(error: PersistenceError) -> RepositoryError {
+pub(super) fn storage_error(error: PersistenceError) -> RepositoryError {
     let message = match error {
         PersistenceError::DatabaseError(message) | PersistenceError::WriteError(message) => message,
     };

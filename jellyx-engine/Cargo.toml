@@ -11,6 +11,10 @@ path = "src/lib.rs"
 
 [dependencies]
 fs4 = "1.1"
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
