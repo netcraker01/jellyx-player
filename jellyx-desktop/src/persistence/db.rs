@@ -4,15 +4,15 @@
 //! Uses WAL mode for thread-safe concurrent reads.
 //! Schema is created on first launch; migrations track version.
 //!
-//! Thread safety: `Connection` is wrapped in `Mutex` because rusqlite's
-//! internal `RefCell` makes it non-`Sync`. This satisfies Tauri's
-//! `Send + Sync` requirement for `AppState`.
+//! Thread safety: `Connection` is wrapped in `SqliteHandle` because rusqlite's
+//! internal `RefCell` makes it non-`Sync`. This satisfies Tauri's `Send + Sync`
+//! requirement for `AppState`.
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::Duration;
 
 use jellyx_engine::migration_lock::MigrationLock;
+use jellyx_engine::sqlite::SqliteHandle;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 use crate::errors::types::PersistenceError;
@@ -62,10 +62,10 @@ fn row_to_playlist(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserPlaylist> {
 /// SQLite-backed database for Jellyx library data.
 ///
 /// Stores favorites and play history with Track data serialized as JSON.
-/// Thread-safe via `Mutex<Connection>` (required because rusqlite's
-/// `Connection` is not `Sync`).
+/// Thread-safe via [`SqliteHandle`]. SQL, schema, migrations, and recovery
+/// remain desktop-owned.
 pub struct Database {
-    conn: Mutex<Connection>,
+    conn: SqliteHandle,
 }
 
 enum OpenFailure {
@@ -145,7 +145,7 @@ impl Database {
             .map_err(|error| classify_sqlite("set WAL mode", error))?;
 
         let db = Self {
-            conn: Mutex::new(conn),
+            conn: SqliteHandle::new(conn),
         };
         db.initialize_schema().map_err(OpenFailure::Other)?;
         db.run_migrations().map_err(OpenFailure::Other)?;
@@ -171,7 +171,7 @@ impl Database {
         })?;
 
         let db = Self {
-            conn: Mutex::new(conn),
+            conn: SqliteHandle::new(conn),
         };
         db.initialize_schema()?;
         db.run_migrations()?;
