@@ -8,3 +8,9 @@ fn manifest_has_no_tauri_dependency() {
     let manifest = include_str!("../Cargo.toml").to_ascii_lowercase();
     assert!(!manifest.contains("tauri"));
 }
+
+#[test]
+fn preferences_contract_is_platform_neutral() {
+    let repository: Option<&dyn jellyx_engine::preferences::PreferencesRepository> = None;
+    assert!(repository.is_none());
+}

@@ -7,6 +7,32 @@ use super::*;
 use std::sync::Arc;
 
 #[test]
+fn settings_ipc_shapes_remain_unchanged() {
+    let source = SourceSettingDto {
+        source: "YouTube".into(),
+        enabled: true,
+        label: "YouTube".into(),
+    };
+    let audio = AudioSettingsDto {
+        normalize_audio: true,
+    };
+    let telemetry = crate::persistence::models::TelemetrySettings { enabled: false };
+
+    assert_eq!(
+        serde_json::to_string(&source).unwrap(),
+        r#"{"source":"YouTube","enabled":true,"label":"YouTube"}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&audio).unwrap(),
+        r#"{"normalizeAudio":true}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&telemetry).unwrap(),
+        r#"{"enabled":false}"#
+    );
+}
+
+#[test]
 fn focus_command_errors_are_stable_and_redacted() {
     let stale = focus_error(FocusServiceError::Persistence(
         "stale focus revision; sqlite at /private/path".into(),

@@ -7,3 +7,4 @@
 pub const BOUNDARY_ESTABLISHED: bool = true;
 
 pub mod migration_lock;
+pub mod preferences;

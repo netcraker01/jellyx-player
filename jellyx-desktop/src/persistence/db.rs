@@ -2288,18 +2288,6 @@ impl Database {
         Ok(())
     }
 
-    /// Get the set of currently enabled source names.
-    pub fn get_enabled_sources(
-        &self,
-    ) -> Result<std::collections::HashSet<String>, PersistenceError> {
-        let settings = self.get_source_settings()?;
-        Ok(settings
-            .into_iter()
-            .filter(|s| s.enabled)
-            .map(|s| s.source)
-            .collect())
-    }
-
     pub fn focus_get_session(&self, id: &str) -> Result<Option<FocusSession>, PersistenceError> {
         let conn = self.conn.lock().map_err(lock_error)?;
         let session = conn
