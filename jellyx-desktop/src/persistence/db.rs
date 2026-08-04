@@ -12,7 +12,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use jellyx_engine::sqlite::{SqliteHandle, SqliteOpenError, SqliteOpenStage, SqliteRecoveryError};
-use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::errors::types::PersistenceError;
 use crate::focus::models::{
@@ -131,84 +131,86 @@ impl Database {
     /// column already exists, so we wrap them in a tolerance check) and, for
     /// the `artist_favorites` PK change, a full table rebuild.
     fn run_migrations(&self) -> Result<(), PersistenceError> {
-        let mut conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
+        let current = {
+            let conn = self.conn.lock().map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+            })?;
 
-        let current: u32 = conn
-            .query_row(
-                "SELECT value FROM _meta WHERE key = 'schema_version'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
+            let current: u32 = conn
+                .query_row(
+                    "SELECT value FROM _meta WHERE key = 'schema_version'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
 
-        let needs_v6 = current < SCHEMA_VERSION_V6
-            || !Self::column_exists(&conn, "local_tracks", "subfolder_path")
-            || !Self::column_exists(&conn, "user_playlists", "kind")
-            || !Self::column_exists(&conn, "user_playlists", "source_folder_path")
-            || !Self::column_exists(&conn, "user_playlists", "parent_playlist_id")
-            || !Self::column_exists(&conn, "artist_favorites", "source")
-            || !Self::column_exists(&conn, "artist_favorites", "source_artist_ref");
+            let needs_v6 = current < SCHEMA_VERSION_V6
+                || !Self::column_exists(&conn, "local_tracks", "subfolder_path")
+                || !Self::column_exists(&conn, "user_playlists", "kind")
+                || !Self::column_exists(&conn, "user_playlists", "source_folder_path")
+                || !Self::column_exists(&conn, "user_playlists", "parent_playlist_id")
+                || !Self::column_exists(&conn, "artist_favorites", "source")
+                || !Self::column_exists(&conn, "artist_favorites", "source_artist_ref");
 
-        let needs_v7 = current < SCHEMA_VERSION_V7 || !Self::table_exists(&conn, "update_prefs");
-        let needs_v8 = current < SCHEMA_VERSION_V8 || !Self::table_exists(&conn, "telemetry_prefs");
-        let needs_v10 = current < SCHEMA_VERSION_V10
-            || !Self::table_exists(&conn, "focus_sessions")
-            || !Self::table_exists(&conn, "focus_captures")
-            || !Self::table_exists(&conn, "focus_preferences")
-            || !Self::table_exists(&conn, "focus_operations")
-            || !Self::column_exists(&conn, "focus_sessions", "goal")
-            || !Self::column_exists(&conn, "focus_sessions", "first_action");
+            let needs_v7 =
+                current < SCHEMA_VERSION_V7 || !Self::table_exists(&conn, "update_prefs");
+            let needs_v8 =
+                current < SCHEMA_VERSION_V8 || !Self::table_exists(&conn, "telemetry_prefs");
+            let needs_v10 = current < SCHEMA_VERSION_V10
+                || !Self::table_exists(&conn, "focus_sessions")
+                || !Self::table_exists(&conn, "focus_captures")
+                || !Self::table_exists(&conn, "focus_preferences")
+                || !Self::table_exists(&conn, "focus_operations")
+                || !Self::column_exists(&conn, "focus_sessions", "goal")
+                || !Self::column_exists(&conn, "focus_sessions", "first_action");
 
-        if current >= SCHEMA_VERSION && !needs_v6 && !needs_v7 && !needs_v8 && !needs_v10 {
-            return Ok(());
-        }
+            if current >= SCHEMA_VERSION && !needs_v6 && !needs_v7 && !needs_v8 && !needs_v10 {
+                return Ok(());
+            }
+
+            (current, needs_v6, needs_v7, needs_v8, needs_v10)
+        };
+
+        let (_, needs_v6, needs_v7, needs_v8, needs_v10) = current;
 
         // v5 → v6: subfolder_path on local_tracks, folder/parent/kind on
         // user_playlists, composite PK + source columns on artist_favorites.
         if needs_v6 {
-            Self::run_migration_step(&mut conn, SCHEMA_VERSION_V6, Self::migrate_to_v6)?;
+            self.run_migration_step(SCHEMA_VERSION_V6, Self::migrate_to_v6)?;
         }
 
         // v6 → v7: add the `update_prefs` table for the channel-aware updater.
         // Idempotent: only creates the table if it doesn't already exist.
         if needs_v7 {
-            Self::run_migration_step(&mut conn, SCHEMA_VERSION_V7, Self::migrate_to_v7)?;
+            self.run_migration_step(SCHEMA_VERSION_V7, Self::migrate_to_v7)?;
         }
 
         // v7 → v8: persist an explicit, default-off remote telemetry choice.
         if needs_v8 {
-            Self::run_migration_step(&mut conn, SCHEMA_VERSION_V8, Self::migrate_to_v8)?;
+            self.run_migration_step(SCHEMA_VERSION_V8, Self::migrate_to_v8)?;
         }
 
         if needs_v10 {
-            Self::run_migration_step(&mut conn, SCHEMA_VERSION_V10, Self::migrate_to_v10)?;
+            self.run_migration_step(SCHEMA_VERSION_V10, Self::migrate_to_v10)?;
         }
 
         Ok(())
     }
 
+    /// Atomically execute one migration step under `BEGIN IMMEDIATE`.
+    ///
+    /// Delegates to [`SqliteHandle::run_migration_step`] in the engine, which
+    /// owns the transaction mechanics: BEGIN IMMEDIATE, callback execution,
+    /// monotonic `schema_version` update, commit on success, rollback on
+    /// failure. Migration SQL bodies remain desktop-owned (Units 3D7+).
     fn run_migration_step(
-        conn: &mut Connection,
+        &self,
         version: u32,
         migrate: fn(&Connection) -> Result<(), PersistenceError>,
     ) -> Result<(), PersistenceError> {
-        let transaction = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(database_error)?;
-        migrate(&transaction)?;
-        transaction
-            .execute(
-                "UPDATE _meta
-                 SET value = CAST(MAX(CAST(value AS INTEGER), ?1) AS TEXT)
-                 WHERE key = 'schema_version'",
-                params![version],
-            )
-            .map_err(database_error)?;
-        transaction.commit().map_err(database_error)
+        self.conn.run_migration_step(version, |tx| migrate(tx))
     }
 
     /// Add a column to a table if it does not already exist.

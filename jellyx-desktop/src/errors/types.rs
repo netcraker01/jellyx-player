@@ -65,6 +65,12 @@ impl std::fmt::Display for PersistenceError {
     }
 }
 
+impl From<rusqlite::Error> for PersistenceError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::DatabaseError(error.to_string())
+    }
+}
+
 /// Input validation errors.
 #[derive(Debug)]
 pub enum ValidationError {

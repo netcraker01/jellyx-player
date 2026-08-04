@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LockResult, Mutex, MutexGuard};
 use std::time::Duration;
 
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 
 use crate::migration_lock::MigrationLock;
 
@@ -368,5 +368,162 @@ impl SqliteHandle {
         )?;
 
         Ok(())
+    }
+
+    /// Atomically execute one migration step under `BEGIN IMMEDIATE`.
+    ///
+    /// The transaction acquires a write lock up front so a failed callback
+    /// cannot leave partial writes visible to readers. `migrate` runs inside
+    /// the transaction; on success the `_meta.schema_version` row advances to
+    /// `version` monotonically (`MAX(existing, version)`) and the transaction
+    /// commits. If `migrate` or the version update errors, the transaction is
+    /// dropped (rolled back) and the error is returned, leaving schema, data,
+    /// and version unchanged so a retry can re-run the step.
+    ///
+    /// The callback receives the [`Transaction`] (which derefs to
+    /// [`Connection`]) so migration bodies can run arbitrary SQL through the
+    /// same connection. The error type is caller-supplied so desktop
+    /// `PersistenceError` (and later engine-owned errors) propagate without a
+    /// dependency edge from the engine to the desktop crate.
+    pub fn run_migration_step<E>(
+        &self,
+        version: u32,
+        migrate: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<(), E>,
+    ) -> Result<(), E>
+    where
+        E: From<rusqlite::Error>,
+    {
+        let mut conn = self.conn.lock().map_err(|_| {
+            E::from(rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_INTERNAL),
+                Some("sqlite connection lock poisoned".to_string()),
+            ))
+        })?;
+
+        let transaction = conn
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(E::from)?;
+        migrate(&transaction)?;
+        transaction
+            .execute(
+                "UPDATE _meta
+                 SET value = CAST(MAX(CAST(value AS INTEGER), ?1) AS TEXT)
+                 WHERE key = 'schema_version'",
+                params![version],
+            )
+            .map_err(E::from)?;
+        transaction.commit().map_err(E::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn handle_with_meta() -> SqliteHandle {
+        let handle = SqliteHandle::open_in_memory().unwrap();
+        let conn = handle.lock().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+             INSERT INTO _meta (key, value) VALUES ('schema_version', '0');
+             CREATE TABLE scratch (id INTEGER PRIMARY KEY, value TEXT);",
+        )
+        .unwrap();
+        drop(conn);
+        handle
+    }
+
+    fn schema_version(handle: &SqliteHandle) -> u32 {
+        let conn = handle.lock().unwrap();
+        conn.query_row(
+            "SELECT value FROM _meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap()
+        .parse()
+        .unwrap()
+    }
+
+    fn row_count(handle: &SqliteHandle, table: &str) -> i64 {
+        let conn = handle.lock().unwrap();
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn migration_step_commits_version_and_data_on_success() {
+        let handle = handle_with_meta();
+        handle
+            .run_migration_step::<rusqlite::Error>(7, |tx| {
+                tx.execute("INSERT INTO scratch (value) VALUES ('v7')", [])?;
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(schema_version(&handle), 7);
+        assert_eq!(row_count(&handle, "scratch"), 1);
+    }
+
+    #[test]
+    fn failed_migration_step_rolls_back_version_and_data() {
+        let handle = handle_with_meta();
+        handle
+            .run_migration_step::<rusqlite::Error>(6, |tx| {
+                tx.execute("INSERT INTO scratch (value) VALUES ('v6')", [])?;
+                Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                    Some("simulated migration failure".to_string()),
+                ))
+            })
+            .unwrap_err();
+
+        assert_eq!(schema_version(&handle), 0);
+        assert_eq!(row_count(&handle, "scratch"), 0);
+    }
+
+    #[test]
+    fn retry_after_failed_migration_step_succeeds() {
+        let handle = handle_with_meta();
+        handle
+            .run_migration_step::<rusqlite::Error>(8, |tx| {
+                tx.execute("INSERT INTO scratch (value) VALUES ('attempt-1')", [])?;
+                Err(rusqlite::Error::SqliteFailure(
+                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CONSTRAINT),
+                    Some("first attempt fails".to_string()),
+                ))
+            })
+            .unwrap_err();
+        assert_eq!(schema_version(&handle), 0);
+        assert_eq!(row_count(&handle, "scratch"), 0);
+
+        handle
+            .run_migration_step::<rusqlite::Error>(8, |tx| {
+                tx.execute("INSERT INTO scratch (value) VALUES ('attempt-2')", [])?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(schema_version(&handle), 8);
+        assert_eq!(row_count(&handle, "scratch"), 1);
+    }
+
+    #[test]
+    fn migration_step_version_update_is_monotonic() {
+        let handle = handle_with_meta();
+        handle
+            .run_migration_step::<rusqlite::Error>(10, |tx| {
+                tx.execute("INSERT INTO scratch (value) VALUES ('v10')", [])?;
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(schema_version(&handle), 10);
+
+        // An older target must not regress the version.
+        handle
+            .run_migration_step::<rusqlite::Error>(5, |_tx| Ok(()))
+            .unwrap();
+        assert_eq!(schema_version(&handle), 10);
     }
 }
