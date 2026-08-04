@@ -52,6 +52,33 @@ impl From<rusqlite::Error> for MigrationError {
 ///
 /// Idempotent: column adds and the artist rebuild are skipped when the
 /// target columns already exist, so re-running on a v6+ database is a no-op.
+pub fn migrate_to_v7(conn: &Connection) -> Result<(), MigrationError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS update_prefs (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            skipped_version TEXT,
+            remind_later_at TEXT,
+            last_check_at TEXT,
+            detected_channel TEXT
+        );",
+    )
+    .map_err(|e| MigrationError::new("failed to create update_prefs (v7)", e))?;
+    Ok(())
+}
+
+/// v7 → v8 migration. No row is seeded, so consent is false until the user
+/// actively enables it in Settings.
+pub fn migrate_to_v8(conn: &Connection) -> Result<(), MigrationError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS telemetry_prefs (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled INTEGER NOT NULL DEFAULT 0
+        );",
+    )
+    .map_err(|e| MigrationError::new("failed to create telemetry_prefs (v8)", e))?;
+    Ok(())
+}
+
 pub fn migrate_to_v6(conn: &Connection) -> Result<(), MigrationError> {
     add_column_if_missing(conn, "local_tracks", "subfolder_path", "TEXT")
         .map_err(|e| MigrationError::new("failed to add column local_tracks.subfolder_path", e))?;
@@ -128,6 +155,7 @@ pub fn migrate_to_v6(conn: &Connection) -> Result<(), MigrationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sqlite::{column_exists, table_exists};
 
     fn v5_schema() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
@@ -205,5 +233,76 @@ mod tests {
             )
             .unwrap();
         assert_eq!(source, "local");
+    }
+
+    fn v6_schema() -> Connection {
+        let conn = v5_schema();
+        migrate_to_v6(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn v7_creates_update_prefs_table() {
+        let conn = v6_schema();
+        migrate_to_v7(&conn).unwrap();
+
+        assert!(table_exists(&conn, "update_prefs").unwrap());
+    }
+
+    #[test]
+    fn v7_is_idempotent_on_already_migrated_schema() {
+        let conn = v6_schema();
+        migrate_to_v7(&conn).unwrap();
+        migrate_to_v7(&conn).unwrap();
+
+        assert!(table_exists(&conn, "update_prefs").unwrap());
+    }
+
+    #[test]
+    fn v8_creates_telemetry_prefs_table_with_default_disabled() {
+        let conn = v6_schema();
+        migrate_to_v8(&conn).unwrap();
+
+        assert!(table_exists(&conn, "telemetry_prefs").unwrap());
+
+        // No row is seeded; consent defaults to false until the user enables it.
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM telemetry_prefs", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 0);
+
+        // When a row is inserted without specifying enabled, DEFAULT 0 applies.
+        conn.execute(
+            "INSERT INTO telemetry_prefs (id, enabled) VALUES (1, 0)",
+            [],
+        )
+        .unwrap();
+        let enabled: i64 = conn
+            .query_row(
+                "SELECT enabled FROM telemetry_prefs WHERE id = 1",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(enabled, 0);
+    }
+
+    #[test]
+    fn v8_is_idempotent_on_already_migrated_schema() {
+        let conn = v6_schema();
+        migrate_to_v8(&conn).unwrap();
+        migrate_to_v8(&conn).unwrap();
+
+        assert!(table_exists(&conn, "telemetry_prefs").unwrap());
+    }
+
+    #[test]
+    fn v7_then_v8_creates_both_tables() {
+        let conn = v6_schema();
+        migrate_to_v7(&conn).unwrap();
+        migrate_to_v8(&conn).unwrap();
+
+        assert!(table_exists(&conn, "update_prefs").unwrap());
+        assert!(table_exists(&conn, "telemetry_prefs").unwrap());
     }
 }

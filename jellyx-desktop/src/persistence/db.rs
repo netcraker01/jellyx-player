@@ -239,37 +239,19 @@ impl Database {
 
     /// v6 → v7 migration.
     ///
-    /// Adds the `update_prefs` table for the channel-aware updater. The table
-    /// uses a single-row design enforced by `CHECK (id = 1)` so the updater
-    /// prefs are uniquely typed and easy to upsert.
+    /// Delegates the SQL body to [`engine_migrations::migrate_to_v7`].
     fn migrate_to_v7(conn: &Connection) -> Result<(), PersistenceError> {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS update_prefs (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                skipped_version TEXT,
-                remind_later_at TEXT,
-                last_check_at TEXT,
-                detected_channel TEXT
-            );",
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create update_prefs (v7): {}", e))
-        })?;
-        Ok(())
+        engine_migrations::migrate_to_v7(conn)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// v7 → v8 migration. No row is seeded, so consent is false until the
     /// user actively enables it in Settings.
+    ///
+    /// Delegates the SQL body to [`engine_migrations::migrate_to_v8`].
     fn migrate_to_v8(conn: &Connection) -> Result<(), PersistenceError> {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS telemetry_prefs (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                enabled INTEGER NOT NULL DEFAULT 0
-            );",
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create telemetry_prefs (v8): {}", e))
-        })
+        engine_migrations::migrate_to_v8(conn)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     fn migrate_to_v10(conn: &Connection) -> Result<(), PersistenceError> {
