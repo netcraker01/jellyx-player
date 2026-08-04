@@ -11,6 +11,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use jellyx_engine::local_track::LocalTrackRepository;
 use jellyx_engine::migrations as engine_migrations;
 use jellyx_engine::sqlite::{
     column_exists as engine_column_exists, table_exists as engine_table_exists, SqliteHandle,
@@ -29,7 +30,26 @@ use crate::persistence::models::{
     WatchedFolder,
 };
 use crate::updater::prefs::UpdatePrefs;
+use jellyx_core::models::source::Source;
 use jellyx_core::models::track::Track;
+
+/// Fallback for failed JSON deserialization — returns an empty Track.
+fn empty_track() -> Track {
+    Track {
+        id: String::new(),
+        source: Source::Local,
+        source_id: String::new(),
+        title: String::new(),
+        artist: String::new(),
+        album: None,
+        duration: None,
+        thumbnail: None,
+        stream_url: None,
+        local_path: None,
+        playlist_id: None,
+        metadata: std::collections::HashMap::new(),
+    }
+}
 
 /// Current schema version — increment when adding migrations.
 const SCHEMA_VERSION: u32 = 10;
@@ -595,6 +615,10 @@ impl Database {
     }
 
     // ── Local Tracks ──────────────────────────────────────────────────
+    ///
+    /// All local-track CRUD delegates to [`LocalTrackRepository`]
+    /// in the engine so both frontends share a single persistence boundary.
+    /// Desktop handles JSON (de)serialization of `Track` payloads.
 
     /// Insert or update a local track. Uses INSERT OR REPLACE.
     ///
@@ -614,25 +638,17 @@ impl Database {
             PersistenceError::WriteError(format!("failed to serialize track: {}", e))
         })?;
 
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT OR REPLACE INTO local_tracks (file_path, track_json, folder_path, file_modified_at, subfolder_path) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
+        LocalTrackRepository::new(self.conn.clone())
+            .upsert(
                 file_path,
-                track_json,
+                &track_json,
                 folder_path,
                 file_modified_at,
-                subfolder_path
-            ],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to upsert local track: {}", e))
-        })?;
-
-        Ok(())
+                subfolder_path,
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to upsert local track: {}", e))
+            })
     }
 
     /// Get all local tracks (for recommendation inventory).
@@ -645,83 +661,23 @@ impl Database {
         &self,
         folder_path: Option<&str>,
     ) -> Result<Vec<LocalTrackEntry>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut entries = Vec::new();
-
-        if let Some(folder) = folder_path {
-            let mut stmt = conn
-                .prepare("SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks WHERE folder_path = ?1 ORDER BY file_path")
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!("failed to prepare local_tracks query: {}", e))
-                })?;
-
-            let rows = stmt
-                .query_map(params![folder], |row| {
-                    let track_json: String = row.get(1)?;
-                    let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            track_json.len(),
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        )
-                    })?;
-                    Ok(LocalTrackEntry {
-                        track,
-                        file_path: row.get(0)?,
-                        folder_path: row.get(2)?,
-                        file_modified_at: row.get(3)?,
-                        subfolder_path: row.get(4)?,
+        LocalTrackRepository::new(self.conn.clone())
+            .get_all(folder_path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to query local_tracks: {}", e))
+            })
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|r| LocalTrackEntry {
+                        track: serde_json::from_str(&r.track_json)
+                            .unwrap_or_else(|_| empty_track()),
+                        file_path: r.file_path,
+                        folder_path: r.folder_path,
+                        file_modified_at: r.file_modified_at,
+                        subfolder_path: r.subfolder_path,
                     })
-                })
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!("failed to query local_tracks: {}", e))
-                })?;
-
-            for r in rows {
-                if let Ok(entry) = r {
-                    entries.push(entry);
-                }
-            }
-        } else {
-            let mut stmt = conn
-                .prepare("SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks ORDER BY file_path")
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!("failed to prepare local_tracks query: {}", e))
-                })?;
-
-            let rows = stmt
-                .query_map([], |row| {
-                    let track_json: String = row.get(1)?;
-                    let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            track_json.len(),
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        )
-                    })?;
-                    Ok(LocalTrackEntry {
-                        track,
-                        file_path: row.get(0)?,
-                        folder_path: row.get(2)?,
-                        file_modified_at: row.get(3)?,
-                        subfolder_path: row.get(4)?,
-                    })
-                })
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!("failed to query local_tracks: {}", e))
-                })?;
-
-            for r in rows {
-                if let Ok(entry) = r {
-                    entries.push(entry);
-                }
-            }
-        }
-
-        Ok(entries)
+                    .collect()
+            })
     }
 
     /// Get a local track by its file path.
@@ -729,34 +685,14 @@ impl Database {
         &self,
         file_path: &str,
     ) -> Result<Option<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let result = conn.query_row(
-            "SELECT track_json FROM local_tracks WHERE file_path = ?1",
-            params![file_path],
-            |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            },
-        );
-
-        match result {
-            Ok(track) => Ok(Some(track)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get local track by path: {}",
-                e
-            ))),
-        }
+        LocalTrackRepository::new(self.conn.clone())
+            .get_by_path(file_path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to get local track by path: {}", e))
+            })
+            .map(|opt| {
+                opt.map(|r| serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()))
+            })
     }
 
     /// Get a full local track inventory entry by its file path.
@@ -764,73 +700,31 @@ impl Database {
         &self,
         file_path: &str,
     ) -> Result<Option<LocalTrackEntry>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let result = conn.query_row(
-            "SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks WHERE file_path = ?1",
-            params![file_path],
-            |row| {
-                let track_json: String = row.get(1)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(LocalTrackEntry {
-                    track,
-                    file_path: row.get(0)?,
-                    folder_path: row.get(2)?,
-                    file_modified_at: row.get(3)?,
-                    subfolder_path: row.get(4)?,
+        LocalTrackRepository::new(self.conn.clone())
+            .get_by_path(file_path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to get local track entry by path: {}",
+                    e
+                ))
+            })
+            .map(|opt| {
+                opt.map(|r| LocalTrackEntry {
+                    track: serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()),
+                    file_path: r.file_path,
+                    folder_path: r.folder_path,
+                    file_modified_at: r.file_modified_at,
+                    subfolder_path: r.subfolder_path,
                 })
-            },
-        );
-
-        match result {
-            Ok(entry) => Ok(Some(entry)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get local track entry by path: {}",
-                e
-            ))),
-        }
+            })
     }
 
     /// Get a local track by its Jellyx track ID stored in the serialized payload.
     pub fn get_local_track_by_id(&self, track_id: &str) -> Result<Option<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let pattern = format!("%\"id\":\"{}\"%", track_id);
-        let result = conn.query_row(
-            "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 LIMIT 1",
-            params![pattern],
-            |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            },
-        );
-
-        match result {
-            Ok(track) => Ok(Some(track)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get local track by id: {}",
-                e
-            ))),
-        }
+        // The engine doesn't have a direct "by ID" query; we use search with pattern.
+        // For now, delegate to search_local_tracks with a pattern.
+        self.search_local_tracks(&format!("\"id\":\"{}\"", track_id))
+            .map(|tracks| tracks.into_iter().next())
     }
 
     /// Delete all local tracks for a given folder path.
@@ -838,121 +732,58 @@ impl Database {
         &self,
         folder_path: &str,
     ) -> Result<u64, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute(
-                "DELETE FROM local_tracks WHERE folder_path = ?1",
-                params![folder_path],
-            )
+        LocalTrackRepository::new(self.conn.clone())
+            .delete_by_folder(folder_path)
+            .map(|rows| rows as u64)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!(
                     "failed to delete local tracks by folder: {}",
                     e
                 ))
-            })?;
-
-        Ok(rows as u64)
+            })
     }
 
     /// Delete a single local track by file path.
     pub fn delete_local_track_by_path(&self, file_path: &str) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute(
-                "DELETE FROM local_tracks WHERE file_path = ?1",
-                params![file_path],
-            )
+        LocalTrackRepository::new(self.conn.clone())
+            .delete_by_path(file_path)
+            .map(|rows| rows > 0)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!(
                     "failed to delete local track by path: {}",
                     e
                 ))
-            })?;
-
-        Ok(rows > 0)
+            })
     }
 
     /// Search local tracks by a text query (matches title, artist, album).
     pub fn search_local_tracks(&self, query: &str) -> Result<Vec<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let pattern = format!("%{}%", query);
-        let mut stmt = conn
-            .prepare(
-                "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 ORDER BY file_path",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to prepare search query: {}", e))
-            })?;
-
-        let entries = stmt
-            .query_map(params![pattern], |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            })
+        LocalTrackRepository::new(self.conn.clone())
+            .search(query)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to search local tracks: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
+            })
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|r| serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()))
+                    .collect()
+            })
     }
 
     // ── Search / Detail Queries ────────────────────────────────────────
 
     /// Get all local tracks for a specific artist, ordered by file path.
     pub fn get_local_tracks_by_artist(&self, artist: &str) -> Result<Vec<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let pattern = format!("%\"artist\":\"{}\"%", artist);
-        let mut stmt = conn
-            .prepare(
-                "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 ORDER BY file_path",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare artist tracks query: {}",
-                    e
-                ))
-            })?;
-
-        let tracks = stmt
-            .query_map(params![pattern], |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            })
+        LocalTrackRepository::new(self.conn.clone())
+            .get_by_artist(artist)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to query artist tracks: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(tracks)
+            })
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|r| serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()))
+                    .collect()
+            })
     }
 
     /// Get all local tracks for a specific album (title + artist), ordered by file path.
@@ -961,45 +792,23 @@ impl Database {
         title: &str,
         artist: &str,
     ) -> Result<Vec<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        // Match album and artist JSON substrings. This is intentionally simple
-        // to avoid schema changes; SQLite JSON1 is available in bundled builds.
-        let album_pattern = format!("%\"album\":\"{}\"%", title);
-        let artist_pattern = format!("%\"artist\":\"{}\"%", artist);
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 AND track_json LIKE ?2 ORDER BY file_path",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare album tracks query: {}",
-                    e
-                ))
-            })?;
-
-        let tracks = stmt
-            .query_map(params![album_pattern, artist_pattern], |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            })
+        // Engine doesn't have a combined album+artist query; use album then filter by artist.
+        // Fall back to album query then client-side filter.
+        LocalTrackRepository::new(self.conn.clone())
+            .get_by_album(title)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to query album tracks: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(tracks)
+            })
+            .map(|rows| {
+                rows.into_iter()
+                    .filter(|r| {
+                        serde_json::from_str::<serde_json::Value>(&r.track_json)
+                            .map(|v| v.get("artist").and_then(|a| a.as_str()) == Some(artist))
+                            .unwrap_or(false)
+                    })
+                    .map(|r| serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()))
+                    .collect()
+            })
     }
 
     /// Count how many times each track ID appears in play history.
