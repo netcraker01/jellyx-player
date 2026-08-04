@@ -275,3 +275,104 @@ fn open_with_recovery_does_not_quarantine_ordinary_open_failure() {
     assert!(quarantine_dirs(&path).is_empty());
     std::fs::remove_dir(&path).unwrap();
 }
+
+#[test]
+fn initialize_schema_creates_all_canonical_tables_and_indexes() {
+    use jellyx_engine::sqlite::SqliteHandle;
+
+    let handle = SqliteHandle::open_in_memory().unwrap();
+    handle.initialize_schema().unwrap();
+
+    let conn = handle.lock().unwrap();
+    let tables: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    for required in [
+        "history",
+        "watched_folders",
+        "local_tracks",
+        "user_playlists",
+        "playlist_tracks",
+        "artist_favorites",
+        "source_settings",
+        "audio_settings",
+        "_meta",
+        "update_prefs",
+        "telemetry_prefs",
+    ] {
+        assert!(
+            tables.contains(&required.to_string()),
+            "missing table {required}"
+        );
+    }
+
+    let indexes: Vec<String> = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'idx_%' ORDER BY name")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .filter_map(Result::ok)
+        .collect();
+    for required in [
+        "idx_history_played_at",
+        "idx_local_tracks_folder",
+        "idx_local_tracks_title",
+        "idx_playlist_tracks_playlist",
+    ] {
+        assert!(
+            indexes.contains(&required.to_string()),
+            "missing index {required}"
+        );
+    }
+}
+
+#[test]
+fn initialize_schema_seeds_schema_version_zero_for_fresh_database() {
+    use jellyx_engine::sqlite::SqliteHandle;
+
+    let handle = SqliteHandle::open_in_memory().unwrap();
+    handle.initialize_schema().unwrap();
+
+    let conn = handle.lock().unwrap();
+    let version: String = conn
+        .query_row(
+            "SELECT value FROM _meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(version, "0");
+}
+
+#[test]
+fn initialize_schema_is_idempotent_and_preserves_existing_schema_version() {
+    use jellyx_engine::sqlite::SqliteHandle;
+
+    let handle = SqliteHandle::open_in_memory().unwrap();
+    handle.initialize_schema().unwrap();
+    {
+        let conn = handle.lock().unwrap();
+        conn.execute(
+            "UPDATE _meta SET value = '7' WHERE key = 'schema_version'",
+            [],
+        )
+        .unwrap();
+    }
+    handle.initialize_schema().unwrap();
+    let conn = handle.lock().unwrap();
+    let version: String = conn
+        .query_row(
+            "SELECT value FROM _meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        version, "7",
+        "re-running initialize_schema must not overwrite an existing schema_version"
+    );
+}
