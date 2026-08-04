@@ -7,6 +7,50 @@ use super::*;
 use std::sync::Arc;
 
 #[test]
+fn settings_ipc_shapes_remain_unchanged() {
+    let source = SourceSettingDto {
+        source: "YouTube".into(),
+        enabled: true,
+        label: "YouTube".into(),
+    };
+    let audio = AudioSettingsDto {
+        normalize_audio: true,
+    };
+    let telemetry = crate::persistence::models::TelemetrySettings { enabled: false };
+
+    assert_eq!(
+        serde_json::to_string(&source).unwrap(),
+        r#"{"source":"YouTube","enabled":true,"label":"YouTube"}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&audio).unwrap(),
+        r#"{"normalizeAudio":true}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&telemetry).unwrap(),
+        r#"{"enabled":false}"#
+    );
+}
+
+#[test]
+fn updater_preferences_ipc_shape_remains_unchanged() {
+    let prefs = crate::ipc::dto::UpdaterPrefs {
+        skipped_version: Some("v0.4.4".into()),
+        remind_later_at: Some("2026-08-04T10:00:00Z".into()),
+        ..Default::default()
+    };
+
+    assert_eq!(
+        serde_json::to_string(&prefs).unwrap(),
+        r#"{"skippedVersion":"v0.4.4","remindLaterAt":"2026-08-04T10:00:00Z"}"#
+    );
+    assert_eq!(
+        serde_json::to_string(&crate::ipc::dto::UpdaterPrefs::default()).unwrap(),
+        "{}"
+    );
+}
+
+#[test]
 fn focus_command_errors_are_stable_and_redacted() {
     let stale = focus_error(FocusServiceError::Persistence(
         "stale focus revision; sqlite at /private/path".into(),
