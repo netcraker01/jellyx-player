@@ -14,80 +14,35 @@
 
 use std::sync::Arc;
 
-use serde::{Deserialize, Serialize};
+use jellyx_engine::updater::{RepositoryError, UpdatePreferencesRepository};
 
 use crate::errors::types::PersistenceError;
-use crate::persistence::db::Database;
 use crate::updater::channel::InstallChannel;
 
-/// Persisted updater state.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdatePrefs {
-    /// Version the user dismissed with "Skip this version".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub skipped_version: Option<String>,
-    /// ISO-8601 timestamp; the modal is suppressed until this time passes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub remind_later_at: Option<String>,
-    /// ISO-8601 timestamp of the last successful update check.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub last_check_at: Option<String>,
-    /// Canonical install channel detected at startup.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub detected_channel: Option<String>,
-}
+pub use jellyx_engine::updater::UpdatePrefs;
 
-impl UpdatePrefs {
-    /// Returns true when `latest_version` matches the persisted skipped version.
-    pub fn is_skipped(&self, latest_version: &str) -> bool {
-        match &self.skipped_version {
-            Some(v) => same_version(v, latest_version),
-            None => false,
-        }
-    }
-
-    /// Returns true when the remind-later timestamp is still in the future
-    /// relative to `now_iso`.
-    pub fn is_reminded_later(&self, now_iso: &str) -> bool {
-        match &self.remind_later_at {
-            Some(ts) => ts.as_bytes() > now_iso.as_bytes(),
-            None => false,
-        }
-    }
-}
-
-/// Loose equality for versions: strips a leading `v` and compares case-insensitive.
-/// Used for skip-version matching where the stored value may be `v0.2.3` and the
-/// latest release tag may be `0.2.3` (or vice versa).
-fn same_version(a: &str, b: &str) -> bool {
-    let na = a.trim().trim_start_matches('v').trim().to_lowercase();
-    let nb = b.trim().trim_start_matches('v').trim().to_lowercase();
-    na == nb
-}
-
-/// Thin wrapper over `Database` updater-prefs helpers.
-///
-/// Lives in the updater module (not in `persistence::db`) because the SQL is
-/// updater-specific and the codebase groups domain logic by feature. The
-/// underlying `Database` owns the connection and the `update_prefs` schema.
+/// Updater preference use cases over the platform-neutral repository port.
 pub struct UpdatePrefsService {
-    db: Arc<Database>,
+    repository: Arc<dyn UpdatePreferencesRepository>,
 }
 
 impl UpdatePrefsService {
-    pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+    pub fn new(repository: Arc<dyn UpdatePreferencesRepository>) -> Self {
+        Self { repository }
     }
 
     /// Read the current updater prefs. Missing fields default to `None`.
     pub fn get(&self) -> Result<UpdatePrefs, PersistenceError> {
-        self.db.get_update_prefs()
+        self.repository
+            .update_preferences()
+            .map_err(repository_error)
     }
 
     /// Persist the full prefs row (insert or replace).
     pub fn save(&self, prefs: &UpdatePrefs) -> Result<(), PersistenceError> {
-        self.db.save_update_prefs(prefs)
+        self.repository
+            .save_update_preferences(prefs)
+            .map_err(repository_error)
     }
 
     /// Set the skipped version and return the updated prefs.
@@ -123,6 +78,12 @@ impl UpdatePrefsService {
         prefs.detected_channel = Some(channel.as_str().to_string());
         self.save(&prefs)?;
         Ok(prefs)
+    }
+}
+
+fn repository_error(error: RepositoryError) -> PersistenceError {
+    match error {
+        RepositoryError::Storage(message) => PersistenceError::DatabaseError(message),
     }
 }
 
@@ -181,6 +142,44 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    use jellyx_engine::updater::{RepositoryError, UpdatePreferencesRepository};
+
+    use crate::persistence::db::Database;
+
+    #[derive(Default)]
+    struct FakeUpdatePreferencesRepository(Mutex<UpdatePrefs>);
+
+    impl UpdatePreferencesRepository for FakeUpdatePreferencesRepository {
+        fn update_preferences(&self) -> Result<UpdatePrefs, RepositoryError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+
+        fn save_update_preferences(&self, prefs: &UpdatePrefs) -> Result<(), RepositoryError> {
+            *self.0.lock().unwrap() = prefs.clone();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn prefs_service_uses_repository_without_database() {
+        let repository = Arc::new(FakeUpdatePreferencesRepository::default());
+        let service = UpdatePrefsService::new(repository.clone());
+
+        service.set_skipped_version("v0.4.4").unwrap();
+        let prefs = service.set_remind_later("2026-08-04T10:00:00Z").unwrap();
+
+        assert_eq!(prefs.skipped_version.as_deref(), Some("v0.4.4"));
+        assert_eq!(
+            repository.update_preferences().unwrap(),
+            UpdatePrefs {
+                skipped_version: Some("v0.4.4".into()),
+                remind_later_at: Some("2026-08-04T10:00:00Z".into()),
+                ..UpdatePrefs::default()
+            }
+        );
+    }
 
     #[test]
     fn is_skipped_matches_with_or_without_v_prefix() {
