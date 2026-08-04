@@ -7,6 +7,14 @@ use std::time::Duration;
 use rusqlite::{Connection, OpenFlags, TransactionBehavior, params};
 
 use crate::migration_lock::MigrationLock;
+use crate::migrations::{migrate_to_v6, migrate_to_v7, migrate_to_v8, migrate_to_v10};
+
+/// Schema version constants.
+const SCHEMA_VERSION: u32 = 10;
+const SCHEMA_VERSION_V6: u32 = 6;
+const SCHEMA_VERSION_V7: u32 = 7;
+const SCHEMA_VERSION_V8: u32 = 8;
+const SCHEMA_VERSION_V10: u32 = 10;
 
 /// Cloneable synchronization boundary around one SQLite connection.
 #[derive(Clone)]
@@ -459,6 +467,114 @@ impl SqliteHandle {
             )
             .map_err(E::from)?;
         transaction.commit().map_err(E::from)
+    }
+
+    /// Run the full migration pipeline from current `schema_version` to
+    /// `SCHEMA_VERSION`.
+    ///
+    /// Engine-owned equivalent of the desktop `Database::migrate` dispatch.
+    /// Reads `schema_version` from `_meta`, checks each version's table/column
+    /// prerequisites, and runs the corresponding migration step in order.
+    /// Each step is a no-op if the target schema is already present.
+    pub fn run_migrations(&self) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().map_err(|_| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_INTERNAL),
+                Some("sqlite connection lock poisoned".to_string()),
+            )
+        })?;
+
+        let current: u32 = conn
+            .query_row(
+                "SELECT value FROM _meta WHERE key = 'schema_version'",
+                [],
+                |row| {
+                    let v: String = row.get(0)?;
+                    v.parse::<u32>().map_err(|_| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            0,
+                            rusqlite::types::Type::Text,
+                            "invalid schema_version".into(),
+                        )
+                    })
+                },
+            )
+            .unwrap_or(0);
+
+        if current >= SCHEMA_VERSION {
+            return Ok(());
+        }
+
+        let needs_v6 = current < SCHEMA_VERSION_V6
+            || !column_exists(&conn, "local_tracks", "subfolder_path")?
+            || !column_exists(&conn, "user_playlists", "kind")?
+            || !column_exists(&conn, "user_playlists", "source_folder_path")?
+            || !column_exists(&conn, "user_playlists", "parent_playlist_id")?
+            || !column_exists(&conn, "artist_favorites", "source")?
+            || !column_exists(&conn, "artist_favorites", "source_artist_ref")?;
+
+        let needs_v7 = current < SCHEMA_VERSION_V7 || !table_exists(&conn, "update_prefs")?;
+        let needs_v8 = current < SCHEMA_VERSION_V8 || !table_exists(&conn, "telemetry_prefs")?;
+        let needs_v10 = current < SCHEMA_VERSION_V10
+            || !table_exists(&conn, "focus_sessions")?
+            || !table_exists(&conn, "focus_captures")?
+            || !table_exists(&conn, "focus_preferences")?
+            || !table_exists(&conn, "focus_operations")?
+            || !column_exists(&conn, "focus_sessions", "goal")?
+            || !column_exists(&conn, "focus_sessions", "first_action")?;
+
+        drop(conn);
+
+        if needs_v6 {
+            self.run_migration_step::<SqliteMigrationError>(SCHEMA_VERSION_V6, |tx| {
+                migrate_to_v6(tx).map_err(SqliteMigrationError)
+            })?;
+        }
+        if needs_v7 {
+            self.run_migration_step::<SqliteMigrationError>(SCHEMA_VERSION_V7, |tx| {
+                migrate_to_v7(tx).map_err(SqliteMigrationError)
+            })?;
+        }
+        if needs_v8 {
+            self.run_migration_step::<SqliteMigrationError>(SCHEMA_VERSION_V8, |tx| {
+                migrate_to_v8(tx).map_err(SqliteMigrationError)
+            })?;
+        }
+        if needs_v10 {
+            self.run_migration_step::<SqliteMigrationError>(SCHEMA_VERSION_V10, |tx| {
+                migrate_to_v10(tx).map_err(SqliteMigrationError)
+            })?;
+        }
+
+        Ok(())
+    }
+}
+
+/// Error from running a migration body that wraps the engine's
+/// context-carrying [`crate::migrations::MigrationError`].
+#[derive(Debug)]
+pub struct SqliteMigrationError(pub crate::migrations::MigrationError);
+
+impl From<rusqlite::Error> for SqliteMigrationError {
+    fn from(source: rusqlite::Error) -> Self {
+        SqliteMigrationError(crate::migrations::MigrationError::from(source))
+    }
+}
+
+impl std::fmt::Display for SqliteMigrationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for SqliteMigrationError {}
+
+impl From<SqliteMigrationError> for rusqlite::Error {
+    fn from(e: SqliteMigrationError) -> Self {
+        rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_MISUSE),
+            Some(e.0.to_string()),
+        )
     }
 }
 
