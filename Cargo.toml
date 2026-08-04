@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["jellyx-desktop", "jellyx-core", "jellyx-cli", "jellyx-ffi"]
+members = ["jellyx-desktop", "jellyx-core", "jellyx-cli", "jellyx-ffi", "jellyx-engine"]
 
 [workspace.package]
 version = "0.4.3"
