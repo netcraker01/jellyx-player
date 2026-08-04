@@ -11,4 +11,4 @@ pub mod preferences;
 pub mod sqlite;
 pub mod updater;
 
-pub use sqlite::SqliteIntegrityClassification;
+pub use sqlite::{SqliteIntegrityClassification, SqliteRecoveryError};

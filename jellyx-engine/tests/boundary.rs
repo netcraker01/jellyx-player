@@ -193,3 +193,85 @@ fn sqlite_quick_check_classifies_corrupt_database_as_corrupt() {
     let _ = std::fs::remove_file(format!("{}-wal", path.display()));
     let _ = std::fs::remove_file(format!("{}-shm", path.display()));
 }
+
+fn recovery_path(label: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "jellyx-engine-{label}-{}-{:?}.db",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ))
+}
+
+fn quarantine_dirs(path: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let prefix = format!(
+        "{}.quarantine.",
+        path.file_name().unwrap().to_string_lossy()
+    );
+    std::fs::read_dir(path.parent().unwrap())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+        .map(|e| e.path())
+        .collect()
+}
+
+fn cleanup_recovery(path: &std::path::Path) {
+    let _ = std::fs::remove_file(path);
+    for dir in quarantine_dirs(path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[test]
+fn open_with_recovery_quarantines_corrupt_database_and_preserves_sidecars() {
+    use jellyx_engine::sqlite::SqliteHandle;
+    use std::time::Duration;
+
+    let path = recovery_path("corrupt-recovery");
+    std::fs::write(&path, b"not a sqlite database").unwrap();
+    std::fs::write(format!("{}-wal", path.display()), b"wal evidence").unwrap();
+    std::fs::write(format!("{}-shm", path.display()), b"shm evidence").unwrap();
+
+    let handle = SqliteHandle::open_with_recovery(&path, Duration::from_secs(5), |_| {
+        Ok::<(), std::convert::Infallible>(())
+    })
+    .unwrap();
+    drop(handle);
+
+    let evidence = quarantine_dirs(&path);
+    assert_eq!(evidence.len(), 1);
+    let name = path.file_name().unwrap().to_string_lossy();
+    let dir = &evidence[0];
+    assert_eq!(
+        std::fs::read(dir.join(path.file_name().unwrap())).unwrap(),
+        b"not a sqlite database"
+    );
+    assert_eq!(
+        std::fs::read(dir.join(format!("{name}-wal"))).unwrap(),
+        b"wal evidence"
+    );
+    assert_eq!(
+        std::fs::read(dir.join(format!("{name}-shm"))).unwrap(),
+        b"shm evidence"
+    );
+
+    cleanup_recovery(&path);
+}
+
+#[test]
+fn open_with_recovery_does_not_quarantine_ordinary_open_failure() {
+    use jellyx_engine::sqlite::SqliteHandle;
+    use std::time::Duration;
+
+    let path = recovery_path("ordinary-failure");
+    std::fs::create_dir(&path).unwrap();
+    let result = SqliteHandle::open_with_recovery(&path, Duration::from_secs(5), |_| {
+        Ok::<(), std::convert::Infallible>(())
+    });
+    assert!(result.is_err());
+    assert!(quarantine_dirs(&path).is_empty());
+    std::fs::remove_dir(&path).unwrap();
+}

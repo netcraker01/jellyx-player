@@ -56,6 +56,15 @@ pub enum PersistenceError {
     WriteError(String),
 }
 
+impl std::fmt::Display for PersistenceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DatabaseError(msg) => write!(f, "{msg}"),
+            Self::WriteError(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
 /// Input validation errors.
 #[derive(Debug)]
 pub enum ValidationError {

@@ -8,12 +8,11 @@
 //! internal `RefCell` makes it non-`Sync`. This satisfies Tauri's `Send + Sync`
 //! requirement for `AppState`.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use jellyx_engine::migration_lock::MigrationLock;
-use jellyx_engine::sqlite::{SqliteHandle, SqliteOpenError, SqliteOpenStage};
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
+use jellyx_engine::sqlite::{SqliteHandle, SqliteOpenError, SqliteOpenStage, SqliteRecoveryError};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::errors::types::PersistenceError;
 use crate::focus::models::{
@@ -68,27 +67,15 @@ pub struct Database {
     conn: SqliteHandle,
 }
 
-enum OpenFailure {
-    Corrupt(String),
-    Other(PersistenceError),
-}
-
-impl OpenFailure {
-    fn into_error(self) -> PersistenceError {
-        match self {
-            Self::Corrupt(message) => PersistenceError::DatabaseError(message),
-            Self::Other(error) => error,
-        }
-    }
-}
-
 impl Database {
     /// Open (or create) the database at the given path.
     ///
-    /// Creates parent directories if needed. Initializes schema on first run.
-    /// Enables WAL mode for concurrent read support.
+    /// Creates parent directories if needed, then delegates to
+    /// [`SqliteHandle::open_with_recovery`] which acquires the migration
+    /// lock, runs integrity classification, quarantines corrupt databases,
+    /// and opens exactly one replacement. Schema initialization and
+    /// migrations run inside the engine's lock-held init closure.
     pub fn open(path: &Path) -> Result<Self, PersistenceError> {
-        // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 PersistenceError::DatabaseError(format!(
@@ -98,54 +85,17 @@ impl Database {
             })?;
         }
 
-        let _migration_lock =
-            MigrationLock::acquire(path, Duration::from_secs(5)).map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to acquire migration lock: {e}"))
-            })?;
+        let conn = SqliteHandle::open_with_recovery(path, Duration::from_secs(5), |handle| {
+            let db = Self {
+                conn: handle.clone(),
+            };
+            db.initialize_schema()?;
+            db.run_migrations()?;
+            Ok::<(), PersistenceError>(())
+        })
+        .map_err(map_recovery_error)?;
 
-        match Self::open_once(path) {
-            Ok(database) => Ok(database),
-            Err(OpenFailure::Corrupt(_)) => Self::recover(path, Self::open_once),
-            Err(error) => Err(error.into_error()),
-        }
-    }
-
-    fn open_once(path: &Path) -> Result<Self, OpenFailure> {
-        if path.exists() {
-            let encoded = percent_encoding::percent_encode(
-                path.as_os_str().as_encoded_bytes(),
-                percent_encoding::NON_ALPHANUMERIC,
-            );
-            let uri = format!("file:{encoded}?immutable=1");
-            let check_conn = Connection::open_with_flags(
-                uri,
-                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-            )
-            .map_err(|error| classify_sqlite("open database for integrity check", error))?;
-            let check = check_conn
-                .query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0))
-                .map_err(|error| classify_sqlite("check database integrity", error))?;
-            if check != "ok" {
-                return Err(OpenFailure::Corrupt(format!(
-                    "database integrity check failed: {check}"
-                )));
-            }
-        }
-
-        let db = Self {
-            conn: SqliteHandle::open_file(path).map_err(map_file_open_error)?,
-        };
-        db.initialize_schema().map_err(OpenFailure::Other)?;
-        db.run_migrations().map_err(OpenFailure::Other)?;
-        Ok(db)
-    }
-
-    fn recover<F>(path: &Path, replacement: F) -> Result<Self, PersistenceError>
-    where
-        F: FnOnce(&Path) -> Result<Self, OpenFailure>,
-    {
-        quarantine_database(path)?;
-        replacement(path).map_err(OpenFailure::into_error)
+        Ok(Self { conn })
     }
 
     /// Open an in-memory database for testing.
@@ -2594,26 +2544,8 @@ fn database_error(error: rusqlite::Error) -> PersistenceError {
     PersistenceError::DatabaseError(error.to_string())
 }
 
-fn classify_sqlite(context: &str, error: rusqlite::Error) -> OpenFailure {
-    let message = format!("failed to {context}: {error}");
-    match error.sqlite_error_code() {
-        Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase) => {
-            OpenFailure::Corrupt(message)
-        }
-        _ => OpenFailure::Other(PersistenceError::DatabaseError(message)),
-    }
-}
-
-fn map_file_open_error(error: SqliteOpenError) -> OpenFailure {
-    let stage = error.stage();
-    let source = error.into_source();
-    match stage {
-        SqliteOpenStage::Open => classify_sqlite("open database", source),
-        SqliteOpenStage::BusyTimeout => OpenFailure::Other(PersistenceError::DatabaseError(
-            format!("failed to set database busy timeout: {source}"),
-        )),
-        SqliteOpenStage::Configure => classify_sqlite("set WAL mode", source),
-    }
+fn map_recovery_error(error: SqliteRecoveryError) -> PersistenceError {
+    PersistenceError::DatabaseError(error.to_string())
 }
 
 fn map_memory_open_error(error: SqliteOpenError) -> PersistenceError {
@@ -2625,55 +2557,6 @@ fn map_memory_open_error(error: SqliteOpenError) -> PersistenceError {
         SqliteOpenStage::Configure => "failed to enable foreign keys",
     };
     PersistenceError::DatabaseError(format!("{context}: {source}"))
-}
-
-fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {
-    let mut value = path.as_os_str().to_owned();
-    value.push(suffix);
-    value.into()
-}
-
-fn quarantine_database(path: &Path) -> Result<PathBuf, PersistenceError> {
-    let file_name = path
-        .file_name()
-        .ok_or_else(|| PersistenceError::DatabaseError("database path has no file name".into()))?;
-    let mut quarantine_name = file_name.to_owned();
-    quarantine_name.push(format!(".quarantine.{}", uuid::Uuid::new_v4()));
-    let quarantine = path.with_file_name(quarantine_name);
-    std::fs::create_dir(&quarantine).map_err(|error| {
-        PersistenceError::DatabaseError(format!(
-            "failed to create database quarantine {:?}: {error}",
-            quarantine
-        ))
-    })?;
-
-    for (source, required) in [
-        (sidecar_path(path, "-wal"), false),
-        (sidecar_path(path, "-shm"), false),
-        (path.into(), true),
-    ] {
-        match std::fs::symlink_metadata(&source) {
-            Ok(_) => {
-                let target = quarantine.join(source.file_name().ok_or_else(|| {
-                    PersistenceError::DatabaseError("quarantine source has no file name".into())
-                })?);
-                std::fs::rename(&source, &target).map_err(|error| {
-                    PersistenceError::DatabaseError(format!(
-                        "failed to preserve database evidence {:?}: {error}",
-                        source
-                    ))
-                })?;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound && !required => {}
-            Err(error) => {
-                return Err(PersistenceError::DatabaseError(format!(
-                    "failed to inspect database evidence {:?}: {error}",
-                    source
-                )))
-            }
-        }
-    }
-    Ok(quarantine)
 }
 
 fn serialization_error(error: serde_json::Error) -> PersistenceError {
@@ -2822,6 +2705,12 @@ mod tests {
             .collect()
     }
 
+    fn sidecar_path(path: &Path, suffix: &str) -> std::path::PathBuf {
+        let mut value = path.as_os_str().to_owned();
+        value.push(suffix);
+        value.into()
+    }
+
     fn sample_track(id: &str) -> Track {
         Track {
             id: id.to_string(),
@@ -2930,20 +2819,6 @@ mod tests {
         assert!(result.is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"not a sqlite database");
         assert!(quarantines(&path).is_empty());
-    }
-
-    #[test]
-    fn failed_replacement_is_attempted_once_without_recovery_recursion() {
-        let path = recovery_path("single-replacement");
-        corrupt(&path);
-        let mut attempts = 0;
-        let result = Database::recover(&path, |_| {
-            attempts += 1;
-            Err(OpenFailure::Corrupt("replacement corrupt".into()))
-        });
-        assert!(result.is_err());
-        assert_eq!(attempts, 1);
-        assert_eq!(quarantines(&path).len(), 1);
     }
 
     #[test]

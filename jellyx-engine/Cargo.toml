@@ -11,11 +11,14 @@ path = "src/lib.rs"
 
 [dependencies]
 fs4 = "1.1"
+percent-encoding = "2"
 rusqlite = { workspace = true }
 serde = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }

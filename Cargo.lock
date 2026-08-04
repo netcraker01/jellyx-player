@@ -2493,10 +2493,12 @@ name = "jellyx-engine"
 version = "0.4.3"
 dependencies = [
  "fs4",
+ "percent-encoding",
  "rusqlite",
  "rustix",
  "serde",
  "serde_json",
+ "uuid",
 ]
 
 [[package]]
