@@ -10,3 +10,5 @@ pub mod migration_lock;
 pub mod preferences;
 pub mod sqlite;
 pub mod updater;
+
+pub use sqlite::SqliteIntegrityClassification;

@@ -19,6 +19,13 @@ pub enum SqliteOpenStage {
     Configure,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SqliteIntegrityClassification {
+    Valid,
+    Corrupt,
+    NotADatabase,
+}
+
 #[derive(Debug)]
 pub struct SqliteOpenError {
     stage: SqliteOpenStage,
@@ -95,5 +102,32 @@ impl SqliteHandle {
                 source,
             })?;
         Ok(Self::new(conn))
+    }
+
+    /// Immutable, read-only integrity classification.
+    ///
+    /// Runs `PRAGMA quick_check` and inspects the returned string. "ok"
+    /// classifies as `Valid`; any other non-empty result is `Corrupt`. A
+    /// `NotADatabase` error from the PRAGMA is classified as `NotADatabase`.
+    pub fn quick_check(&self) -> Result<SqliteIntegrityClassification, rusqlite::Error> {
+        let conn = self.conn.lock().map_err(|_| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_INTERNAL),
+                Some("sqlite connection lock poisoned".to_string()),
+            )
+        })?;
+        match conn.query_row("PRAGMA quick_check", [], |row| row.get::<_, String>(0)) {
+            Ok(result) => Ok(if result == "ok" {
+                SqliteIntegrityClassification::Valid
+            } else {
+                SqliteIntegrityClassification::Corrupt
+            }),
+            Err(rusqlite::Error::SqliteFailure(failure, _))
+                if failure.code == rusqlite::ErrorCode::NotADatabase =>
+            {
+                Ok(SqliteIntegrityClassification::NotADatabase)
+            }
+            Err(source) => Err(source),
+        }
     }
 }
