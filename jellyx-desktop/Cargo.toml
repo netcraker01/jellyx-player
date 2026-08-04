@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 jellyx-core = { path = "../jellyx-core" }
+jellyx-engine = { path = "../jellyx-engine" }
 tauri = { version = "2", features = ["devtools", "protocol-asset", "test"] }
 tauri-plugin-shell = "2"
 serde = { workspace = true }
