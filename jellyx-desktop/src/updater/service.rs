@@ -14,6 +14,8 @@
 
 use std::sync::Arc;
 
+use jellyx_engine::updater::UpdatePreferencesRepository;
+
 use crate::errors::types::PersistenceError;
 use crate::updater::channel::{install_channel, InstallChannel};
 use crate::updater::checker::{build_update_info, is_newer, should_show, UpdateInfo};
@@ -32,15 +34,15 @@ pub struct UpdateService {
 }
 
 impl UpdateService {
-    /// Construct a new service bound to the given database.
+    /// Construct a new service bound to persisted updater preferences.
     pub fn new(
-        db: Arc<crate::persistence::db::Database>,
+        repository: Arc<dyn UpdatePreferencesRepository>,
         exe_path: Option<&std::path::Path>,
         current_version: &str,
         http_client: reqwest::Client,
     ) -> Self {
         let channel = install_channel(exe_path);
-        let prefs = UpdatePrefsService::new(db);
+        let prefs = UpdatePrefsService::new(repository);
         Self {
             prefs,
             channel,
