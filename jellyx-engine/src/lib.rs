@@ -11,5 +11,6 @@ pub mod migrations;
 pub mod preferences;
 pub mod sqlite;
 pub mod updater;
+pub mod watched_folder;
 
 pub use sqlite::{SqliteIntegrityClassification, SqliteRecoveryError};

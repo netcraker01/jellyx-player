@@ -16,6 +16,7 @@ use jellyx_engine::sqlite::{
     column_exists as engine_column_exists, table_exists as engine_table_exists, SqliteHandle,
     SqliteOpenError, SqliteOpenStage, SqliteRecoveryError,
 };
+use jellyx_engine::watched_folder::WatchedFolderRepository;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::errors::types::PersistenceError;
@@ -254,80 +255,12 @@ impl Database {
             .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
+    /// v8 → v10 migration.
+    ///
+    /// Delegates the SQL body to [`engine_migrations::migrate_to_v10`].
     fn migrate_to_v10(conn: &Connection) -> Result<(), PersistenceError> {
-        conn
-            .execute_batch(
-                "CREATE TABLE IF NOT EXISTS focus_sessions (
-                    id TEXT PRIMARY KEY,
-                    intention TEXT NOT NULL CHECK (length(trim(intention)) > 0),
-                    goal TEXT NOT NULL DEFAULT '',
-                    first_action TEXT NOT NULL DEFAULT '',
-                    workflow TEXT NOT NULL CHECK (workflow IN ('pomodoro', 'deepWork', 'quickFocus', 'custom')),
-                    work_duration_ms INTEGER NOT NULL CHECK (work_duration_ms > 0),
-                    break_duration_ms INTEGER NOT NULL CHECK (break_duration_ms >= 0),
-                    rounds INTEGER NOT NULL CHECK (rounds > 0),
-                    round INTEGER NOT NULL CHECK (round > 0 AND round <= rounds),
-                    phase TEXT NOT NULL CHECK (phase IN ('work', 'break')),
-                    state TEXT NOT NULL CHECK (state IN ('draft', 'runningWork', 'pausedWork', 'awaitingTransition', 'runningBreak', 'pausedBreak', 'completed', 'discarded')),
-                    phase_started_at INTEGER,
-                    phase_deadline_at INTEGER,
-                    paused_remaining_ms INTEGER CHECK (paused_remaining_ms IS NULL OR paused_remaining_ms >= 0),
-                    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
-                    music_strategy TEXT NOT NULL CHECK (music_strategy IN ('none', 'continueCurrent', 'preset', 'query')),
-                    music_value TEXT,
-                    degradation_reason TEXT,
-                    outcome TEXT CHECK (outcome IS NULL OR outcome IN ('completed', 'discarded')),
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    completed_at INTEGER
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_sessions_one_nonterminal
-                    ON focus_sessions((1)) WHERE state NOT IN ('completed', 'discarded');
-                CREATE TABLE IF NOT EXISTS focus_captures (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL REFERENCES focus_sessions(id) ON DELETE CASCADE,
-                    kind TEXT NOT NULL CHECK (kind IN ('note', 'distraction')),
-                    body TEXT NOT NULL CHECK (length(trim(body)) > 0),
-                    created_at INTEGER NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_focus_captures_session_created
-                    ON focus_captures(session_id, created_at, id);
-                CREATE TABLE IF NOT EXISTS focus_preferences (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    default_workflow TEXT NOT NULL DEFAULT 'pomodoro' CHECK (default_workflow IN ('pomodoro', 'deepWork', 'quickFocus', 'custom')),
-                    default_work_duration_ms INTEGER NOT NULL DEFAULT 1500000 CHECK (default_work_duration_ms > 0),
-                    default_break_duration_ms INTEGER NOT NULL DEFAULT 300000 CHECK (default_break_duration_ms >= 0),
-                    default_rounds INTEGER NOT NULL DEFAULT 4 CHECK (default_rounds > 0),
-                    default_music_strategy TEXT NOT NULL DEFAULT 'none' CHECK (default_music_strategy IN ('none', 'continueCurrent', 'preset', 'query')),
-                    default_music_value TEXT,
-                    updated_at INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS focus_operations (
-                    operation_id TEXT PRIMARY KEY,
-                    session_id TEXT REFERENCES focus_sessions(id) ON DELETE SET NULL,
-                    request_id TEXT NOT NULL UNIQUE,
-                    operation_kind TEXT NOT NULL,
-                    result_json TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
-                );",
-            )
-            .map_err(database_error)?;
-
-        if !Self::column_exists(conn, "focus_sessions", "goal") {
-            conn.execute(
-                "ALTER TABLE focus_sessions ADD COLUMN goal TEXT NOT NULL DEFAULT ''",
-                [],
-            )
-            .map_err(database_error)?;
-        }
-        if !Self::column_exists(conn, "focus_sessions", "first_action") {
-            conn.execute(
-                "ALTER TABLE focus_sessions ADD COLUMN first_action TEXT NOT NULL DEFAULT ''",
-                [],
-            )
-            .map_err(database_error)?;
-        }
-        Ok(())
+        engine_migrations::migrate_to_v10(conn)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     // ── Update Prefs ──────────────────────────────────────────────────
@@ -593,93 +526,72 @@ impl Database {
     }
 
     // ── Watched Folders ────────────────────────────────────────────────
+    ///
+    /// All watched-folder CRUD delegates to [`WatchedFolderRepository`]
+    /// in the engine so both frontends share a single persistence boundary.
 
     /// Insert a watched folder. Returns error if path already exists.
     pub fn insert_watched_folder(&self, path: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT INTO watched_folders (path) VALUES (?1)",
-            params![path],
-        )
-        .map_err(|e| {
-            if e.to_string().contains("UNIQUE constraint") {
-                PersistenceError::DatabaseError(format!("folder already watched: {}", path))
-            } else {
-                PersistenceError::DatabaseError(format!("failed to insert watched folder: {}", e))
-            }
-        })?;
-
-        Ok(())
+        WatchedFolderRepository::new(self.conn.clone())
+            .add(path)
+            .map_err(|e| {
+                if e.to_string().contains("UNIQUE constraint") {
+                    PersistenceError::DatabaseError(format!("folder already watched: {}", path))
+                } else {
+                    PersistenceError::DatabaseError(format!(
+                        "failed to insert watched folder: {}",
+                        e
+                    ))
+                }
+            })
     }
 
     /// Get all watched folders.
     pub fn get_watched_folders(&self) -> Result<Vec<WatchedFolder>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT path, last_scanned_at, added_at FROM watched_folders ORDER BY added_at ASC",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare watched_folders query: {}",
-                    e
-                ))
-            })?;
-
-        let entries = stmt
-            .query_map([], |row| {
-                Ok(WatchedFolder {
-                    path: row.get(0)?,
-                    last_scanned_at: row.get(1)?,
-                    added_at: row.get(2)?,
-                })
-            })
+        WatchedFolderRepository::new(self.conn.clone())
+            .all()
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to query watched_folders: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
+            })
+            .map(|folders| {
+                folders
+                    .into_iter()
+                    .map(|wf| WatchedFolder {
+                        path: wf.path,
+                        last_scanned_at: wf.last_scanned_at,
+                        added_at: wf.added_at,
+                    })
+                    .collect()
+            })
     }
 
     /// Remove a watched folder. CASCADE deletes associated local_tracks.
     /// Returns true if a row was removed.
     pub fn remove_watched_folder(&self, path: &str) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute("DELETE FROM watched_folders WHERE path = ?1", params![path])
+        WatchedFolderRepository::new(self.conn.clone())
+            .remove(path)
+            .map(|rows| rows > 0)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to remove watched folder: {}", e))
-            })?;
-
-        Ok(rows > 0)
+            })
     }
 
     /// Update the last_scanned_at timestamp for a watched folder.
     pub fn update_folder_scan_time(&self, path: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
+        WatchedFolderRepository::new(self.conn.clone())
+            .update_last_scanned_at(path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to update scan time: {}", e))
+            })
+    }
 
-        conn.execute(
-            "UPDATE watched_folders SET last_scanned_at = datetime('now') WHERE path = ?1",
-            params![path],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to update folder scan time: {}", e))
-        })?;
-
-        Ok(())
+    /// Check if a watched folder exists.
+    pub fn watched_folder_exists(&self, path: &str) -> Result<bool, PersistenceError> {
+        WatchedFolderRepository::new(self.conn.clone())
+            .exists(path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to check watched folder: {}", e))
+            })
     }
 
     // ── Local Tracks ──────────────────────────────────────────────────
@@ -1000,25 +912,6 @@ impl Database {
             .collect();
 
         Ok(entries)
-    }
-
-    /// Check if a watched folder already exists.
-    pub fn watched_folder_exists(&self, path: &str) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let count: u32 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM watched_folders WHERE path = ?1",
-                params![path],
-                |row| row.get(0),
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to check watched folder: {}", e))
-            })?;
-
-        Ok(count > 0)
     }
 
     // ── Search / Detail Queries ────────────────────────────────────────

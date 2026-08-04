@@ -152,6 +152,91 @@ pub fn migrate_to_v6(conn: &Connection) -> Result<(), MigrationError> {
     Ok(())
 }
 
+/// v8 → v10 migration.
+///
+/// Adds the `focus_sessions`, `focus_captures`, `focus_preferences`,
+/// and `focus_operations` tables for the Pomodoro/deep-work workflow.
+/// Also backfills `goal` and `first_action` columns onto `focus_sessions`
+/// if they are missing from an earlier focus_sessions schema.
+///
+/// Idempotent: `CREATE TABLE IF NOT EXISTS` and column-existence guards
+/// make re-running a no-op on a v10+ database.
+pub fn migrate_to_v10(conn: &Connection) -> Result<(), MigrationError> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS focus_sessions (
+            id TEXT PRIMARY KEY,
+            intention TEXT NOT NULL CHECK (length(trim(intention)) > 0),
+            goal TEXT NOT NULL DEFAULT '',
+            first_action TEXT NOT NULL DEFAULT '',
+            workflow TEXT NOT NULL CHECK (workflow IN ('pomodoro', 'deepWork', 'quickFocus', 'custom')),
+            work_duration_ms INTEGER NOT NULL CHECK (work_duration_ms > 0),
+            break_duration_ms INTEGER NOT NULL CHECK (break_duration_ms >= 0),
+            rounds INTEGER NOT NULL CHECK (rounds > 0),
+            round INTEGER NOT NULL CHECK (round > 0 AND round <= rounds),
+            phase TEXT NOT NULL CHECK (phase IN ('work', 'break')),
+            state TEXT NOT NULL CHECK (state IN ('draft', 'runningWork', 'pausedWork', 'awaitingTransition', 'runningBreak', 'pausedBreak', 'completed', 'discarded')),
+            phase_started_at INTEGER,
+            phase_deadline_at INTEGER,
+            paused_remaining_ms INTEGER CHECK (paused_remaining_ms IS NULL OR paused_remaining_ms >= 0),
+            revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+            music_strategy TEXT NOT NULL CHECK (music_strategy IN ('none', 'continueCurrent', 'preset', 'query')),
+            music_value TEXT,
+            degradation_reason TEXT,
+            outcome TEXT CHECK (outcome IS NULL OR outcome IN ('completed', 'discarded')),
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            completed_at INTEGER
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_sessions_one_nonterminal
+            ON focus_sessions((1)) WHERE state NOT IN ('completed', 'discarded');
+        CREATE TABLE IF NOT EXISTS focus_captures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL REFERENCES focus_sessions(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK (kind IN ('note', 'distraction')),
+            body TEXT NOT NULL CHECK (length(trim(body)) > 0),
+            created_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_focus_captures_session_created
+            ON focus_captures(session_id, created_at, id);
+        CREATE TABLE IF NOT EXISTS focus_preferences (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            default_workflow TEXT NOT NULL DEFAULT 'pomodoro' CHECK (default_workflow IN ('pomodoro', 'deepWork', 'quickFocus', 'custom')),
+            default_work_duration_ms INTEGER NOT NULL DEFAULT 1500000 CHECK (default_work_duration_ms > 0),
+            default_break_duration_ms INTEGER NOT NULL DEFAULT 300000 CHECK (default_break_duration_ms >= 0),
+            default_rounds INTEGER NOT NULL DEFAULT 4 CHECK (default_rounds > 0),
+            default_music_strategy TEXT NOT NULL DEFAULT 'none' CHECK (default_music_strategy IN ('none', 'continueCurrent', 'preset', 'query')),
+            default_music_value TEXT,
+            updated_at INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS focus_operations (
+            operation_id TEXT PRIMARY KEY,
+            session_id TEXT REFERENCES focus_sessions(id) ON DELETE SET NULL,
+            request_id TEXT NOT NULL UNIQUE,
+            operation_kind TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        );",
+    )
+    .map_err(|e| MigrationError::new("failed to create focus tables (v10)", e))?;
+
+    if !column_exists(conn, "focus_sessions", "goal")? {
+        conn.execute(
+            "ALTER TABLE focus_sessions ADD COLUMN goal TEXT NOT NULL DEFAULT ''",
+            [],
+        )
+        .map_err(|e| MigrationError::new("failed to add focus_sessions.goal (v10)", e))?;
+    }
+    if !column_exists(conn, "focus_sessions", "first_action")? {
+        conn.execute(
+            "ALTER TABLE focus_sessions ADD COLUMN first_action TEXT NOT NULL DEFAULT ''",
+            [],
+        )
+        .map_err(|e| MigrationError::new("failed to add focus_sessions.first_action (v10)", e))?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -304,5 +389,46 @@ mod tests {
 
         assert!(table_exists(&conn, "update_prefs").unwrap());
         assert!(table_exists(&conn, "telemetry_prefs").unwrap());
+    }
+
+    fn v8_schema() -> Connection {
+        let conn = v6_schema();
+        migrate_to_v7(&conn).unwrap();
+        migrate_to_v8(&conn).unwrap();
+        conn
+    }
+
+    #[test]
+    fn v10_creates_all_focus_tables() {
+        let conn = v8_schema();
+        migrate_to_v10(&conn).unwrap();
+
+        assert!(table_exists(&conn, "focus_sessions").unwrap());
+        assert!(table_exists(&conn, "focus_captures").unwrap());
+        assert!(table_exists(&conn, "focus_preferences").unwrap());
+        assert!(table_exists(&conn, "focus_operations").unwrap());
+    }
+
+    #[test]
+    fn v10_adds_goal_and_first_action_columns_from_v8() {
+        // From a v8 schema (no focus tables), v10 creates focus_sessions
+        // with goal and first_action columns present.
+        let conn = v8_schema();
+        migrate_to_v10(&conn).unwrap();
+
+        assert!(column_exists(&conn, "focus_sessions", "goal").unwrap());
+        assert!(column_exists(&conn, "focus_sessions", "first_action").unwrap());
+    }
+
+    #[test]
+    fn v10_is_idempotent_on_already_migrated_schema() {
+        let conn = v8_schema();
+        migrate_to_v10(&conn).unwrap();
+        migrate_to_v10(&conn).unwrap();
+
+        assert!(table_exists(&conn, "focus_sessions").unwrap());
+        assert!(table_exists(&conn, "focus_captures").unwrap());
+        assert!(table_exists(&conn, "focus_preferences").unwrap());
+        assert!(table_exists(&conn, "focus_operations").unwrap());
     }
 }
