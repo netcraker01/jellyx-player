@@ -11,10 +11,10 @@
 use std::path::Path;
 use std::time::Duration;
 
+use jellyx_engine::migrations as engine_migrations;
 use jellyx_engine::sqlite::{
-    add_column_if_missing as engine_add_column_if_missing, column_exists as engine_column_exists,
-    table_exists as engine_table_exists, SqliteHandle, SqliteOpenError, SqliteOpenStage,
-    SqliteRecoveryError,
+    column_exists as engine_column_exists, table_exists as engine_table_exists, SqliteHandle,
+    SqliteOpenError, SqliteOpenStage, SqliteRecoveryError,
 };
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -217,26 +217,6 @@ impl Database {
         self.conn.run_migration_step(version, |tx| migrate(tx))
     }
 
-    /// Add a column to a table if it does not already exist.
-    ///
-    /// SQLite's `ALTER TABLE ... ADD COLUMN` errors when the column exists,
-    /// so we introspect `pragma_table_info` first. Delegates to the
-    /// engine-owned [`engine_add_column_if_missing`] primitive.
-    fn add_column_if_missing(
-        conn: &Connection,
-        table: &str,
-        column: &str,
-        definition: &str,
-    ) -> Result<(), PersistenceError> {
-        engine_add_column_if_missing(conn, table, column, definition).map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to add column {}.{}: {}",
-                table, column, e
-            ))
-        })?;
-        Ok(())
-    }
-
     fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
         engine_column_exists(conn, table, column).unwrap_or(false)
     }
@@ -247,106 +227,14 @@ impl Database {
 
     /// v5 → v6 migration.
     ///
-    /// - `local_tracks.subfolder_path TEXT NULL`
-    /// - `user_playlists.kind TEXT NOT NULL DEFAULT 'manual'`
-    /// - `user_playlists.source_folder_path TEXT NULL`
-    /// - `user_playlists.parent_playlist_id TEXT NULL`
-    /// - `artist_favorites` rebuild: PK → `(artist_id, source)`, add
-    ///   `source TEXT NOT NULL DEFAULT 'local'` and `source_artist_ref TEXT`,
-    ///   backfill existing rows with `source = 'local'`.
+    /// Delegates the SQL body to [`engine_migrations::migrate_to_v6`], which
+    /// the engine owns so the migration logic is shared with future Tauri-free
+    /// frontends. This wrapper preserves the desktop `PersistenceError`
+    /// mapping; the engine returns a context-carrying `MigrationError` whose
+    /// string form matches the historical desktop error messages.
     fn migrate_to_v6(conn: &Connection) -> Result<(), PersistenceError> {
-        // local_tracks.subfolder_path
-        Self::add_column_if_missing(conn, "local_tracks", "subfolder_path", "TEXT")?;
-
-        // user_playlists columns
-        Self::add_column_if_missing(
-            conn,
-            "user_playlists",
-            "kind",
-            "TEXT NOT NULL DEFAULT 'manual'",
-        )?;
-        Self::add_column_if_missing(conn, "user_playlists", "source_folder_path", "TEXT")?;
-        Self::add_column_if_missing(conn, "user_playlists", "parent_playlist_id", "TEXT")?;
-
-        // Backfill existing playlists to kind='manual' (the DEFAULT already
-        // covers new rows, but rows created before the column existed get the
-        // default value on first read; we normalize to 'manual' explicitly).
-        conn.execute(
-            "UPDATE user_playlists SET kind = 'manual' WHERE kind IS NULL OR kind = ''",
-            [],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to backfill user_playlists.kind: {}",
-                e
-            ))
-        })?;
-
-        // Helpful indexes for folder-as-playlist queries.
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_user_playlists_source_folder
-                ON user_playlists(source_folder_path)",
-            [],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create source_folder index: {}", e))
-        })?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_user_playlists_parent
-                ON user_playlists(parent_playlist_id)",
-            [],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to create parent_playlist index: {}",
-                e
-            ))
-        })?;
-
-        // artist_favorites rebuild. SQLite cannot change a PRIMARY KEY in
-        // place, so we create a new table, copy data over (backfilling
-        // source = 'local'), drop the old table and rename.
-        // Idempotent: only rebuild if the new `source` column is missing.
-        let has_source: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('artist_favorites') WHERE name = 'source'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        if has_source == 0 {
-            conn.execute_batch(
-                "CREATE TABLE artist_favorites_v6 (
-                    artist_id TEXT NOT NULL,
-                    source TEXT NOT NULL DEFAULT 'local',
-                    artist_name TEXT NOT NULL,
-                    thumbnail TEXT,
-                    source_artist_ref TEXT,
-                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
-                    PRIMARY KEY (artist_id, source)
-                );
-
-                INSERT INTO artist_favorites_v6 (artist_id, source, artist_name, thumbnail, source_artist_ref, added_at)
-                SELECT artist_id, 'local', artist_name, thumbnail, NULL, added_at
-                FROM artist_favorites;
-
-                DROP TABLE artist_favorites;
-
-                ALTER TABLE artist_favorites_v6 RENAME TO artist_favorites;
-                ",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to rebuild artist_favorites for v6: {}",
-                    e
-                ))
-            })?;
-        } else {
-            Self::add_column_if_missing(conn, "artist_favorites", "source_artist_ref", "TEXT")?;
-        }
-
-        Ok(())
+        engine_migrations::migrate_to_v6(conn)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// v6 → v7 migration.

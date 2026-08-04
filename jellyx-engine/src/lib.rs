@@ -7,6 +7,7 @@
 pub const BOUNDARY_ESTABLISHED: bool = true;
 
 pub mod migration_lock;
+pub mod migrations;
 pub mod preferences;
 pub mod sqlite;
 pub mod updater;
