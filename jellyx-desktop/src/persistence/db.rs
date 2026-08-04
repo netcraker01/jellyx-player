@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use jellyx_engine::migration_lock::MigrationLock;
-use jellyx_engine::sqlite::SqliteHandle;
+use jellyx_engine::sqlite::{SqliteHandle, SqliteOpenError, SqliteOpenStage};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 use crate::errors::types::PersistenceError;
@@ -132,20 +132,8 @@ impl Database {
             }
         }
 
-        let conn =
-            Connection::open(path).map_err(|error| classify_sqlite("open database", error))?;
-        conn.busy_timeout(Duration::from_secs(5)).map_err(|e| {
-            OpenFailure::Other(PersistenceError::DatabaseError(format!(
-                "failed to set database busy timeout: {e}"
-            )))
-        })?;
-
-        // Enable WAL mode for concurrent reads
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
-            .map_err(|error| classify_sqlite("set WAL mode", error))?;
-
         let db = Self {
-            conn: SqliteHandle::new(conn),
+            conn: SqliteHandle::open_file(path).map_err(map_file_open_error)?,
         };
         db.initialize_schema().map_err(OpenFailure::Other)?;
         db.run_migrations().map_err(OpenFailure::Other)?;
@@ -163,15 +151,8 @@ impl Database {
     /// Open an in-memory database for testing.
     #[allow(dead_code)]
     pub fn open_in_memory() -> Result<Self, PersistenceError> {
-        let conn = Connection::open_in_memory().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to open in-memory database: {}", e))
-        })?;
-        conn.execute_batch("PRAGMA foreign_keys=ON;").map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to enable foreign keys: {}", e))
-        })?;
-
         let db = Self {
-            conn: SqliteHandle::new(conn),
+            conn: SqliteHandle::open_in_memory().map_err(map_memory_open_error)?,
         };
         db.initialize_schema()?;
         db.run_migrations()?;
@@ -2621,6 +2602,29 @@ fn classify_sqlite(context: &str, error: rusqlite::Error) -> OpenFailure {
         }
         _ => OpenFailure::Other(PersistenceError::DatabaseError(message)),
     }
+}
+
+fn map_file_open_error(error: SqliteOpenError) -> OpenFailure {
+    let stage = error.stage();
+    let source = error.into_source();
+    match stage {
+        SqliteOpenStage::Open => classify_sqlite("open database", source),
+        SqliteOpenStage::BusyTimeout => OpenFailure::Other(PersistenceError::DatabaseError(
+            format!("failed to set database busy timeout: {source}"),
+        )),
+        SqliteOpenStage::Configure => classify_sqlite("set WAL mode", source),
+    }
+}
+
+fn map_memory_open_error(error: SqliteOpenError) -> PersistenceError {
+    let stage = error.stage();
+    let source = error.into_source();
+    let context = match stage {
+        SqliteOpenStage::Open => "failed to open in-memory database",
+        SqliteOpenStage::BusyTimeout => "failed to set database busy timeout",
+        SqliteOpenStage::Configure => "failed to enable foreign keys",
+    };
+    PersistenceError::DatabaseError(format!("{context}: {source}"))
 }
 
 fn sidecar_path(path: &Path, suffix: &str) -> PathBuf {

@@ -47,3 +47,85 @@ fn sqlite_handle_clones_share_one_connection() {
 
     assert_eq!(value, 42);
 }
+
+#[test]
+fn sqlite_connection_file_profile_is_wal_foreign_keyed_and_waits_five_seconds() {
+    let path = std::env::temp_dir().join(format!(
+        "jellyx-engine-file-profile-{}-{:?}.db",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let handle = jellyx_engine::sqlite::SqliteHandle::open_file(&path).unwrap();
+    let conn = handle.lock().unwrap();
+
+    let journal: String = conn
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    let foreign_keys: i64 = conn
+        .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+        .unwrap();
+    let busy_timeout: i64 = conn
+        .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+        .unwrap();
+
+    assert_eq!(journal, "wal");
+    assert_eq!(foreign_keys, 1);
+    assert_eq!(busy_timeout, 5_000);
+    drop(conn);
+    drop(handle);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn sqlite_connection_in_memory_profile_does_not_apply_file_settings() {
+    let handle = jellyx_engine::sqlite::SqliteHandle::open_in_memory().unwrap();
+    let conn = handle.lock().unwrap();
+
+    let journal: String = conn
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .unwrap();
+    let foreign_keys: i64 = conn
+        .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(journal, "memory");
+    assert_eq!(foreign_keys, 1);
+}
+
+#[test]
+fn sqlite_connection_error_preserves_stage_and_rusqlite_source() {
+    use jellyx_engine::sqlite::{SqliteHandle, SqliteOpenStage};
+
+    let error = match SqliteHandle::open_file(&std::env::temp_dir()) {
+        Err(error) => error,
+        Ok(_) => panic!("opening a directory as SQLite unexpectedly succeeded"),
+    };
+
+    assert_eq!(error.stage(), SqliteOpenStage::Open);
+    assert!(matches!(
+        error.source_error(),
+        rusqlite::Error::SqliteFailure(_, _)
+    ));
+
+    let corrupt_path = std::env::temp_dir().join(format!(
+        "jellyx-engine-corrupt-profile-{}-{:?}.db",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&corrupt_path, b"not a sqlite database").unwrap();
+    let error = match SqliteHandle::open_file(&corrupt_path) {
+        Err(error) => error,
+        Ok(_) => panic!("opening corrupt SQLite unexpectedly succeeded"),
+    };
+    assert_eq!(error.stage(), SqliteOpenStage::Configure);
+    assert_eq!(
+        error.source_error().sqlite_error_code(),
+        Some(rusqlite::ErrorCode::NotADatabase)
+    );
+    std::fs::remove_file(corrupt_path).unwrap();
+}
