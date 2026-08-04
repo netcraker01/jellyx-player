@@ -11,7 +11,11 @@
 use std::path::Path;
 use std::time::Duration;
 
-use jellyx_engine::sqlite::{SqliteHandle, SqliteOpenError, SqliteOpenStage, SqliteRecoveryError};
+use jellyx_engine::sqlite::{
+    add_column_if_missing as engine_add_column_if_missing, column_exists as engine_column_exists,
+    table_exists as engine_table_exists, SqliteHandle, SqliteOpenError, SqliteOpenStage,
+    SqliteRecoveryError,
+};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::errors::types::PersistenceError;
@@ -216,49 +220,29 @@ impl Database {
     /// Add a column to a table if it does not already exist.
     ///
     /// SQLite's `ALTER TABLE ... ADD COLUMN` errors when the column exists,
-    /// so we introspect `pragma_table_info` first.
+    /// so we introspect `pragma_table_info` first. Delegates to the
+    /// engine-owned [`engine_add_column_if_missing`] primitive.
     fn add_column_if_missing(
         conn: &Connection,
         table: &str,
         column: &str,
         definition: &str,
     ) -> Result<(), PersistenceError> {
-        if !Self::column_exists(conn, table, column) {
-            conn.execute(
-                &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition),
-                [],
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to add column {}.{}: {}",
-                    table, column, e
-                ))
-            })?;
-        }
+        engine_add_column_if_missing(conn, table, column, definition).map_err(|e| {
+            PersistenceError::DatabaseError(format!(
+                "failed to add column {}.{}: {}",
+                table, column, e
+            ))
+        })?;
         Ok(())
     }
 
     fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
-        conn.query_row(
-            &format!(
-                "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = ?1",
-                table
-            ),
-            params![column],
-            |row| row.get::<_, i64>(0),
-        )
-        .map(|count| count > 0)
-        .unwrap_or(false)
+        engine_column_exists(conn, table, column).unwrap_or(false)
     }
 
     fn table_exists(conn: &Connection, table: &str) -> bool {
-        conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-            params![table],
-            |row| row.get::<_, i64>(0),
-        )
-        .map(|count| count > 0)
-        .unwrap_or(false)
+        engine_table_exists(conn, table).unwrap_or(false)
     }
 
     /// v5 → v6 migration.

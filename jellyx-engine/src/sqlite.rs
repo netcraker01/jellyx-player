@@ -370,6 +370,52 @@ impl SqliteHandle {
         Ok(())
     }
 
+    /// Return `true` when a row exists in `sqlite_master` for `table`.
+    ///
+    /// Cheap introspection primitive used by idempotent migrations and schema
+    /// repair paths. Engine-owned so desktop does not duplicate SQL.
+    pub fn table_exists(&self, table: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().map_err(|_| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_INTERNAL),
+                Some("sqlite connection lock poisoned".to_string()),
+            )
+        })?;
+        table_exists(&conn, table)
+    }
+
+    /// Return `true` when `column` is present on `table` per
+    /// `pragma_table_info`.
+    pub fn column_exists(&self, table: &str, column: &str) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().map_err(|_| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_INTERNAL),
+                Some("sqlite connection lock poisoned".to_string()),
+            )
+        })?;
+        column_exists(&conn, table, column)
+    }
+
+    /// Add `column` to `table` only when it is missing.
+    ///
+    /// `type_def` is the trailing column definition, e.g. `"TEXT NOT NULL
+    /// DEFAULT 'manual'"`. Returns `true` when the column was added, `false`
+    /// when it already existed.
+    pub fn add_column_if_missing(
+        &self,
+        table: &str,
+        column: &str,
+        type_def: &str,
+    ) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().map_err(|_| {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_INTERNAL),
+                Some("sqlite connection lock poisoned".to_string()),
+            )
+        })?;
+        add_column_if_missing(&conn, table, column, type_def)
+    }
+
     /// Atomically execute one migration step under `BEGIN IMMEDIATE`.
     ///
     /// The transaction acquires a write lock up front so a failed callback
@@ -414,6 +460,57 @@ impl SqliteHandle {
             .map_err(E::from)?;
         transaction.commit().map_err(E::from)
     }
+}
+
+/// Return `true` when a row exists in `sqlite_master` for `table`.
+///
+/// Free-function form of [`SqliteHandle::table_exists`] for call sites that
+/// already hold a `&Connection` (e.g. inside a `Transaction` from
+/// [`SqliteHandle::run_migration_step`]).
+pub fn table_exists(conn: &Connection, table: &str) -> Result<bool, rusqlite::Error> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+        params![table],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|count| count > 0)
+}
+
+/// Return `true` when `column` is present on `table` per
+/// `pragma_table_info`.
+pub fn column_exists(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+) -> Result<bool, rusqlite::Error> {
+    conn.query_row(
+        &format!(
+            "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = ?1",
+            table
+        ),
+        params![column],
+        |row| row.get::<_, i64>(0),
+    )
+    .map(|count| count > 0)
+}
+
+/// Add `column` to `table` only when it is missing.
+///
+/// Returns `true` when the column was added, `false` when it already existed.
+pub fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    type_def: &str,
+) -> Result<bool, rusqlite::Error> {
+    if column_exists(conn, table, column)? {
+        return Ok(false);
+    }
+    conn.execute(
+        &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, type_def),
+        [],
+    )?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -525,5 +622,114 @@ mod tests {
             .run_migration_step::<rusqlite::Error>(5, |_tx| Ok(()))
             .unwrap();
         assert_eq!(schema_version(&handle), 10);
+    }
+
+    // ── Inspection primitives ───────────────────────────────────────────
+
+    fn handle_with_table() -> SqliteHandle {
+        let handle = SqliteHandle::open_in_memory().unwrap();
+        let conn = handle.lock().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sample (
+                 id INTEGER PRIMARY KEY,
+                 name TEXT NOT NULL
+             );",
+        )
+        .unwrap();
+        drop(conn);
+        handle
+    }
+
+    #[test]
+    fn table_exists_reports_present_and_absent() {
+        let handle = handle_with_table();
+        assert!(handle.table_exists("sample").unwrap());
+        assert!(!handle.table_exists("does_not_exist").unwrap());
+    }
+
+    #[test]
+    fn column_exists_reports_present_and_absent() {
+        let handle = handle_with_table();
+        assert!(handle.column_exists("sample", "id").unwrap());
+        assert!(handle.column_exists("sample", "name").unwrap());
+        assert!(!handle.column_exists("sample", "missing_col").unwrap());
+    }
+
+    #[test]
+    fn column_exists_on_unknown_table_is_false() {
+        let handle = handle_with_table();
+        assert!(!handle.column_exists("ghost", "id").unwrap());
+    }
+
+    #[test]
+    fn add_column_if_missing_adds_when_absent() {
+        let handle = handle_with_table();
+        assert!(
+            handle
+                .add_column_if_missing("sample", "added", "TEXT")
+                .unwrap()
+        );
+        assert!(handle.column_exists("sample", "added").unwrap());
+    }
+
+    #[test]
+    fn add_column_if_missing_is_idempotent() {
+        let handle = handle_with_table();
+        assert!(
+            handle
+                .add_column_if_missing("sample", "once", "TEXT")
+                .unwrap()
+        );
+        assert!(
+            !handle
+                .add_column_if_missing("sample", "once", "TEXT")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn add_column_if_missing_persists_default_value() {
+        let handle = handle_with_table();
+        {
+            let conn = handle.lock().unwrap();
+            conn.execute("INSERT INTO sample (id, name) VALUES (1, 'row-1')", [])
+                .unwrap();
+        }
+        handle
+            .add_column_if_missing("sample", "flag", "INTEGER NOT NULL DEFAULT 0")
+            .unwrap();
+        let conn = handle.lock().unwrap();
+        let value: i64 = conn
+            .query_row("SELECT flag FROM sample WHERE id = 1", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(value, 0);
+        drop(conn);
+    }
+
+    #[test]
+    fn table_exists_free_function_matches_handle_method() {
+        let handle = handle_with_table();
+        let conn = handle.lock().unwrap();
+        assert!(table_exists(&conn, "sample").unwrap());
+        assert!(!table_exists(&conn, "ghost").unwrap());
+        drop(conn);
+    }
+
+    #[test]
+    fn add_column_if_missing_free_function_inside_transaction() {
+        let handle = handle_with_meta();
+        {
+            let conn = handle.lock().unwrap();
+            conn.execute_batch("CREATE TABLE sample (id INTEGER PRIMARY KEY, name TEXT NOT NULL);")
+                .unwrap();
+        }
+        handle
+            .run_migration_step::<rusqlite::Error>(1, |tx| {
+                assert!(add_column_if_missing(tx, "sample", "tx_col", "TEXT")?);
+                assert!(column_exists(tx, "sample", "tx_col")?);
+                Ok(())
+            })
+            .unwrap();
+        assert!(handle.column_exists("sample", "tx_col").unwrap());
     }
 }
