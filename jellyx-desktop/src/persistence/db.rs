@@ -4,13 +4,26 @@
 //! Uses WAL mode for thread-safe concurrent reads.
 //! Schema is created on first launch; migrations track version.
 //!
-//! Thread safety: `Connection` is wrapped in `Mutex` because rusqlite's
-//! internal `RefCell` makes it non-`Sync`. This satisfies Tauri's
-//! `Send + Sync` requirement for `AppState`.
+//! Thread safety: `Connection` is wrapped in `SqliteHandle` because rusqlite's
+//! internal `RefCell` makes it non-`Sync`. This satisfies Tauri's `Send + Sync`
+//! requirement for `AppState`.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::time::Duration;
 
+use jellyx_engine::artist_favorites::ArtistFavoritesRepository;
+use jellyx_engine::focus_session::FocusSessionRepository;
+use jellyx_engine::history::HistoryRepository;
+use jellyx_engine::local_track::LocalTrackRepository;
+use jellyx_engine::migrations as engine_migrations;
+use jellyx_engine::playlist_tracks::PlaylistTracksRepository;
+use jellyx_engine::settings::SettingsRepository;
+use jellyx_engine::sqlite::{
+    column_exists as engine_column_exists, table_exists as engine_table_exists, SqliteHandle,
+    SqliteOpenError, SqliteOpenStage, SqliteRecoveryError,
+};
+use jellyx_engine::user_playlists::UserPlaylistsRepository;
+use jellyx_engine::watched_folder::WatchedFolderRepository;
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::errors::types::PersistenceError;
@@ -23,7 +36,26 @@ use crate::persistence::models::{
     WatchedFolder,
 };
 use crate::updater::prefs::UpdatePrefs;
+use jellyx_core::models::source::Source;
 use jellyx_core::models::track::Track;
+
+/// Fallback for failed JSON deserialization — returns an empty Track.
+fn empty_track() -> Track {
+    Track {
+        id: String::new(),
+        source: Source::Local,
+        source_id: String::new(),
+        title: String::new(),
+        artist: String::new(),
+        album: None,
+        duration: None,
+        thumbnail: None,
+        stream_url: None,
+        local_path: None,
+        playlist_id: None,
+        metadata: std::collections::HashMap::new(),
+    }
+}
 
 /// Current schema version — increment when adding migrations.
 const SCHEMA_VERSION: u32 = 10;
@@ -34,45 +66,32 @@ const SCHEMA_VERSION_V10: u32 = 10;
 /// Singleton row key for settings tables that intentionally contain one row.
 const SETTINGS_SINGLETON_ID: i64 = 1;
 
-/// Default history query limit.
-const HISTORY_LIMIT: u32 = 100;
-
-/// Column list for `user_playlists` SELECT statements, kept in sync with
-/// [`row_to_playlist`]. Used by every playlist-reading query so the column
-/// set is consistent across methods.
-const PLAYLIST_COLUMNS: &str =
-    "id, title, kind, source_folder_path, parent_playlist_id, created_at, updated_at";
-
-/// Map a `user_playlists` row into a [`UserPlaylist`]. Column order MUST match
-/// [`PLAYLIST_COLUMNS`].
-fn row_to_playlist(row: &rusqlite::Row<'_>) -> rusqlite::Result<UserPlaylist> {
-    Ok(UserPlaylist {
-        id: row.get(0)?,
-        title: row.get(1)?,
-        kind: row.get(2)?,
-        source_folder_path: row.get(3)?,
-        parent_playlist_id: row.get(4)?,
-        created_at: row.get(5)?,
-        updated_at: row.get(6)?,
-    })
-}
-
 /// SQLite-backed database for Jellyx library data.
 ///
 /// Stores favorites and play history with Track data serialized as JSON.
-/// Thread-safe via `Mutex<Connection>` (required because rusqlite's
-/// `Connection` is not `Sync`).
+/// Thread-safe via [`SqliteHandle`]. SQL, schema, migrations, and recovery
+/// remain desktop-owned.
 pub struct Database {
-    conn: Mutex<Connection>,
+    conn: SqliteHandle,
 }
 
 impl Database {
+    /// Returns a clone of the shared SQLite handle.
+    ///
+    /// Used by trait implementations in sibling modules that need to delegate
+    /// to engine repositories (which take `SqliteHandle` by value).
+    pub fn handle(&self) -> SqliteHandle {
+        self.conn.clone()
+    }
+
     /// Open (or create) the database at the given path.
     ///
-    /// Creates parent directories if needed. Initializes schema on first run.
-    /// Enables WAL mode for concurrent read support.
+    /// Creates parent directories if needed, then delegates to
+    /// [`SqliteHandle::open_with_recovery`] which acquires the migration
+    /// lock, runs integrity classification, quarantines corrupt databases,
+    /// and opens exactly one replacement. Schema initialization and
+    /// migrations run inside the engine's lock-held init closure.
     pub fn open(path: &Path) -> Result<Self, PersistenceError> {
-        // Ensure parent directory exists
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 PersistenceError::DatabaseError(format!(
@@ -82,36 +101,24 @@ impl Database {
             })?;
         }
 
-        let conn = Connection::open(path).map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to open database: {}", e))
-        })?;
+        let conn = SqliteHandle::open_with_recovery(path, Duration::from_secs(5), |handle| {
+            let db = Self {
+                conn: handle.clone(),
+            };
+            db.initialize_schema()?;
+            db.run_migrations()?;
+            Ok::<(), PersistenceError>(())
+        })
+        .map_err(map_recovery_error)?;
 
-        // Enable WAL mode for concurrent reads
-        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to set WAL mode: {}", e))
-            })?;
-
-        let db = Self {
-            conn: Mutex::new(conn),
-        };
-        db.initialize_schema()?;
-        db.run_migrations()?;
-        Ok(db)
+        Ok(Self { conn })
     }
 
     /// Open an in-memory database for testing.
     #[allow(dead_code)]
     pub fn open_in_memory() -> Result<Self, PersistenceError> {
-        let conn = Connection::open_in_memory().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to open in-memory database: {}", e))
-        })?;
-        conn.execute_batch("PRAGMA foreign_keys=ON;").map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to enable foreign keys: {}", e))
-        })?;
-
         let db = Self {
-            conn: Mutex::new(conn),
+            conn: SqliteHandle::open_in_memory().map_err(map_memory_open_error)?,
         };
         db.initialize_schema()?;
         db.run_migrations()?;
@@ -119,124 +126,15 @@ impl Database {
     }
 
     /// Create tables if they don't exist and track schema version.
+    ///
+    /// Delegates to [`SqliteHandle::initialize_schema`] in the engine, which
+    /// owns the canonical pre-migration schema (tables, indexes) and seeds
+    /// `_meta.schema_version = '0'` for brand-new databases. Migrations remain
+    /// desktop-owned and are the only code path that advances `schema_version`.
     fn initialize_schema(&self) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    track_id TEXT NOT NULL,
-                    track_json TEXT NOT NULL,
-                    played_at TEXT NOT NULL DEFAULT (datetime('now'))
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_history_played_at
-                    ON history(played_at DESC);
-
-                CREATE TABLE IF NOT EXISTS watched_folders (
-                    path TEXT PRIMARY KEY,
-                    last_scanned_at TEXT,
-                    added_at TEXT NOT NULL DEFAULT (datetime('now'))
-                );
-
-                CREATE TABLE IF NOT EXISTS local_tracks (
-                    file_path TEXT PRIMARY KEY,
-                    track_json TEXT NOT NULL,
-                    folder_path TEXT NOT NULL,
-                    file_modified_at TEXT,
-                    subfolder_path TEXT,
-                    FOREIGN KEY(folder_path) REFERENCES watched_folders(path) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_local_tracks_folder
-                    ON local_tracks(folder_path);
-
-                CREATE INDEX IF NOT EXISTS idx_local_tracks_title
-                    ON local_tracks(track_json);
-
-                CREATE TABLE IF NOT EXISTS user_playlists (
-                    id TEXT PRIMARY KEY,
-                    title TEXT NOT NULL,
-                    kind TEXT NOT NULL DEFAULT 'manual',
-                    source_folder_path TEXT,
-                    parent_playlist_id TEXT,
-                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-                );
-
-                CREATE TABLE IF NOT EXISTS playlist_tracks (
-                    playlist_id TEXT NOT NULL,
-                    position INTEGER NOT NULL,
-                    track_json TEXT NOT NULL,
-                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
-                    PRIMARY KEY (playlist_id, position),
-                    FOREIGN KEY (playlist_id) REFERENCES user_playlists(id) ON DELETE CASCADE
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_playlist_tracks_playlist
-                    ON playlist_tracks(playlist_id, position);
-
-                CREATE TABLE IF NOT EXISTS artist_favorites (
-                    artist_id TEXT NOT NULL,
-                    source TEXT NOT NULL DEFAULT 'local',
-                    artist_name TEXT NOT NULL,
-                    thumbnail TEXT,
-                    source_artist_ref TEXT,
-                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
-                    PRIMARY KEY (artist_id, source)
-                );
-
-                CREATE TABLE IF NOT EXISTS source_settings (
-                    source TEXT PRIMARY KEY,
-                    enabled INTEGER NOT NULL DEFAULT 1
-                );
-
-                CREATE TABLE IF NOT EXISTS audio_settings (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-
-                CREATE TABLE IF NOT EXISTS _meta (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
-                );
-
-                 CREATE TABLE IF NOT EXISTS update_prefs (
-                     -- A singleton row; SETTINGS_SINGLETON_ID is used by Rust queries.
-                     id INTEGER PRIMARY KEY CHECK (id = 1),
-                    skipped_version TEXT,
-                    remind_later_at TEXT,
-                    last_check_at TEXT,
-                     detected_channel TEXT
-                 );
-
-                 CREATE TABLE IF NOT EXISTS telemetry_prefs (
-                     -- Explicit opt-in only; absent rows are treated as disabled.
-                     id INTEGER PRIMARY KEY CHECK (id = 1),
-                     enabled INTEGER NOT NULL DEFAULT 0
-                 );
-                ",
-        )
-        .map_err(|e| {
+        self.conn.initialize_schema().map_err(|e| {
             PersistenceError::DatabaseError(format!("failed to initialize schema: {}", e))
-        })?;
-
-        // Seed the schema version only for brand-new databases. Do NOT set it
-        // to SCHEMA_VERSION here: migrations must be the only code path that
-        // marks the database as current. Otherwise an older fresh-install
-        // schema can be incorrectly marked as up-to-date before v6/v7 repairs
-        // add required columns.
-        conn.execute(
-            "INSERT OR IGNORE INTO _meta (key, value) VALUES ('schema_version', '0')",
-            [],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to initialize schema version: {}", e))
-        })?;
-
-        Ok(())
+        })
     }
 
     /// Apply incremental schema migrations up to [`SCHEMA_VERSION`].
@@ -249,339 +147,131 @@ impl Database {
     /// column already exists, so we wrap them in a tolerance check) and, for
     /// the `artist_favorites` PK change, a full table rebuild.
     fn run_migrations(&self) -> Result<(), PersistenceError> {
-        let mut conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
+        let current = {
+            let conn = self.conn.lock().map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
+            })?;
 
-        let current: u32 = conn
-            .query_row(
-                "SELECT value FROM _meta WHERE key = 'schema_version'",
-                [],
-                |row| row.get::<_, String>(0),
-            )
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
+            let current: u32 = conn
+                .query_row(
+                    "SELECT value FROM _meta WHERE key = 'schema_version'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0);
 
-        let needs_v6 = current < SCHEMA_VERSION_V6
-            || !Self::column_exists(&conn, "local_tracks", "subfolder_path")
-            || !Self::column_exists(&conn, "user_playlists", "kind")
-            || !Self::column_exists(&conn, "user_playlists", "source_folder_path")
-            || !Self::column_exists(&conn, "user_playlists", "parent_playlist_id")
-            || !Self::column_exists(&conn, "artist_favorites", "source")
-            || !Self::column_exists(&conn, "artist_favorites", "source_artist_ref");
+            let needs_v6 = current < SCHEMA_VERSION_V6
+                || !Self::column_exists(&conn, "local_tracks", "subfolder_path")
+                || !Self::column_exists(&conn, "user_playlists", "kind")
+                || !Self::column_exists(&conn, "user_playlists", "source_folder_path")
+                || !Self::column_exists(&conn, "user_playlists", "parent_playlist_id")
+                || !Self::column_exists(&conn, "artist_favorites", "source")
+                || !Self::column_exists(&conn, "artist_favorites", "source_artist_ref");
 
-        let needs_v7 = current < SCHEMA_VERSION_V7 || !Self::table_exists(&conn, "update_prefs");
-        let needs_v8 = current < SCHEMA_VERSION_V8 || !Self::table_exists(&conn, "telemetry_prefs");
-        let needs_v10 = current < SCHEMA_VERSION_V10
-            || !Self::table_exists(&conn, "focus_sessions")
-            || !Self::table_exists(&conn, "focus_captures")
-            || !Self::table_exists(&conn, "focus_preferences")
-            || !Self::table_exists(&conn, "focus_operations")
-            || !Self::column_exists(&conn, "focus_sessions", "goal")
-            || !Self::column_exists(&conn, "focus_sessions", "first_action");
+            let needs_v7 =
+                current < SCHEMA_VERSION_V7 || !Self::table_exists(&conn, "update_prefs");
+            let needs_v8 =
+                current < SCHEMA_VERSION_V8 || !Self::table_exists(&conn, "telemetry_prefs");
+            let needs_v10 = current < SCHEMA_VERSION_V10
+                || !Self::table_exists(&conn, "focus_sessions")
+                || !Self::table_exists(&conn, "focus_captures")
+                || !Self::table_exists(&conn, "focus_preferences")
+                || !Self::table_exists(&conn, "focus_operations")
+                || !Self::column_exists(&conn, "focus_sessions", "goal")
+                || !Self::column_exists(&conn, "focus_sessions", "first_action");
 
-        if current >= SCHEMA_VERSION && !needs_v6 && !needs_v7 && !needs_v8 && !needs_v10 {
-            return Ok(());
-        }
+            if current >= SCHEMA_VERSION && !needs_v6 && !needs_v7 && !needs_v8 && !needs_v10 {
+                return Ok(());
+            }
+
+            (current, needs_v6, needs_v7, needs_v8, needs_v10)
+        };
+
+        let (_, needs_v6, needs_v7, needs_v8, needs_v10) = current;
 
         // v5 → v6: subfolder_path on local_tracks, folder/parent/kind on
         // user_playlists, composite PK + source columns on artist_favorites.
         if needs_v6 {
-            Self::migrate_to_v6(&conn)?;
+            self.run_migration_step(SCHEMA_VERSION_V6, Self::migrate_to_v6)?;
         }
 
         // v6 → v7: add the `update_prefs` table for the channel-aware updater.
         // Idempotent: only creates the table if it doesn't already exist.
         if needs_v7 {
-            Self::migrate_to_v7(&conn)?;
+            self.run_migration_step(SCHEMA_VERSION_V7, Self::migrate_to_v7)?;
         }
 
         // v7 → v8: persist an explicit, default-off remote telemetry choice.
         if needs_v8 {
-            Self::migrate_to_v8(&conn)?;
+            self.run_migration_step(SCHEMA_VERSION_V8, Self::migrate_to_v8)?;
         }
 
         if needs_v10 {
-            Self::migrate_to_v10(&mut conn)?;
+            self.run_migration_step(SCHEMA_VERSION_V10, Self::migrate_to_v10)?;
         }
-
-        // Record the new schema version.
-        conn.execute(
-            "UPDATE _meta SET value = ?1 WHERE key = 'schema_version'",
-            params![SCHEMA_VERSION],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to update schema version: {}", e))
-        })?;
 
         Ok(())
     }
 
-    /// Add a column to a table if it does not already exist.
+    /// Atomically execute one migration step under `BEGIN IMMEDIATE`.
     ///
-    /// SQLite's `ALTER TABLE ... ADD COLUMN` errors when the column exists,
-    /// so we introspect `pragma_table_info` first.
-    fn add_column_if_missing(
-        conn: &Connection,
-        table: &str,
-        column: &str,
-        definition: &str,
+    /// Delegates to [`SqliteHandle::run_migration_step`] in the engine, which
+    /// owns the transaction mechanics: BEGIN IMMEDIATE, callback execution,
+    /// monotonic `schema_version` update, commit on success, rollback on
+    /// failure. Migration SQL bodies remain desktop-owned (Units 3D7+).
+    fn run_migration_step(
+        &self,
+        version: u32,
+        migrate: fn(&Connection) -> Result<(), PersistenceError>,
     ) -> Result<(), PersistenceError> {
-        if !Self::column_exists(conn, table, column) {
-            conn.execute(
-                &format!("ALTER TABLE {} ADD COLUMN {} {}", table, column, definition),
-                [],
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to add column {}.{}: {}",
-                    table, column, e
-                ))
-            })?;
-        }
-        Ok(())
+        self.conn.run_migration_step(version, |tx| migrate(tx))
     }
 
     fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
-        conn.query_row(
-            &format!(
-                "SELECT COUNT(*) FROM pragma_table_info('{}') WHERE name = ?1",
-                table
-            ),
-            params![column],
-            |row| row.get::<_, i64>(0),
-        )
-        .map(|count| count > 0)
-        .unwrap_or(false)
+        engine_column_exists(conn, table, column).unwrap_or(false)
     }
 
     fn table_exists(conn: &Connection, table: &str) -> bool {
-        conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
-            params![table],
-            |row| row.get::<_, i64>(0),
-        )
-        .map(|count| count > 0)
-        .unwrap_or(false)
+        engine_table_exists(conn, table).unwrap_or(false)
     }
 
     /// v5 → v6 migration.
     ///
-    /// - `local_tracks.subfolder_path TEXT NULL`
-    /// - `user_playlists.kind TEXT NOT NULL DEFAULT 'manual'`
-    /// - `user_playlists.source_folder_path TEXT NULL`
-    /// - `user_playlists.parent_playlist_id TEXT NULL`
-    /// - `artist_favorites` rebuild: PK → `(artist_id, source)`, add
-    ///   `source TEXT NOT NULL DEFAULT 'local'` and `source_artist_ref TEXT`,
-    ///   backfill existing rows with `source = 'local'`.
+    /// Delegates the SQL body to [`engine_migrations::migrate_to_v6`], which
+    /// the engine owns so the migration logic is shared with future Tauri-free
+    /// frontends. This wrapper preserves the desktop `PersistenceError`
+    /// mapping; the engine returns a context-carrying `MigrationError` whose
+    /// string form matches the historical desktop error messages.
     fn migrate_to_v6(conn: &Connection) -> Result<(), PersistenceError> {
-        // local_tracks.subfolder_path
-        Self::add_column_if_missing(conn, "local_tracks", "subfolder_path", "TEXT")?;
-
-        // user_playlists columns
-        Self::add_column_if_missing(
-            conn,
-            "user_playlists",
-            "kind",
-            "TEXT NOT NULL DEFAULT 'manual'",
-        )?;
-        Self::add_column_if_missing(conn, "user_playlists", "source_folder_path", "TEXT")?;
-        Self::add_column_if_missing(conn, "user_playlists", "parent_playlist_id", "TEXT")?;
-
-        // Backfill existing playlists to kind='manual' (the DEFAULT already
-        // covers new rows, but rows created before the column existed get the
-        // default value on first read; we normalize to 'manual' explicitly).
-        conn.execute(
-            "UPDATE user_playlists SET kind = 'manual' WHERE kind IS NULL OR kind = ''",
-            [],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to backfill user_playlists.kind: {}",
-                e
-            ))
-        })?;
-
-        // Helpful indexes for folder-as-playlist queries.
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_user_playlists_source_folder
-                ON user_playlists(source_folder_path)",
-            [],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create source_folder index: {}", e))
-        })?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_user_playlists_parent
-                ON user_playlists(parent_playlist_id)",
-            [],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!(
-                "failed to create parent_playlist index: {}",
-                e
-            ))
-        })?;
-
-        // artist_favorites rebuild. SQLite cannot change a PRIMARY KEY in
-        // place, so we create a new table, copy data over (backfilling
-        // source = 'local'), drop the old table and rename.
-        // Idempotent: only rebuild if the new `source` column is missing.
-        let has_source: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('artist_favorites') WHERE name = 'source'",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap_or(0);
-
-        if has_source == 0 {
-            conn.execute_batch(
-                "CREATE TABLE artist_favorites_v6 (
-                    artist_id TEXT NOT NULL,
-                    source TEXT NOT NULL DEFAULT 'local',
-                    artist_name TEXT NOT NULL,
-                    thumbnail TEXT,
-                    source_artist_ref TEXT,
-                    added_at TEXT NOT NULL DEFAULT (datetime('now')),
-                    PRIMARY KEY (artist_id, source)
-                );
-
-                INSERT INTO artist_favorites_v6 (artist_id, source, artist_name, thumbnail, source_artist_ref, added_at)
-                SELECT artist_id, 'local', artist_name, thumbnail, NULL, added_at
-                FROM artist_favorites;
-
-                DROP TABLE artist_favorites;
-
-                ALTER TABLE artist_favorites_v6 RENAME TO artist_favorites;
-                ",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to rebuild artist_favorites for v6: {}",
-                    e
-                ))
-            })?;
-        } else {
-            Self::add_column_if_missing(conn, "artist_favorites", "source_artist_ref", "TEXT")?;
-        }
-
-        Ok(())
+        engine_migrations::migrate_to_v6(conn)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// v6 → v7 migration.
     ///
-    /// Adds the `update_prefs` table for the channel-aware updater. The table
-    /// uses a single-row design enforced by `CHECK (id = 1)` so the updater
-    /// prefs are uniquely typed and easy to upsert.
+    /// Delegates the SQL body to [`engine_migrations::migrate_to_v7`].
     fn migrate_to_v7(conn: &Connection) -> Result<(), PersistenceError> {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS update_prefs (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                skipped_version TEXT,
-                remind_later_at TEXT,
-                last_check_at TEXT,
-                detected_channel TEXT
-            );",
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create update_prefs (v7): {}", e))
-        })?;
-        Ok(())
+        engine_migrations::migrate_to_v7(conn)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// v7 → v8 migration. No row is seeded, so consent is false until the
     /// user actively enables it in Settings.
+    ///
+    /// Delegates the SQL body to [`engine_migrations::migrate_to_v8`].
     fn migrate_to_v8(conn: &Connection) -> Result<(), PersistenceError> {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS telemetry_prefs (
-                id INTEGER PRIMARY KEY CHECK (id = 1),
-                enabled INTEGER NOT NULL DEFAULT 0
-            );",
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create telemetry_prefs (v8): {}", e))
-        })
+        engine_migrations::migrate_to_v8(conn)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
-    fn migrate_to_v10(conn: &mut Connection) -> Result<(), PersistenceError> {
-        let transaction = conn.transaction().map_err(database_error)?;
-        transaction
-            .execute_batch(
-                "CREATE TABLE IF NOT EXISTS focus_sessions (
-                    id TEXT PRIMARY KEY,
-                    intention TEXT NOT NULL CHECK (length(trim(intention)) > 0),
-                    goal TEXT NOT NULL DEFAULT '',
-                    first_action TEXT NOT NULL DEFAULT '',
-                    workflow TEXT NOT NULL CHECK (workflow IN ('pomodoro', 'deepWork', 'quickFocus', 'custom')),
-                    work_duration_ms INTEGER NOT NULL CHECK (work_duration_ms > 0),
-                    break_duration_ms INTEGER NOT NULL CHECK (break_duration_ms >= 0),
-                    rounds INTEGER NOT NULL CHECK (rounds > 0),
-                    round INTEGER NOT NULL CHECK (round > 0 AND round <= rounds),
-                    phase TEXT NOT NULL CHECK (phase IN ('work', 'break')),
-                    state TEXT NOT NULL CHECK (state IN ('draft', 'runningWork', 'pausedWork', 'awaitingTransition', 'runningBreak', 'pausedBreak', 'completed', 'discarded')),
-                    phase_started_at INTEGER,
-                    phase_deadline_at INTEGER,
-                    paused_remaining_ms INTEGER CHECK (paused_remaining_ms IS NULL OR paused_remaining_ms >= 0),
-                    revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
-                    music_strategy TEXT NOT NULL CHECK (music_strategy IN ('none', 'continueCurrent', 'preset', 'query')),
-                    music_value TEXT,
-                    degradation_reason TEXT,
-                    outcome TEXT CHECK (outcome IS NULL OR outcome IN ('completed', 'discarded')),
-                    created_at INTEGER NOT NULL,
-                    updated_at INTEGER NOT NULL,
-                    completed_at INTEGER
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_focus_sessions_one_nonterminal
-                    ON focus_sessions((1)) WHERE state NOT IN ('completed', 'discarded');
-                CREATE TABLE IF NOT EXISTS focus_captures (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL REFERENCES focus_sessions(id) ON DELETE CASCADE,
-                    kind TEXT NOT NULL CHECK (kind IN ('note', 'distraction')),
-                    body TEXT NOT NULL CHECK (length(trim(body)) > 0),
-                    created_at INTEGER NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_focus_captures_session_created
-                    ON focus_captures(session_id, created_at, id);
-                CREATE TABLE IF NOT EXISTS focus_preferences (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    default_workflow TEXT NOT NULL DEFAULT 'pomodoro' CHECK (default_workflow IN ('pomodoro', 'deepWork', 'quickFocus', 'custom')),
-                    default_work_duration_ms INTEGER NOT NULL DEFAULT 1500000 CHECK (default_work_duration_ms > 0),
-                    default_break_duration_ms INTEGER NOT NULL DEFAULT 300000 CHECK (default_break_duration_ms >= 0),
-                    default_rounds INTEGER NOT NULL DEFAULT 4 CHECK (default_rounds > 0),
-                    default_music_strategy TEXT NOT NULL DEFAULT 'none' CHECK (default_music_strategy IN ('none', 'continueCurrent', 'preset', 'query')),
-                    default_music_value TEXT,
-                    updated_at INTEGER NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS focus_operations (
-                    operation_id TEXT PRIMARY KEY,
-                    session_id TEXT REFERENCES focus_sessions(id) ON DELETE SET NULL,
-                    request_id TEXT NOT NULL UNIQUE,
-                    operation_kind TEXT NOT NULL,
-                    result_json TEXT NOT NULL,
-                    created_at INTEGER NOT NULL
-                );",
-            )
-            .map_err(database_error)?;
-
-        if !Self::column_exists(&transaction, "focus_sessions", "goal") {
-            transaction
-                .execute(
-                    "ALTER TABLE focus_sessions ADD COLUMN goal TEXT NOT NULL DEFAULT ''",
-                    [],
-                )
-                .map_err(database_error)?;
-        }
-        if !Self::column_exists(&transaction, "focus_sessions", "first_action") {
-            transaction
-                .execute(
-                    "ALTER TABLE focus_sessions ADD COLUMN first_action TEXT NOT NULL DEFAULT ''",
-                    [],
-                )
-                .map_err(database_error)?;
-        }
-        transaction.commit().map_err(database_error)
+    /// v8 → v10 migration.
+    ///
+    /// Delegates the SQL body to [`engine_migrations::migrate_to_v10`].
+    fn migrate_to_v10(conn: &Connection) -> Result<(), PersistenceError> {
+        engine_migrations::migrate_to_v10(conn)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     // ── Update Prefs ──────────────────────────────────────────────────
@@ -589,239 +279,110 @@ impl Database {
     /// Read the persisted updater prefs. Returns `UpdatePrefs::default()`
     /// (all fields `None`) when no row exists yet (fresh install).
     pub fn get_update_prefs(&self) -> Result<UpdatePrefs, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let result = conn.query_row(
-            "SELECT skipped_version, remind_later_at, last_check_at, detected_channel
-             FROM update_prefs WHERE id = ?1",
-            params![SETTINGS_SINGLETON_ID],
-            |row| {
-                Ok(UpdatePrefs {
-                    skipped_version: row.get(0)?,
-                    remind_later_at: row.get(1)?,
-                    last_check_at: row.get(2)?,
-                    detected_channel: row.get(3)?,
-                })
-            },
-        );
-
-        match result {
-            Ok(prefs) => Ok(prefs),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(UpdatePrefs::default()),
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to read update_prefs: {}",
-                e
-            ))),
-        }
+        use jellyx_engine::updater::UpdatePreferencesRepository;
+        self.conn
+            .update_preferences()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Persist the updater prefs (insert or replace the single row).
     pub fn save_update_prefs(&self, prefs: &UpdatePrefs) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT OR REPLACE INTO update_prefs
-                (id, skipped_version, remind_later_at, last_check_at, detected_channel)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                SETTINGS_SINGLETON_ID,
-                prefs.skipped_version,
-                prefs.remind_later_at,
-                prefs.last_check_at,
-                prefs.detected_channel,
-            ],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to save update_prefs: {}", e))
-        })?;
-
-        Ok(())
+        use jellyx_engine::updater::UpdatePreferencesRepository;
+        self.conn
+            .save_update_preferences(prefs)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Returns false unless the user has explicitly persisted consent.
     pub fn get_telemetry_enabled(&self) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-        let enabled = conn.query_row(
-            "SELECT enabled FROM telemetry_prefs WHERE id = ?1",
-            params![SETTINGS_SINGLETON_ID],
-            |row| row.get::<_, i64>(0),
-        );
-        match enabled {
-            Ok(value) => Ok(value != 0),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to read telemetry preference: {}",
-                e
-            ))),
-        }
+        use jellyx_engine::preferences::PreferencesRepository;
+        self.conn
+            .telemetry_enabled()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Persist the user's explicit telemetry choice. This is never enabled by
     /// migration or by a configured DSN.
     pub fn set_telemetry_enabled(&self, enabled: bool) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-        conn.execute(
-            "INSERT OR REPLACE INTO telemetry_prefs (id, enabled) VALUES (?1, ?2)",
-            params![SETTINGS_SINGLETON_ID, i64::from(enabled)],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to save telemetry preference: {}", e))
-        })?;
-        Ok(())
+        use jellyx_engine::preferences::PreferencesRepository;
+        self.conn
+            .set_telemetry_enabled(enabled)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
-    /// Record a play event in history.
-    ///
-    /// Evicts the oldest entry when history exceeds `HISTORY_LIMIT` entries
-    /// so the table stays bounded to the 100 most recent plays.
     pub fn insert_history(&self, track: &Track) -> Result<(), PersistenceError> {
         let track_json = serde_json::to_string(track).map_err(|e| {
             PersistenceError::WriteError(format!("failed to serialize track: {}", e))
         })?;
-
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT INTO history (track_id, track_json) VALUES (?1, ?2)",
-            params![track.id, track_json],
-        )
-        .map_err(|e| PersistenceError::DatabaseError(format!("failed to insert history: {}", e)))?;
-
-        // Evict oldest entries if we've exceeded the limit.
-        conn.execute(
-            "DELETE FROM history WHERE id IN (
-                    SELECT id FROM history ORDER BY played_at ASC LIMIT (
-                        SELECT MAX(0, COUNT(*) - ?1) FROM history
-                    )
-                )",
-            params![HISTORY_LIMIT],
-        )
-        .map_err(|e| PersistenceError::DatabaseError(format!("failed to evict history: {}", e)))?;
-
-        Ok(())
+        let repo = HistoryRepository::new(self.conn.clone());
+        repo.insert(&track.id, &track_json)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
-    /// Get play history, ordered by most recent first (default limit 50).
     pub fn get_history(&self) -> Result<Vec<HistoryEntry>, PersistenceError> {
-        self.get_history_with_limit(HISTORY_LIMIT)
+        let repo = HistoryRepository::new(self.conn.clone());
+        let rows = repo
+            .get()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        rows.into_iter()
+            .map(|row| {
+                let track: Track = serde_json::from_str(&row.track_json).map_err(|e| {
+                    PersistenceError::DatabaseError(format!("failed to deserialize track: {}", e))
+                })?;
+                Ok(HistoryEntry {
+                    id: row.id,
+                    track,
+                    played_at: row.played_at,
+                })
+            })
+            .collect()
     }
 
-    /// Get play history with a custom limit, ordered by most recent first.
     pub fn get_history_with_limit(
         &self,
         limit: u32,
     ) -> Result<Vec<HistoryEntry>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, track_id, track_json, played_at FROM history ORDER BY played_at DESC, id DESC LIMIT ?1",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to prepare history query: {}", e))
-            })?;
-
-        let entries = stmt
-            .query_map(params![limit], |row| {
-                let track_json: String = row.get(2)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
+        let repo = HistoryRepository::new(self.conn.clone());
+        let rows = repo
+            .get_with_limit(limit)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        rows.into_iter()
+            .map(|row| {
+                let track: Track = serde_json::from_str(&row.track_json).map_err(|e| {
+                    PersistenceError::DatabaseError(format!("failed to deserialize track: {}", e))
                 })?;
                 Ok(HistoryEntry {
-                    id: row.get(0)?,
+                    id: row.id,
                     track,
-                    played_at: row.get(3)?,
+                    played_at: row.played_at,
                 })
             })
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query history: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
+            .collect()
     }
 
-    /// Get recently played tracks deduplicated by track_id.
-    ///
-    /// Returns only the most recent entry per track_id, ordered by most recent
-    /// first. Used by the Home page "recently played" list so the same track
-    /// doesn't appear multiple times. The full event log (with duplicates) is
-    /// still available via `get_history` for play counts and recommendations.
     pub fn get_recent_unique(&self, limit: u32) -> Result<Vec<HistoryEntry>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT h.id, h.track_id, h.track_json, h.played_at
-                 FROM history h
-                 WHERE h.id = (
-                     SELECT MAX(h2.id) FROM history h2 WHERE h2.track_id = h.track_id
-                 )
-                 ORDER BY h.played_at DESC, h.id DESC
-                 LIMIT ?1",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare recent-unique query: {}",
-                    e
-                ))
-            })?;
-
-        let entries = stmt
-            .query_map(params![limit], |row| {
-                let track_json: String = row.get(2)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
+        let repo = HistoryRepository::new(self.conn.clone());
+        let rows = repo
+            .get_recent_unique(limit)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        rows.into_iter()
+            .map(|row| {
+                let track: Track = serde_json::from_str(&row.track_json).map_err(|e| {
+                    PersistenceError::DatabaseError(format!("failed to deserialize track: {}", e))
                 })?;
                 Ok(HistoryEntry {
-                    id: row.get(0)?,
+                    id: row.id,
                     track,
-                    played_at: row.get(3)?,
+                    played_at: row.played_at,
                 })
             })
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query recent-unique: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
+            .collect()
     }
 
-    /// Clear all history entries.
     pub fn clear_history(&self) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute("DELETE FROM history", []).map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to clear history: {}", e))
-        })?;
-
-        Ok(())
+        let repo = HistoryRepository::new(self.conn.clone());
+        repo.clear()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Get the current schema version.
@@ -847,96 +408,79 @@ impl Database {
     }
 
     // ── Watched Folders ────────────────────────────────────────────────
+    ///
+    /// All watched-folder CRUD delegates to [`WatchedFolderRepository`]
+    /// in the engine so both frontends share a single persistence boundary.
 
     /// Insert a watched folder. Returns error if path already exists.
     pub fn insert_watched_folder(&self, path: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT INTO watched_folders (path) VALUES (?1)",
-            params![path],
-        )
-        .map_err(|e| {
-            if e.to_string().contains("UNIQUE constraint") {
-                PersistenceError::DatabaseError(format!("folder already watched: {}", path))
-            } else {
-                PersistenceError::DatabaseError(format!("failed to insert watched folder: {}", e))
-            }
-        })?;
-
-        Ok(())
+        WatchedFolderRepository::new(self.conn.clone())
+            .add(path)
+            .map_err(|e| {
+                if e.to_string().contains("UNIQUE constraint") {
+                    PersistenceError::DatabaseError(format!("folder already watched: {}", path))
+                } else {
+                    PersistenceError::DatabaseError(format!(
+                        "failed to insert watched folder: {}",
+                        e
+                    ))
+                }
+            })
     }
 
     /// Get all watched folders.
     pub fn get_watched_folders(&self) -> Result<Vec<WatchedFolder>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT path, last_scanned_at, added_at FROM watched_folders ORDER BY added_at ASC",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare watched_folders query: {}",
-                    e
-                ))
-            })?;
-
-        let entries = stmt
-            .query_map([], |row| {
-                Ok(WatchedFolder {
-                    path: row.get(0)?,
-                    last_scanned_at: row.get(1)?,
-                    added_at: row.get(2)?,
-                })
-            })
+        WatchedFolderRepository::new(self.conn.clone())
+            .all()
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to query watched_folders: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
+            })
+            .map(|folders| {
+                folders
+                    .into_iter()
+                    .map(|wf| WatchedFolder {
+                        path: wf.path,
+                        last_scanned_at: wf.last_scanned_at,
+                        added_at: wf.added_at,
+                    })
+                    .collect()
+            })
     }
 
     /// Remove a watched folder. CASCADE deletes associated local_tracks.
     /// Returns true if a row was removed.
     pub fn remove_watched_folder(&self, path: &str) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute("DELETE FROM watched_folders WHERE path = ?1", params![path])
+        WatchedFolderRepository::new(self.conn.clone())
+            .remove(path)
+            .map(|rows| rows > 0)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to remove watched folder: {}", e))
-            })?;
-
-        Ok(rows > 0)
+            })
     }
 
     /// Update the last_scanned_at timestamp for a watched folder.
     pub fn update_folder_scan_time(&self, path: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
+        WatchedFolderRepository::new(self.conn.clone())
+            .update_last_scanned_at(path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to update scan time: {}", e))
+            })
+    }
 
-        conn.execute(
-            "UPDATE watched_folders SET last_scanned_at = datetime('now') WHERE path = ?1",
-            params![path],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to update folder scan time: {}", e))
-        })?;
-
-        Ok(())
+    /// Check if a watched folder exists.
+    pub fn watched_folder_exists(&self, path: &str) -> Result<bool, PersistenceError> {
+        WatchedFolderRepository::new(self.conn.clone())
+            .exists(path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to check watched folder: {}", e))
+            })
     }
 
     // ── Local Tracks ──────────────────────────────────────────────────
+    ///
+    /// All local-track CRUD delegates to [`LocalTrackRepository`]
+    /// in the engine so both frontends share a single persistence boundary.
+    /// Desktop handles JSON (de)serialization of `Track` payloads.
 
     /// Insert or update a local track. Uses INSERT OR REPLACE.
     ///
@@ -956,25 +500,17 @@ impl Database {
             PersistenceError::WriteError(format!("failed to serialize track: {}", e))
         })?;
 
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT OR REPLACE INTO local_tracks (file_path, track_json, folder_path, file_modified_at, subfolder_path) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
+        LocalTrackRepository::new(self.conn.clone())
+            .upsert(
                 file_path,
-                track_json,
+                &track_json,
                 folder_path,
                 file_modified_at,
-                subfolder_path
-            ],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to upsert local track: {}", e))
-        })?;
-
-        Ok(())
+                subfolder_path,
+            )
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to upsert local track: {}", e))
+            })
     }
 
     /// Get all local tracks (for recommendation inventory).
@@ -987,83 +523,23 @@ impl Database {
         &self,
         folder_path: Option<&str>,
     ) -> Result<Vec<LocalTrackEntry>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut entries = Vec::new();
-
-        if let Some(folder) = folder_path {
-            let mut stmt = conn
-                .prepare("SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks WHERE folder_path = ?1 ORDER BY file_path")
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!("failed to prepare local_tracks query: {}", e))
-                })?;
-
-            let rows = stmt
-                .query_map(params![folder], |row| {
-                    let track_json: String = row.get(1)?;
-                    let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            track_json.len(),
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        )
-                    })?;
-                    Ok(LocalTrackEntry {
-                        track,
-                        file_path: row.get(0)?,
-                        folder_path: row.get(2)?,
-                        file_modified_at: row.get(3)?,
-                        subfolder_path: row.get(4)?,
+        LocalTrackRepository::new(self.conn.clone())
+            .get_all(folder_path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to query local_tracks: {}", e))
+            })
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|r| LocalTrackEntry {
+                        track: serde_json::from_str(&r.track_json)
+                            .unwrap_or_else(|_| empty_track()),
+                        file_path: r.file_path,
+                        folder_path: r.folder_path,
+                        file_modified_at: r.file_modified_at,
+                        subfolder_path: r.subfolder_path,
                     })
-                })
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!("failed to query local_tracks: {}", e))
-                })?;
-
-            for r in rows {
-                if let Ok(entry) = r {
-                    entries.push(entry);
-                }
-            }
-        } else {
-            let mut stmt = conn
-                .prepare("SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks ORDER BY file_path")
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!("failed to prepare local_tracks query: {}", e))
-                })?;
-
-            let rows = stmt
-                .query_map([], |row| {
-                    let track_json: String = row.get(1)?;
-                    let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            track_json.len(),
-                            rusqlite::types::Type::Text,
-                            Box::new(e),
-                        )
-                    })?;
-                    Ok(LocalTrackEntry {
-                        track,
-                        file_path: row.get(0)?,
-                        folder_path: row.get(2)?,
-                        file_modified_at: row.get(3)?,
-                        subfolder_path: row.get(4)?,
-                    })
-                })
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!("failed to query local_tracks: {}", e))
-                })?;
-
-            for r in rows {
-                if let Ok(entry) = r {
-                    entries.push(entry);
-                }
-            }
-        }
-
-        Ok(entries)
+                    .collect()
+            })
     }
 
     /// Get a local track by its file path.
@@ -1071,34 +547,14 @@ impl Database {
         &self,
         file_path: &str,
     ) -> Result<Option<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let result = conn.query_row(
-            "SELECT track_json FROM local_tracks WHERE file_path = ?1",
-            params![file_path],
-            |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            },
-        );
-
-        match result {
-            Ok(track) => Ok(Some(track)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get local track by path: {}",
-                e
-            ))),
-        }
+        LocalTrackRepository::new(self.conn.clone())
+            .get_by_path(file_path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!("failed to get local track by path: {}", e))
+            })
+            .map(|opt| {
+                opt.map(|r| serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()))
+            })
     }
 
     /// Get a full local track inventory entry by its file path.
@@ -1106,73 +562,31 @@ impl Database {
         &self,
         file_path: &str,
     ) -> Result<Option<LocalTrackEntry>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let result = conn.query_row(
-            "SELECT file_path, track_json, folder_path, file_modified_at, subfolder_path FROM local_tracks WHERE file_path = ?1",
-            params![file_path],
-            |row| {
-                let track_json: String = row.get(1)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(LocalTrackEntry {
-                    track,
-                    file_path: row.get(0)?,
-                    folder_path: row.get(2)?,
-                    file_modified_at: row.get(3)?,
-                    subfolder_path: row.get(4)?,
+        LocalTrackRepository::new(self.conn.clone())
+            .get_by_path(file_path)
+            .map_err(|e| {
+                PersistenceError::DatabaseError(format!(
+                    "failed to get local track entry by path: {}",
+                    e
+                ))
+            })
+            .map(|opt| {
+                opt.map(|r| LocalTrackEntry {
+                    track: serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()),
+                    file_path: r.file_path,
+                    folder_path: r.folder_path,
+                    file_modified_at: r.file_modified_at,
+                    subfolder_path: r.subfolder_path,
                 })
-            },
-        );
-
-        match result {
-            Ok(entry) => Ok(Some(entry)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get local track entry by path: {}",
-                e
-            ))),
-        }
+            })
     }
 
     /// Get a local track by its Jellyx track ID stored in the serialized payload.
     pub fn get_local_track_by_id(&self, track_id: &str) -> Result<Option<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let pattern = format!("%\"id\":\"{}\"%", track_id);
-        let result = conn.query_row(
-            "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 LIMIT 1",
-            params![pattern],
-            |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            },
-        );
-
-        match result {
-            Ok(track) => Ok(Some(track)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get local track by id: {}",
-                e
-            ))),
-        }
+        // The engine doesn't have a direct "by ID" query; we use search with pattern.
+        // For now, delegate to search_local_tracks with a pattern.
+        self.search_local_tracks(&format!("\"id\":\"{}\"", track_id))
+            .map(|tracks| tracks.into_iter().next())
     }
 
     /// Delete all local tracks for a given folder path.
@@ -1180,140 +594,58 @@ impl Database {
         &self,
         folder_path: &str,
     ) -> Result<u64, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute(
-                "DELETE FROM local_tracks WHERE folder_path = ?1",
-                params![folder_path],
-            )
+        LocalTrackRepository::new(self.conn.clone())
+            .delete_by_folder(folder_path)
+            .map(|rows| rows as u64)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!(
                     "failed to delete local tracks by folder: {}",
                     e
                 ))
-            })?;
-
-        Ok(rows as u64)
+            })
     }
 
     /// Delete a single local track by file path.
     pub fn delete_local_track_by_path(&self, file_path: &str) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute(
-                "DELETE FROM local_tracks WHERE file_path = ?1",
-                params![file_path],
-            )
+        LocalTrackRepository::new(self.conn.clone())
+            .delete_by_path(file_path)
+            .map(|rows| rows > 0)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!(
                     "failed to delete local track by path: {}",
                     e
                 ))
-            })?;
-
-        Ok(rows > 0)
+            })
     }
 
     /// Search local tracks by a text query (matches title, artist, album).
     pub fn search_local_tracks(&self, query: &str) -> Result<Vec<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let pattern = format!("%{}%", query);
-        let mut stmt = conn
-            .prepare(
-                "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 ORDER BY file_path",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to prepare search query: {}", e))
-            })?;
-
-        let entries = stmt
-            .query_map(params![pattern], |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            })
+        LocalTrackRepository::new(self.conn.clone())
+            .search(query)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to search local tracks: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
-    }
-
-    /// Check if a watched folder already exists.
-    pub fn watched_folder_exists(&self, path: &str) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let count: u32 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM watched_folders WHERE path = ?1",
-                params![path],
-                |row| row.get(0),
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to check watched folder: {}", e))
-            })?;
-
-        Ok(count > 0)
+            })
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|r| serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()))
+                    .collect()
+            })
     }
 
     // ── Search / Detail Queries ────────────────────────────────────────
 
     /// Get all local tracks for a specific artist, ordered by file path.
     pub fn get_local_tracks_by_artist(&self, artist: &str) -> Result<Vec<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let pattern = format!("%\"artist\":\"{}\"%", artist);
-        let mut stmt = conn
-            .prepare(
-                "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 ORDER BY file_path",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare artist tracks query: {}",
-                    e
-                ))
-            })?;
-
-        let tracks = stmt
-            .query_map(params![pattern], |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            })
+        LocalTrackRepository::new(self.conn.clone())
+            .get_by_artist(artist)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to query artist tracks: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(tracks)
+            })
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|r| serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()))
+                    .collect()
+            })
     }
 
     /// Get all local tracks for a specific album (title + artist), ordered by file path.
@@ -1322,45 +654,23 @@ impl Database {
         title: &str,
         artist: &str,
     ) -> Result<Vec<Track>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        // Match album and artist JSON substrings. This is intentionally simple
-        // to avoid schema changes; SQLite JSON1 is available in bundled builds.
-        let album_pattern = format!("%\"album\":\"{}\"%", title);
-        let artist_pattern = format!("%\"artist\":\"{}\"%", artist);
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT track_json FROM local_tracks WHERE track_json LIKE ?1 AND track_json LIKE ?2 ORDER BY file_path",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare album tracks query: {}",
-                    e
-                ))
-            })?;
-
-        let tracks = stmt
-            .query_map(params![album_pattern, artist_pattern], |row| {
-                let track_json: String = row.get(0)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
-                })?;
-                Ok(track)
-            })
+        // Engine doesn't have a combined album+artist query; use album then filter by artist.
+        // Fall back to album query then client-side filter.
+        LocalTrackRepository::new(self.conn.clone())
+            .get_by_album(title)
             .map_err(|e| {
                 PersistenceError::DatabaseError(format!("failed to query album tracks: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(tracks)
+            })
+            .map(|rows| {
+                rows.into_iter()
+                    .filter(|r| {
+                        serde_json::from_str::<serde_json::Value>(&r.track_json)
+                            .map(|v| v.get("artist").and_then(|a| a.as_str()) == Some(artist))
+                            .unwrap_or(false)
+                    })
+                    .map(|r| serde_json::from_str(&r.track_json).unwrap_or_else(|_| empty_track()))
+                    .collect()
+            })
     }
 
     /// Count how many times each track ID appears in play history.
@@ -1369,50 +679,38 @@ impl Database {
     pub fn get_track_play_counts(
         &self,
     ) -> Result<std::collections::HashMap<String, u32>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare("SELECT track_id, COUNT(*) FROM history GROUP BY track_id")
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare play count query: {}",
-                    e
-                ))
-            })?;
-
-        let counts = stmt
-            .query_map([], |row| {
-                let track_id: String = row.get(0)?;
-                let count: u32 = row.get(1)?;
-                Ok((track_id, count))
-            })
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query play counts: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(counts)
+        let repo = HistoryRepository::new(self.conn.clone());
+        repo.play_counts()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     // ── User Playlists ─────────────────────────────────────────────────
-
-    /// Create a new user playlist.
     ///
-    /// `kind` defaults to `"manual"` for user-created playlists. Pass
-    /// `"folder"` for folder-derived playlists.
+    /// All user-playlist CRUD delegates to [`UserPlaylistsRepository`]
+    /// in the engine so both frontends share a single persistence boundary.
+
+    fn engine_playlist_to_desktop(p: jellyx_engine::user_playlists::UserPlaylist) -> UserPlaylist {
+        UserPlaylist {
+            id: p.id,
+            title: p.title,
+            kind: p.kind,
+            source_folder_path: p.source_folder_path,
+            parent_playlist_id: p.parent_playlist_id,
+            created_at: p.created_at,
+            updated_at: p.updated_at,
+        }
+    }
+
+    /// Create a new manual playlist.
     pub fn create_playlist(&self, title: &str) -> Result<UserPlaylist, PersistenceError> {
-        self.create_playlist_with_kind(title, "manual")
+        UserPlaylistsRepository::new(self.conn.clone())
+            .create(title)
+            .map(Self::engine_playlist_to_desktop)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Create a new user playlist with an explicit kind and optional source
     /// folder + parent linkage.
-    ///
-    /// `kind` is `"manual"`, `"folder"` or `"generated_artist"`. For folder
-    /// playlists pass `source_folder_path = Some(watched_path)` and
-    /// `parent_playlist_id = Some(parent_id)` for child playlists.
     pub fn create_folder_playlist(
         &self,
         title: &str,
@@ -1420,318 +718,109 @@ impl Database {
         source_folder_path: Option<&str>,
         parent_playlist_id: Option<&str>,
     ) -> Result<UserPlaylist, PersistenceError> {
-        let id = uuid::Uuid::new_v4().to_string();
-
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT INTO user_playlists (id, title, kind, source_folder_path, parent_playlist_id)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id, title, kind, source_folder_path, parent_playlist_id],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create playlist: {}", e))
-        })?;
-
-        Ok(UserPlaylist {
-            id,
-            title: title.to_string(),
-            kind: kind.to_string(),
-            source_folder_path: source_folder_path.map(|s| s.to_string()),
-            parent_playlist_id: parent_playlist_id.map(|s| s.to_string()),
-            created_at: Self::now_iso(&conn),
-            updated_at: Self::now_iso(&conn),
-        })
-    }
-
-    /// Internal helper: create a manual playlist.
-    fn create_playlist_with_kind(
-        &self,
-        title: &str,
-        kind: &str,
-    ) -> Result<UserPlaylist, PersistenceError> {
-        let id = uuid::Uuid::new_v4().to_string();
-
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT INTO user_playlists (id, title, kind) VALUES (?1, ?2, ?3)",
-            params![id, title, kind],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to create playlist: {}", e))
-        })?;
-
-        Ok(UserPlaylist {
-            id,
-            title: title.to_string(),
-            kind: kind.to_string(),
-            source_folder_path: None,
-            parent_playlist_id: None,
-            created_at: Self::now_iso(&conn),
-            updated_at: Self::now_iso(&conn),
-        })
-    }
-
-    fn now_iso(conn: &Connection) -> String {
-        conn.query_row("SELECT datetime('now')", [], |row| row.get(0))
-            .unwrap_or_default()
+        UserPlaylistsRepository::new(self.conn.clone())
+            .create_folder(title, kind, source_folder_path, parent_playlist_id)
+            .map(Self::engine_playlist_to_desktop)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Rename a user playlist.
     pub fn rename_playlist(&self, id: &str, title: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute(
-                "UPDATE user_playlists SET title = ?1, updated_at = datetime('now') WHERE id = ?2",
-                params![title, id],
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to rename playlist: {}", e))
-            })?;
-
-        if rows == 0 {
-            return Err(PersistenceError::DatabaseError(format!(
-                "playlist not found: {}",
-                id
-            )));
-        }
-
-        Ok(())
+        UserPlaylistsRepository::new(self.conn.clone())
+            .rename(id, title)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Delete a user playlist (cascades to playlist_tracks).
     pub fn delete_playlist(&self, id: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute("DELETE FROM user_playlists WHERE id = ?1", params![id])
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to delete playlist: {}", e))
-            })?;
-
-        if rows == 0 {
-            return Err(PersistenceError::DatabaseError(format!(
-                "playlist not found: {}",
-                id
-            )));
-        }
-
-        Ok(())
+        UserPlaylistsRepository::new(self.conn.clone())
+            .delete(id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Get all user playlists, ordered by updated_at DESC.
     pub fn get_all_playlists(&self) -> Result<Vec<UserPlaylist>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(&format!(
-                "SELECT {} FROM user_playlists ORDER BY updated_at DESC",
-                PLAYLIST_COLUMNS
-            ))
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to prepare playlists query: {}", e))
-            })?;
-
-        let playlists = stmt
-            .query_map([], row_to_playlist)
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query playlists: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(playlists)
+        UserPlaylistsRepository::new(self.conn.clone())
+            .get_all()
+            .map(|v| {
+                v.into_iter()
+                    .map(Self::engine_playlist_to_desktop)
+                    .collect()
+            })
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Get a single user playlist by ID.
     #[allow(dead_code)]
     pub fn get_playlist(&self, id: &str) -> Result<UserPlaylist, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.query_row(
-            &format!(
-                "SELECT {} FROM user_playlists WHERE id = ?1",
-                PLAYLIST_COLUMNS
-            ),
-            params![id],
-            row_to_playlist,
-        )
-        .map_err(|e| PersistenceError::DatabaseError(format!("failed to get playlist: {}", e)))
+        UserPlaylistsRepository::new(self.conn.clone())
+            .get_by_id(id)
+            .map(Self::engine_playlist_to_desktop)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Get recent playlists, ordered by updated_at DESC.
     pub fn get_recent_playlists(&self, limit: u32) -> Result<Vec<UserPlaylist>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(&format!(
-                "SELECT {} FROM user_playlists ORDER BY updated_at DESC LIMIT ?1",
-                PLAYLIST_COLUMNS
-            ))
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare recent playlists query: {}",
-                    e
-                ))
-            })?;
-
-        let playlists = stmt
-            .query_map(params![limit], row_to_playlist)
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query recent playlists: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(playlists)
+        UserPlaylistsRepository::new(self.conn.clone())
+            .get_recent(limit)
+            .map(|v| {
+                v.into_iter()
+                    .map(Self::engine_playlist_to_desktop)
+                    .collect()
+            })
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Search playlists by title (LIKE query).
     pub fn search_playlists(&self, query: &str) -> Result<Vec<UserPlaylist>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let pattern = format!("%{}%", query);
-        let mut stmt = conn
-            .prepare(&format!(
-                "SELECT {} FROM user_playlists WHERE title LIKE ?1 ORDER BY updated_at DESC",
-                PLAYLIST_COLUMNS
-            ))
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare search playlists query: {}",
-                    e
-                ))
-            })?;
-
-        let playlists = stmt
-            .query_map(params![pattern], row_to_playlist)
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to search playlists: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(playlists)
+        UserPlaylistsRepository::new(self.conn.clone())
+            .search(query)
+            .map(|v| {
+                v.into_iter()
+                    .map(Self::engine_playlist_to_desktop)
+                    .collect()
+            })
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Get all playlists generated from a watched folder (parent + children).
-    ///
-    /// Used by folder-as-playlist generation to detect existing playlists
-    /// (idempotency) and by cascade delete to clean up on folder removal.
     pub fn get_playlists_by_source_folder(
         &self,
         folder_path: &str,
     ) -> Result<Vec<UserPlaylist>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(&format!(
-                "SELECT {} FROM user_playlists WHERE source_folder_path = ?1 ORDER BY COALESCE(parent_playlist_id, ''), title ASC",
-                PLAYLIST_COLUMNS
-            ))
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare playlists_by_source_folder query: {}",
-                    e
-                ))
-            })?;
-
-        let playlists = stmt
-            .query_map(params![folder_path], row_to_playlist)
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to query playlists by source folder: {}",
-                    e
-                ))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(playlists)
+        UserPlaylistsRepository::new(self.conn.clone())
+            .get_by_source_folder(folder_path)
+            .map(|v| {
+                v.into_iter()
+                    .map(Self::engine_playlist_to_desktop)
+                    .collect()
+            })
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Get all child playlists of a given parent playlist.
-    ///
-    /// Returns playlists whose `parent_playlist_id` equals `parent_id`,
-    /// ordered by title. Used by the playlist detail view to render child
-    /// playlists under their parent.
     pub fn get_child_playlists(
         &self,
         parent_id: &str,
     ) -> Result<Vec<UserPlaylist>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(&format!(
-                "SELECT {} FROM user_playlists WHERE parent_playlist_id = ?1 ORDER BY title ASC",
-                PLAYLIST_COLUMNS
-            ))
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare child_playlists query: {}",
-                    e
-                ))
-            })?;
-
-        let playlists = stmt
-            .query_map(params![parent_id], row_to_playlist)
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query child playlists: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(playlists)
+        UserPlaylistsRepository::new(self.conn.clone())
+            .get_child_playlists(parent_id)
+            .map(|v| {
+                v.into_iter()
+                    .map(Self::engine_playlist_to_desktop)
+                    .collect()
+            })
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Delete all playlists generated from a watched folder.
-    ///
-    /// Called by the scanner when a watched folder is removed so that the
-    /// folder's parent and child playlists are cascade-deleted. Manual
-    /// playlists (no `source_folder_path`) are preserved.
     pub fn delete_playlists_by_source_folder(
         &self,
         folder_path: &str,
     ) -> Result<u64, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let rows = conn
-            .execute(
-                "DELETE FROM user_playlists WHERE source_folder_path = ?1",
-                params![folder_path],
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to delete playlists by source folder: {}",
-                    e
-                ))
-            })?;
-
-        Ok(rows as u64)
+        UserPlaylistsRepository::new(self.conn.clone())
+            .delete_by_source_folder(folder_path)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Add a track to the end of a playlist.
@@ -1743,43 +832,20 @@ impl Database {
         let track_json = serde_json::to_string(track).map_err(|e| {
             PersistenceError::WriteError(format!("failed to serialize track: {}", e))
         })?;
-
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        // Find max position
-        let max_pos: Option<i64> = conn
-            .query_row(
-                "SELECT MAX(position) FROM playlist_tracks WHERE playlist_id = ?1",
-                params![playlist_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(None);
-        let position = max_pos.unwrap_or(-1) + 1;
-
-        conn.execute(
-            "INSERT INTO playlist_tracks (playlist_id, position, track_json) VALUES (?1, ?2, ?3)",
-            params![playlist_id, position, track_json],
-        )
-        .map_err(|e| {
-            if e.to_string().contains("FOREIGN KEY") {
-                PersistenceError::DatabaseError(format!("playlist not found: {}", playlist_id))
-            } else {
-                PersistenceError::DatabaseError(format!("failed to add track to playlist: {}", e))
-            }
-        })?;
-
-        // Update playlist updated_at
-        conn.execute(
-            "UPDATE user_playlists SET updated_at = datetime('now') WHERE id = ?1",
-            params![playlist_id],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to update playlist timestamp: {}", e))
-        })?;
-
-        Ok(())
+        PlaylistTracksRepository::new(self.conn.clone())
+            .add_track(playlist_id, &track_json)
+            .map_err(|e| {
+                if e.to_string().contains("FOREIGN KEY")
+                    || e == rusqlite::Error::QueryReturnedNoRows
+                {
+                    PersistenceError::DatabaseError(format!("playlist not found: {}", playlist_id))
+                } else {
+                    PersistenceError::DatabaseError(format!(
+                        "failed to add track to playlist: {}",
+                        e
+                    ))
+                }
+            })
     }
 
     /// Remove all tracks from a playlist, resetting it to empty.
@@ -1789,19 +855,9 @@ impl Database {
     /// playlists are never wiped by this helper — callers are responsible
     /// for only invoking it on `kind = 'folder'` playlists.
     pub fn clear_playlist_tracks(&self, playlist_id: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "DELETE FROM playlist_tracks WHERE playlist_id = ?1",
-            params![playlist_id],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to clear playlist tracks: {}", e))
-        })?;
-
-        Ok(())
+        PlaylistTracksRepository::new(self.conn.clone())
+            .clear_tracks(playlist_id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Remove a track from a playlist by position and reindex remaining positions.
@@ -1810,33 +866,9 @@ impl Database {
         playlist_id: &str,
         position: i64,
     ) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "DELETE FROM playlist_tracks WHERE playlist_id = ?1 AND position = ?2",
-            params![playlist_id, position],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to remove track from playlist: {}", e))
-        })?;
-
-        // Reindex positions
-        conn.execute(
-            "UPDATE playlist_tracks SET position = (
-                SELECT rn FROM (
-                    SELECT position, ROW_NUMBER() OVER (ORDER BY position ASC) - 1 AS rn
-                    FROM playlist_tracks WHERE playlist_id = ?1
-                ) sub WHERE sub.position = playlist_tracks.position
-            ) WHERE playlist_id = ?1",
-            params![playlist_id],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to reindex playlist tracks: {}", e))
-        })?;
-
-        Ok(())
+        PlaylistTracksRepository::new(self.conn.clone())
+            .remove_track(playlist_id, position)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Get all tracks in a playlist, ordered by position.
@@ -1844,45 +876,22 @@ impl Database {
         &self,
         playlist_id: &str,
     ) -> Result<Vec<PlaylistTrackEntry>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT playlist_id, position, track_json, added_at FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position ASC",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare playlist tracks query: {}",
-                    e
-                ))
-            })?;
-
-        let entries = stmt
-            .query_map(params![playlist_id], |row| {
-                let track_json: String = row.get(2)?;
-                let track: Track = serde_json::from_str(&track_json).map_err(|e| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        track_json.len(),
-                        rusqlite::types::Type::Text,
-                        Box::new(e),
-                    )
+        PlaylistTracksRepository::new(self.conn.clone())
+            .get_tracks(playlist_id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?
+            .into_iter()
+            .map(|row| {
+                let track: Track = serde_json::from_str(&row.track_json).map_err(|e| {
+                    PersistenceError::DatabaseError(format!("failed to deserialize track: {}", e))
                 })?;
                 Ok(PlaylistTrackEntry {
-                    playlist_id: row.get(0)?,
-                    position: row.get(1)?,
+                    playlist_id: row.playlist_id,
+                    position: row.position,
                     track,
-                    added_at: row.get(3)?,
+                    added_at: row.added_at,
                 })
             })
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query playlist tracks: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
+            .collect()
     }
 
     /// Get up to 4 thumbnail URLs from the first tracks in a playlist that have thumbnails.
@@ -1893,69 +902,16 @@ impl Database {
         &self,
         playlist_id: &str,
     ) -> Result<Vec<String>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare(
-                "SELECT track_json FROM playlist_tracks WHERE playlist_id = ?1 ORDER BY position ASC",
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare playlist thumbnails query: {}",
-                    e
-                ))
-            })?;
-
-        let mut thumbnails: Vec<String> = Vec::new();
-        let rows = stmt
-            .query_map(params![playlist_id], |row| {
-                let track_json: String = row.get(0)?;
-                Ok(track_json)
-            })
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to query playlist thumbnails: {}",
-                    e
-                ))
-            })?;
-
-        for row_result in rows {
-            if thumbnails.len() >= 4 {
-                break;
-            }
-            if let Ok(track_json) = row_result {
-                if let Ok(track) = serde_json::from_str::<Track>(&track_json) {
-                    if let Some(thumb) = track.thumbnail {
-                        if !thumb.is_empty() {
-                            thumbnails.push(thumb);
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(thumbnails)
+        PlaylistTracksRepository::new(self.conn.clone())
+            .get_thumbnails(playlist_id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Count tracks in a playlist.
     pub fn count_playlist_tracks(&self, playlist_id: &str) -> Result<u32, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let count: u32 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM playlist_tracks WHERE playlist_id = ?1",
-                params![playlist_id],
-                |row| row.get(0),
-            )
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to count playlist tracks: {}", e))
-            })?;
-
-        Ok(count)
+        PlaylistTracksRepository::new(self.conn.clone())
+            .count_tracks(playlist_id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     // ── Artist Favorites ────────────────────────────────────────────────
@@ -1974,21 +930,9 @@ impl Database {
         thumbnail: Option<&str>,
         source_artist_ref: Option<&str>,
     ) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT INTO artist_favorites (artist_id, source, artist_name, thumbnail, source_artist_ref)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(artist_id, source) DO NOTHING",
-            params![artist_id, source, artist_name, thumbnail, source_artist_ref],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to add artist favorite: {}", e))
-        })?;
-
-        Ok(())
+        ArtistFavoritesRepository::new(self.conn.clone())
+            .add(artist_id, source, artist_name, thumbnail, source_artist_ref)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Remove an artist from favorites.
@@ -2000,25 +944,9 @@ impl Database {
         artist_id: &str,
         source: Option<&str>,
     ) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        match source {
-            Some(src) => conn.execute(
-                "DELETE FROM artist_favorites WHERE artist_id = ?1 AND source = ?2",
-                params![artist_id, src],
-            ),
-            None => conn.execute(
-                "DELETE FROM artist_favorites WHERE artist_id = ?1",
-                params![artist_id],
-            ),
-        }
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to remove artist favorite: {}", e))
-        })?;
-
-        Ok(())
+        ArtistFavoritesRepository::new(self.conn.clone())
+            .remove(artist_id, source)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Check if an artist is favorited.
@@ -2031,62 +959,28 @@ impl Database {
         artist_id: &str,
         source: Option<&str>,
     ) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let count: u32 = match source {
-            Some(src) => conn.query_row(
-                "SELECT COUNT(*) FROM artist_favorites WHERE artist_id = ?1 AND source = ?2",
-                params![artist_id, src],
-                |row| row.get(0),
-            ),
-            None => conn.query_row(
-                "SELECT COUNT(*) FROM artist_favorites WHERE artist_id = ?1",
-                params![artist_id],
-                |row| row.get(0),
-            ),
-        }
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to check artist favorite: {}", e))
-        })?;
-
-        Ok(count > 0)
+        ArtistFavoritesRepository::new(self.conn.clone())
+            .is_favorite(artist_id, source)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Get all favorited artists, ordered by added_at DESC.
     pub fn get_all_artist_favorites(&self) -> Result<Vec<ArtistFavorite>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let mut stmt = conn
-            .prepare("SELECT artist_id, source, artist_name, thumbnail, source_artist_ref, added_at FROM artist_favorites ORDER BY added_at DESC")
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare artist favorites query: {}",
-                    e
-                ))
-            })?;
-
-        let entries = stmt
-            .query_map([], |row| {
-                Ok(ArtistFavorite {
-                    artist_id: row.get(0)?,
-                    source: row.get(1)?,
-                    artist_name: row.get(2)?,
-                    thumbnail: row.get(3)?,
-                    source_artist_ref: row.get(4)?,
-                    added_at: row.get(5)?,
-                })
+        ArtistFavoritesRepository::new(self.conn.clone())
+            .get_all()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|row| ArtistFavorite {
+                        artist_id: row.artist_id,
+                        source: row.source,
+                        artist_name: row.artist_name,
+                        thumbnail: row.thumbnail,
+                        source_artist_ref: row.source_artist_ref,
+                        added_at: row.added_at,
+                    })
+                    .collect()
             })
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query artist favorites: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
     }
 
     // ── Audio Settings ────────────────────────────────────────────────
@@ -2094,43 +988,16 @@ impl Database {
     /// Get whether audio normalization is enabled.
     /// Defaults to true (enabled).
     pub fn get_normalize_audio(&self) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let result = conn.query_row(
-            "SELECT value FROM audio_settings WHERE key = 'normalize_audio'",
-            [],
-            |row| row.get::<_, String>(0),
-        );
-
-        match result {
-            Ok(val) => Ok(val == "1" || val == "true"),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(true), // default: enabled
-            Err(e) => Err(PersistenceError::DatabaseError(format!(
-                "failed to get normalize_audio: {}",
-                e
-            ))),
-        }
+        let repo = SettingsRepository::new(self.conn.clone());
+        repo.get_normalize_audio()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     /// Set whether audio normalization is enabled.
     pub fn set_normalize_audio(&self, enabled: bool) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        let val = if enabled { "1" } else { "0" };
-        conn.execute(
-            "INSERT INTO audio_settings (key, value) VALUES ('normalize_audio', ?1)
-             ON CONFLICT(key) DO UPDATE SET value = ?1",
-            params![val],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to set normalize_audio: {}", e))
-        })?;
-
-        Ok(())
+        let repo = SettingsRepository::new(self.conn.clone());
+        repo.set_normalize_audio(enabled)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     // ── Source Settings ────────────────────────────────────────────────
@@ -2140,165 +1007,62 @@ impl Database {
     /// Returns entries for YouTube, SoundCloud, and Local, defaulting to
     /// enabled if not yet stored in the database.
     pub fn get_source_settings(&self) -> Result<Vec<SourceSetting>, PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        // Ensure defaults exist for all known sources
-        for source in &["YouTube", "SoundCloud"] {
-            let exists: bool = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM source_settings WHERE source = ?1",
-                    params![source],
-                    |row| row.get::<_, i64>(0),
-                )
-                .map(|c| c > 0)
-                .unwrap_or(false);
-
-            if !exists {
-                conn.execute(
-                    "INSERT INTO source_settings (source, enabled) VALUES (?1, 1)",
-                    params![source],
-                )
-                .map_err(|e| {
-                    PersistenceError::DatabaseError(format!(
-                        "failed to insert default source setting: {}",
-                        e
-                    ))
-                })?;
-            }
-        }
-
-        let mut stmt = conn
-            .prepare("SELECT source, enabled FROM source_settings ORDER BY source")
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!(
-                    "failed to prepare source settings query: {}",
-                    e
-                ))
-            })?;
-
-        let entries: Vec<SourceSetting> = stmt
-            .query_map([], |row| {
-                let source: String = row.get(0)?;
-                let enabled: bool = row.get::<_, i64>(1)? != 0;
-                let label = match source.as_str() {
+        let repo = SettingsRepository::new(self.conn.clone());
+        let rows = repo
+            .get_source_settings()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let label = match r.source.as_str() {
                     "YouTube" => "YouTube".to_string(),
                     "SoundCloud" => "SoundCloud".to_string(),
                     other => other.to_string(),
                 };
-                Ok(SourceSetting {
-                    source,
-                    enabled,
+                SourceSetting {
+                    source: r.source,
+                    enabled: r.enabled,
                     label,
-                })
+                }
             })
-            .map_err(|e| {
-                PersistenceError::DatabaseError(format!("failed to query source settings: {}", e))
-            })?
-            .filter_map(|e| e.ok())
-            .collect();
-
-        Ok(entries)
+            .collect())
     }
 
     /// Set whether a source is enabled.
     pub fn set_source_enabled(&self, source: &str, enabled: bool) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to lock database: {}", e))
-        })?;
-
-        conn.execute(
-            "INSERT INTO source_settings (source, enabled) VALUES (?1, ?2)
-             ON CONFLICT(source) DO UPDATE SET enabled = ?2",
-            params![source, enabled as i64],
-        )
-        .map_err(|e| {
-            PersistenceError::DatabaseError(format!("failed to set source enabled: {}", e))
-        })?;
-
-        Ok(())
-    }
-
-    /// Get the set of currently enabled source names.
-    pub fn get_enabled_sources(
-        &self,
-    ) -> Result<std::collections::HashSet<String>, PersistenceError> {
-        let settings = self.get_source_settings()?;
-        Ok(settings
-            .into_iter()
-            .filter(|s| s.enabled)
-            .map(|s| s.source)
-            .collect())
+        let repo = SettingsRepository::new(self.conn.clone());
+        repo.set_source_enabled(source, enabled)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     pub fn focus_get_session(&self, id: &str) -> Result<Option<FocusSession>, PersistenceError> {
-        let conn = self.conn.lock().map_err(lock_error)?;
-        let session = conn
-            .query_row(
-                &format!("{FOCUS_SESSION_SELECT} WHERE id = ?1"),
-                [id],
-                focus_session_from_row,
-            )
-            .optional()
-            .map_err(database_error)?;
-        session
-            .map(|mut session| {
-                session.captures = focus_captures(&conn, &session.id)?;
-                Ok(session)
-            })
-            .transpose()
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        let row = repo
+            .get_session(id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        row.map(focus_row_to_session).transpose()
     }
 
     pub fn focus_get_nonterminal_session(&self) -> Result<Option<FocusSession>, PersistenceError> {
-        let conn = self.conn.lock().map_err(lock_error)?;
-        let session = conn
-            .query_row(
-                &format!(
-                    "{FOCUS_SESSION_SELECT} WHERE state NOT IN ('completed', 'discarded') LIMIT 1"
-                ),
-                [],
-                focus_session_from_row,
-            )
-            .optional()
-            .map_err(database_error)?;
-        session
-            .map(|mut session| {
-                session.captures = focus_captures(&conn, &session.id)?;
-                Ok(session)
-            })
-            .transpose()
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        let row = repo
+            .get_nonterminal_session()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        row.map(focus_row_to_session).transpose()
     }
 
     pub fn focus_list_sessions(&self, limit: u32) -> Result<Vec<FocusSession>, PersistenceError> {
-        let conn = self.conn.lock().map_err(lock_error)?;
-        let mut sessions = {
-            let mut statement = conn
-                .prepare(&format!(
-                    "{FOCUS_SESSION_SELECT} WHERE state IN ('completed', 'discarded') ORDER BY updated_at DESC LIMIT ?1"
-                ))
-                .map_err(database_error)?;
-            let sessions = statement
-                .query_map([limit], focus_session_from_row)
-                .map_err(database_error)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(database_error)?;
-            sessions
-        };
-        for session in &mut sessions {
-            session.captures = focus_captures(&conn, &session.id)?;
-        }
-        Ok(sessions)
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        let rows = repo
+            .list_sessions(limit)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        rows.into_iter().map(focus_row_to_session).collect()
     }
 
     pub fn focus_delete_session(&self, id: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(lock_error)?;
-        conn.execute(
-            "DELETE FROM focus_sessions WHERE id = ?1 AND state IN ('completed', 'discarded')",
-            [id],
-        )
-        .map_err(database_error)?;
-        Ok(())
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        repo.delete_session(id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     pub fn focus_capture(
@@ -2308,18 +1072,16 @@ impl Database {
         body: &str,
         created_at: i64,
     ) -> Result<FocusCapture, PersistenceError> {
-        let conn = self.conn.lock().map_err(lock_error)?;
-        conn.execute(
-            "INSERT INTO focus_captures (session_id, kind, body, created_at) VALUES (?1, ?2, ?3, ?4)",
-            params![session_id, kind, body, created_at],
-        )
-        .map_err(database_error)?;
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        let row = repo
+            .insert_capture(session_id, kind, body, created_at)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
         Ok(FocusCapture {
-            id: conn.last_insert_rowid(),
-            session_id: session_id.to_string(),
-            kind: focus_decode(kind.to_string()).map_err(database_error)?,
-            body: body.to_string(),
-            created_at,
+            id: row.id,
+            session_id: row.session_id,
+            kind: focus_decode(row.kind).map_err(database_error)?,
+            body: row.body,
+            created_at: row.created_at,
         })
     }
 
@@ -2327,67 +1089,48 @@ impl Database {
         &self,
         request_id: &str,
     ) -> Result<Option<FocusSession>, PersistenceError> {
-        let conn = self.conn.lock().map_err(lock_error)?;
-        let result = conn
-            .query_row(
-                "SELECT result_json FROM focus_operations WHERE request_id = ?1",
-                [request_id],
-                |row| row.get::<_, String>(0),
-            )
-            .optional()
-            .map_err(database_error)?;
-        result
-            .map(|json| serde_json::from_str(&json).map_err(serialization_error))
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        let json = repo
+            .get_operation_result(request_id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        json.map(|s| serde_json::from_str(&s).map_err(serialization_error))
             .transpose()
     }
 
     pub fn focus_is_playback_directive(&self, request_id: &str) -> Result<bool, PersistenceError> {
-        let conn = self.conn.lock().map_err(lock_error)?;
-        conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM focus_operations WHERE request_id = ?1 AND operation_kind = 'playbackDirective')",
-            [request_id],
-            |row| row.get(0),
-        )
-        .map_err(database_error)
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        repo.is_playback_directive(request_id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     pub fn focus_mark_playback_directive(&self, request_id: &str) -> Result<(), PersistenceError> {
-        let conn = self.conn.lock().map_err(lock_error)?;
-        conn.execute(
-            "UPDATE focus_operations SET operation_kind = 'playbackDirective' WHERE request_id = ?1",
-            [request_id],
-        )
-        .map_err(database_error)?;
-        Ok(())
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        repo.mark_playback_directive(request_id)
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))
     }
 
     pub fn focus_get_preferences(&self) -> Result<FocusPreferences, PersistenceError> {
-        let defaults = FocusPreferences::default().normalized();
-        let (music_strategy, music_value) = focus_music_parts(&defaults.default_music_strategy);
-        let conn = self.conn.lock().map_err(lock_error)?;
-        conn.execute(
-            "INSERT OR IGNORE INTO focus_preferences (
-                id, default_workflow, default_work_duration_ms, default_break_duration_ms,
-                default_rounds, default_music_strategy, default_music_value, updated_at
-             ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, 0)",
-            params![
-                focus_name(&defaults.default_workflow)?,
-                defaults.default_cadence.work_duration_ms,
-                defaults.default_cadence.break_duration_ms,
-                defaults.default_cadence.rounds,
-                music_strategy,
-                music_value,
-            ],
-        )
-        .map_err(database_error)?;
-        conn.query_row(
-            "SELECT default_workflow, default_work_duration_ms, default_break_duration_ms,
-                    default_rounds, default_music_strategy, default_music_value
-             FROM focus_preferences WHERE id = 1",
-            [],
-            focus_preferences_from_row,
-        )
-        .map_err(database_error)
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        let row = repo
+            .get_preferences()
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        let music_strategy = match (row.music_strategy.as_str(), row.music_value) {
+            ("none", _) => FocusMusicStrategy::None,
+            ("continueCurrent", _) => FocusMusicStrategy::ContinueCurrent,
+            ("preset", Some(value)) => FocusMusicStrategy::Preset(value),
+            ("query", Some(value)) => FocusMusicStrategy::Query(value),
+            _ => FocusMusicStrategy::None,
+        };
+        Ok(FocusPreferences {
+            default_workflow: focus_decode(row.default_workflow).map_err(database_error)?,
+            default_cadence: FocusCadence {
+                work_duration_ms: row.work_duration_ms,
+                break_duration_ms: row.break_duration_ms,
+                rounds: row.rounds,
+            },
+            default_music_strategy: music_strategy,
+        }
+        .normalized())
     }
 
     pub fn focus_set_preferences(
@@ -2397,31 +1140,17 @@ impl Database {
     ) -> Result<FocusPreferences, PersistenceError> {
         let preferences = preferences.normalized();
         let (music_strategy, music_value) = focus_music_parts(&preferences.default_music_strategy);
-        let conn = self.conn.lock().map_err(lock_error)?;
-        conn.execute(
-            "INSERT INTO focus_preferences (
-                id, default_workflow, default_work_duration_ms, default_break_duration_ms,
-                default_rounds, default_music_strategy, default_music_value, updated_at
-             ) VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT(id) DO UPDATE SET
-                default_workflow = excluded.default_workflow,
-                default_work_duration_ms = excluded.default_work_duration_ms,
-                default_break_duration_ms = excluded.default_break_duration_ms,
-                default_rounds = excluded.default_rounds,
-                default_music_strategy = excluded.default_music_strategy,
-                default_music_value = excluded.default_music_value,
-                updated_at = excluded.updated_at",
-            params![
-                focus_name(&preferences.default_workflow)?,
-                preferences.default_cadence.work_duration_ms,
-                preferences.default_cadence.break_duration_ms,
-                preferences.default_cadence.rounds,
-                music_strategy,
-                music_value,
-                now_ms,
-            ],
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        repo.set_preferences(
+            &focus_name(&preferences.default_workflow)?,
+            preferences.default_cadence.work_duration_ms,
+            preferences.default_cadence.break_duration_ms,
+            preferences.default_cadence.rounds,
+            music_strategy,
+            music_value,
+            now_ms,
         )
-        .map_err(database_error)?;
+        .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
         Ok(preferences)
     }
 
@@ -2434,120 +1163,21 @@ impl Database {
         session: &FocusSession,
         now_ms: i64,
     ) -> Result<FocusSession, PersistenceError> {
-        let mut conn = self.conn.lock().map_err(lock_error)?;
-        let transaction = conn.transaction().map_err(database_error)?;
-        if let Some(result_json) = transaction
-            .query_row(
-                "SELECT result_json FROM focus_operations WHERE request_id = ?1",
-                [request_id],
-                |row| row.get::<_, String>(0),
+        let session_json = serde_json::to_string(session).map_err(serialization_error)?;
+        let repo = FocusSessionRepository::new(self.conn.clone());
+        let result_json = repo
+            .apply_session(
+                request_id,
+                operation_id,
+                operation_kind,
+                expected_revision,
+                &session_json,
+                now_ms,
             )
-            .optional()
-            .map_err(database_error)?
-        {
-            return serde_json::from_str(&result_json).map_err(serialization_error);
-        }
-
-        let current_revision = transaction
-            .query_row(
-                "SELECT revision FROM focus_sessions WHERE id = ?1",
-                [&session.id],
-                |row| row.get::<_, i64>(0),
-            )
-            .optional()
-            .map_err(database_error)?;
-        match (current_revision, expected_revision) {
-            (Some(current), Some(expected))
-                if current == expected && session.revision == current + 1 => {}
-            (None, None) if session.revision == 0 => {}
-            _ => {
-                return Err(PersistenceError::WriteError(
-                    "stale focus revision".to_string(),
-                ))
-            }
-        }
-
-        let (music_strategy, music_value) = focus_music_parts(&session.music_strategy);
-        transaction
-            .execute(
-                "INSERT INTO focus_sessions (
-                    id, intention, goal, first_action, workflow, work_duration_ms,
-                    break_duration_ms, rounds, round, phase, state, phase_started_at,
-                    phase_deadline_at, paused_remaining_ms, revision, music_strategy,
-                    music_value, degradation_reason, outcome, created_at, updated_at, completed_at
-                 ) VALUES (
-                    ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                    ?15, ?16, ?17, ?18, ?19, ?20, ?20, CASE WHEN ?19 IS NULL THEN NULL ELSE ?20 END
-                 ) ON CONFLICT(id) DO UPDATE SET
-                    intention = excluded.intention, goal = excluded.goal,
-                    first_action = excluded.first_action, workflow = excluded.workflow,
-                    work_duration_ms = excluded.work_duration_ms,
-                    break_duration_ms = excluded.break_duration_ms, rounds = excluded.rounds,
-                    round = excluded.round, phase = excluded.phase, state = excluded.state,
-                    phase_started_at = excluded.phase_started_at,
-                    phase_deadline_at = excluded.phase_deadline_at,
-                    paused_remaining_ms = excluded.paused_remaining_ms,
-                    revision = excluded.revision, music_strategy = excluded.music_strategy,
-                    music_value = excluded.music_value,
-                    degradation_reason = excluded.degradation_reason, outcome = excluded.outcome,
-                    updated_at = excluded.updated_at, completed_at = excluded.completed_at",
-                params![
-                    session.id,
-                    session.intention,
-                    session.goal,
-                    session.first_action,
-                    focus_name(&session.workflow)?,
-                    session.cadence.work_duration_ms,
-                    session.cadence.break_duration_ms,
-                    session.cadence.rounds,
-                    session.round,
-                    focus_name(&session.phase)?,
-                    focus_name(&session.state)?,
-                    session.phase_started_at,
-                    session.phase_deadline_at,
-                    session.paused_remaining_ms,
-                    session.revision,
-                    music_strategy,
-                    music_value,
-                    session
-                        .degradation
-                        .as_ref()
-                        .map(|value| value.reason.as_str()),
-                    session
-                        .outcome
-                        .map(|value| focus_name(&value))
-                        .transpose()?,
-                    now_ms,
-                ],
-            )
-            .map_err(database_error)?;
-
-        let result_json = serde_json::to_string(session).map_err(serialization_error)?;
-        transaction
-            .execute(
-                "INSERT INTO focus_operations
-                    (operation_id, session_id, request_id, operation_kind, result_json, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    operation_id,
-                    session.id,
-                    request_id,
-                    operation_kind,
-                    result_json,
-                    now_ms
-                ],
-            )
-            .map_err(database_error)?;
-        transaction.commit().map_err(database_error)?;
-        Ok(session.clone())
+            .map_err(|e| PersistenceError::DatabaseError(e.to_string()))?;
+        serde_json::from_str(&result_json).map_err(serialization_error)
     }
 }
-
-const FOCUS_SESSION_SELECT: &str =
-    "SELECT id, intention, goal, first_action, workflow, work_duration_ms,
-            break_duration_ms, rounds, round, phase, state, phase_started_at,
-            phase_deadline_at, paused_remaining_ms, revision, music_strategy,
-            music_value, degradation_reason, outcome, updated_at FROM focus_sessions";
 
 fn lock_error<T: std::fmt::Display>(error: T) -> PersistenceError {
     PersistenceError::DatabaseError(format!("failed to lock database: {error}"))
@@ -2555,6 +1185,21 @@ fn lock_error<T: std::fmt::Display>(error: T) -> PersistenceError {
 
 fn database_error(error: rusqlite::Error) -> PersistenceError {
     PersistenceError::DatabaseError(error.to_string())
+}
+
+fn map_recovery_error(error: SqliteRecoveryError) -> PersistenceError {
+    PersistenceError::DatabaseError(error.to_string())
+}
+
+fn map_memory_open_error(error: SqliteOpenError) -> PersistenceError {
+    let stage = error.stage();
+    let source = error.into_source();
+    let context = match stage {
+        SqliteOpenStage::Open => "failed to open in-memory database",
+        SqliteOpenStage::BusyTimeout => "failed to set database busy timeout",
+        SqliteOpenStage::Configure => "failed to enable foreign keys",
+    };
+    PersistenceError::DatabaseError(format!("{context}: {source}"))
 }
 
 fn serialization_error(error: serde_json::Error) -> PersistenceError {
@@ -2584,93 +1229,62 @@ fn focus_music_parts(strategy: &FocusMusicStrategy) -> (&str, Option<&str>) {
     }
 }
 
-fn focus_session_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FocusSession> {
-    let music_strategy: String = row.get(15)?;
-    let music_value: Option<String> = row.get(16)?;
+fn focus_row_to_session(
+    row: jellyx_engine::focus_session::FocusSessionRow,
+) -> Result<FocusSession, PersistenceError> {
+    let music_strategy = match (row.music_strategy.as_str(), row.music_value) {
+        ("none", _) => FocusMusicStrategy::None,
+        ("continueCurrent", _) => FocusMusicStrategy::ContinueCurrent,
+        ("preset", Some(value)) => FocusMusicStrategy::Preset(value),
+        ("query", Some(value)) => FocusMusicStrategy::Query(value),
+        _ => {
+            return Err(PersistenceError::DatabaseError(
+                "invalid music strategy".into(),
+            ))
+        }
+    };
     Ok(FocusSession {
-        id: row.get(0)?,
-        intention: row.get(1)?,
-        goal: row.get(2)?,
-        first_action: row.get(3)?,
-        workflow: focus_decode(row.get(4)?)?,
+        id: row.id,
+        intention: row.intention,
+        goal: row.goal,
+        first_action: row.first_action,
+        workflow: focus_decode(row.workflow).map_err(database_error)?,
         cadence: FocusCadence {
-            work_duration_ms: row.get(5)?,
-            break_duration_ms: row.get(6)?,
-            rounds: row.get(7)?,
+            work_duration_ms: row.work_duration_ms,
+            break_duration_ms: row.break_duration_ms,
+            rounds: row.rounds,
         },
-        round: row.get(8)?,
-        phase: focus_decode(row.get(9)?)?,
-        state: focus_decode(row.get(10)?)?,
-        phase_started_at: row.get(11)?,
-        phase_deadline_at: row.get(12)?,
-        paused_remaining_ms: row.get(13)?,
-        revision: row.get(14)?,
-        music_strategy: match (music_strategy.as_str(), music_value) {
-            ("none", _) => FocusMusicStrategy::None,
-            ("continueCurrent", _) => FocusMusicStrategy::ContinueCurrent,
-            ("preset", Some(value)) => FocusMusicStrategy::Preset(value),
-            ("query", Some(value)) => FocusMusicStrategy::Query(value),
-            _ => return Err(rusqlite::Error::InvalidQuery),
-        },
-        degradation: row
-            .get::<_, Option<String>>(17)?
-            .map(|reason| FocusDegradation {
-                reason,
-                occurred_at: row.get(19).unwrap_or_default(),
-            }),
+        round: row.round,
+        phase: focus_decode(row.phase).map_err(database_error)?,
+        state: focus_decode(row.state).map_err(database_error)?,
+        phase_started_at: row.phase_started_at,
+        phase_deadline_at: row.phase_deadline_at,
+        paused_remaining_ms: row.paused_remaining_ms,
+        revision: row.revision,
+        music_strategy,
+        degradation: row.degradation_reason.map(|reason| FocusDegradation {
+            reason,
+            occurred_at: row.updated_at,
+        }),
         outcome: row
-            .get::<_, Option<String>>(18)?
-            .map(focus_decode)
-            .transpose()?,
-        captures: Vec::new(),
-    })
-}
-
-fn focus_captures(
-    conn: &Connection,
-    session_id: &str,
-) -> Result<Vec<FocusCapture>, PersistenceError> {
-    let mut statement = conn
-        .prepare(
-            "SELECT id, session_id, kind, body, created_at FROM focus_captures
-             WHERE session_id = ?1 ORDER BY created_at, id",
-        )
-        .map_err(database_error)?;
-    let captures = statement
-        .query_map([session_id], |row| {
-            Ok(FocusCapture {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                kind: focus_decode(row.get(2)?)?,
-                body: row.get(3)?,
-                created_at: row.get(4)?,
+            .outcome
+            .map(|s| focus_decode(s))
+            .transpose()
+            .map_err(database_error)?,
+        captures: row
+            .captures
+            .into_iter()
+            .map(|c| {
+                Ok(FocusCapture {
+                    id: c.id,
+                    session_id: c.session_id,
+                    kind: focus_decode(c.kind).map_err(database_error)?,
+                    body: c.body,
+                    created_at: c.created_at,
+                })
             })
-        })
-        .map_err(database_error)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(database_error)?;
-    Ok(captures)
-}
-
-fn focus_preferences_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FocusPreferences> {
-    let music_strategy: String = row.get(4)?;
-    let music_value: Option<String> = row.get(5)?;
-    Ok(FocusPreferences {
-        default_workflow: focus_decode(row.get(0)?)?,
-        default_cadence: FocusCadence {
-            work_duration_ms: row.get(1)?,
-            break_duration_ms: row.get(2)?,
-            rounds: row.get(3)?,
-        },
-        default_music_strategy: match (music_strategy.as_str(), music_value) {
-            ("none", _) => FocusMusicStrategy::None,
-            ("continueCurrent", _) => FocusMusicStrategy::ContinueCurrent,
-            ("preset", Some(value)) => FocusMusicStrategy::Preset(value),
-            ("query", Some(value)) => FocusMusicStrategy::Query(value),
-            _ => return Err(rusqlite::Error::InvalidQuery),
-        },
-    }
-    .normalized())
+            .collect::<Result<Vec<_>, PersistenceError>>()?,
+    })
 }
 
 #[cfg(test)]
@@ -2681,6 +1295,33 @@ mod tests {
     };
     use jellyx_core::models::source::Source;
     use std::collections::HashMap;
+
+    fn recovery_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("jellyx-{name}-{}.db", uuid::Uuid::new_v4()))
+    }
+
+    fn corrupt(path: &Path) {
+        std::fs::write(path, b"not a sqlite database").unwrap();
+    }
+
+    fn quarantines(path: &Path) -> Vec<std::path::PathBuf> {
+        let prefix = format!(
+            "{}.quarantine.",
+            path.file_name().unwrap().to_string_lossy()
+        );
+        std::fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+            .map(|entry| entry.path())
+            .collect()
+    }
+
+    fn sidecar_path(path: &Path, suffix: &str) -> std::path::PathBuf {
+        let mut value = path.as_os_str().to_owned();
+        value.push(suffix);
+        value.into()
+    }
 
     fn sample_track(id: &str) -> Track {
         Track {
@@ -2710,6 +1351,186 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         let version = db.schema_version().unwrap();
         assert_eq!(version, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn corrupt_database_and_sidecars_are_quarantined_before_fresh_v10_open() {
+        let path = recovery_path("corrupt-recovery");
+        corrupt(&path);
+        std::fs::write(sidecar_path(&path, "-wal"), b"wal evidence").unwrap();
+        std::fs::write(sidecar_path(&path, "-shm"), b"shm evidence").unwrap();
+
+        let db = Database::open(&path).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        drop(db);
+
+        let evidence = quarantines(&path);
+        assert_eq!(evidence.len(), 1);
+        let evidence = &evidence[0];
+        assert_eq!(
+            std::fs::read(evidence.join(path.file_name().unwrap())).unwrap(),
+            b"not a sqlite database"
+        );
+        assert_eq!(
+            std::fs::read(
+                evidence
+                    .join(path.file_name().unwrap())
+                    .with_file_name(sidecar_path(&path, "-wal").file_name().unwrap())
+            )
+            .unwrap(),
+            b"wal evidence"
+        );
+        assert_eq!(
+            std::fs::read(evidence.join(sidecar_path(&path, "-shm").file_name().unwrap())).unwrap(),
+            b"shm evidence"
+        );
+    }
+
+    #[test]
+    fn repeated_recovery_never_overwrites_prior_evidence() {
+        let path = recovery_path("repeat-recovery");
+        corrupt(&path);
+        drop(Database::open(&path).unwrap());
+        corrupt(&path);
+        drop(Database::open(&path).unwrap());
+
+        let evidence = quarantines(&path);
+        assert_eq!(evidence.len(), 2);
+        assert_ne!(evidence[0], evidence[1]);
+        for directory in evidence {
+            assert_eq!(
+                std::fs::read(directory.join(path.file_name().unwrap())).unwrap(),
+                b"not a sqlite database"
+            );
+        }
+    }
+
+    #[test]
+    fn ordinary_open_failure_does_not_create_quarantine() {
+        let path = recovery_path("ordinary-failure");
+        std::fs::create_dir(&path).unwrap();
+        assert!(Database::open(&path).is_err());
+        assert!(quarantines(&path).is_empty());
+        std::fs::remove_dir(path).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preservation_failure_is_fail_closed() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = recovery_path("preservation-parent");
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("jellyx.db");
+        corrupt(&path);
+        std::fs::write(format!("{}.migration.lock", path.display()), b"").unwrap();
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o500)).unwrap();
+
+        let result = Database::open(&path);
+        std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"not a sqlite database");
+        assert!(quarantines(&path).is_empty());
+    }
+
+    #[test]
+    fn failed_migration_rolls_back_schema_data_and_version_then_retries() {
+        let path = std::env::temp_dir().join(format!(
+            "jellyx-atomic-migration-{}.db",
+            uuid::Uuid::new_v4()
+        ));
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE local_tracks (
+                file_path TEXT PRIMARY KEY,
+                track_json TEXT NOT NULL,
+                folder_path TEXT NOT NULL,
+                file_modified_at TEXT
+            );
+            CREATE TABLE user_playlists (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO user_playlists (id, title) VALUES ('playlist-1', 'Legacy');
+            CREATE TABLE artist_favorites (
+                artist_id TEXT PRIMARY KEY,
+                artist_name TEXT NOT NULL,
+                thumbnail TEXT,
+                added_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            INSERT INTO artist_favorites (artist_id, artist_name)
+                VALUES ('artist-1', 'Legacy Artist');
+            CREATE TABLE artist_favorites_v6 (conflict TEXT);
+            CREATE TABLE _meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            INSERT INTO _meta (key, value) VALUES ('schema_version', '5');",
+        )
+        .unwrap();
+        drop(conn);
+
+        let error = match Database::open(&path) {
+            Err(error) => error,
+            Ok(_) => panic!("conflicting v6 fixture unexpectedly migrated"),
+        };
+        let PersistenceError::DatabaseError(message) = error else {
+            panic!("unexpected migration error: {error:?}");
+        };
+        assert!(message.contains("failed to rebuild artist_favorites for v6"));
+
+        let conn = Connection::open(&path).unwrap();
+        assert!(!Database::column_exists(
+            &conn,
+            "local_tracks",
+            "subfolder_path"
+        ));
+        assert!(!Database::column_exists(&conn, "user_playlists", "kind"));
+        assert_eq!(
+            conn.query_row(
+                "SELECT artist_name FROM artist_favorites WHERE artist_id = 'artist-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "Legacy Artist"
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT value FROM _meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "5"
+        );
+
+        conn.execute("DROP TABLE artist_favorites_v6", []).unwrap();
+        drop(conn);
+
+        let db = Database::open(&path).unwrap();
+        assert_eq!(db.schema_version().unwrap(), SCHEMA_VERSION);
+        let conn = db.conn.lock().unwrap();
+        assert!(Database::column_exists(
+            &conn,
+            "local_tracks",
+            "subfolder_path"
+        ));
+        assert!(Database::column_exists(&conn, "user_playlists", "kind"));
+        assert_eq!(
+            conn.query_row(
+                "SELECT source FROM artist_favorites WHERE artist_id = 'artist-1'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "local"
+        );
+        drop(conn);
+        drop(db);
+
+        for suffix in ["", "-wal", "-shm", ".migration.lock"] {
+            let _ = std::fs::remove_file(format!("{}{}", path.display(), suffix));
+        }
     }
 
     fn sample_focus_session(id: &str) -> FocusSession {

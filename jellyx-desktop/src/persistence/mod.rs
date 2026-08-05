@@ -2,3 +2,5 @@
 
 pub mod db;
 pub mod models;
+mod preferences;
+mod updater_preferences;
