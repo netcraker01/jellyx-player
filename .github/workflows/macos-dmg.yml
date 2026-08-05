@@ -124,6 +124,24 @@ jobs:
           JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
         run: cargo tauri build --bundles dmg --target ${{ matrix.target }}
 
+      - name: Build TUI binary (jellyx-cli)
+        run: cargo build --release -p jellyx-cli --target ${{ matrix.target }}
+
+      - name: Package TUI archive (macOS)
+        id: tui_archive_mac
+        shell: bash
+        run: |
+          version=$(cargo metadata --no-deps --format-version 1 | python3 -c "import sys,json; print(json.load(sys.stdin)['packages'][0]['version'])")
+          cli_dir="target/tui-release"
+          mkdir -p "$cli_dir"
+          cp target/${{ matrix.target }}/release/jellyx-cli "$cli_dir/"
+          archive="$cli_dir/jellyx-tui_${version}_macos_aarch64.tar.gz"
+          tar -czf "$archive" -C "$cli_dir" jellyx-cli
+          hash=$(sha256sum "$archive" | cut -d' ' -f1)
+          echo "$hash  $(basename "$archive")" > "${archive}.sha256"
+          echo "tui_archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "tui_hash_file=${archive}.sha256" >> "$GITHUB_OUTPUT"
+
       - name: Verify Sentry DSN executable boundary
         env:
           JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
@@ -206,6 +224,16 @@ jobs:
           path: |
             ${{ steps.dmg.outputs.dmg_path }}
             ${{ steps.dmg.outputs.sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload TUI archive (macOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellyx-tui-macos-${{ matrix.arch_suffix }}-${{ steps.dmg.outputs.version }}
+          path: |
+            ${{ steps.tui_archive_mac.outputs.tui_archive }}
+            ${{ steps.tui_archive_mac.outputs.tui_hash_file }}
           if-no-files-found: error
           retention-days: 30
 

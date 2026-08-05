@@ -1,62 +1,89 @@
-//! Library service — CRUD for favorites, history.
+//! Library service — desktop adapter over the engine `LibraryService`.
 //!
-//! `LibraryService` wraps the `Database` and provides business-logic-level
-//! operations for favorites and history. All methods return `AppError`
-//! for consistent IPC error handling.
+//! Desktop's `LibraryService` is a thin adapter that owns an `Arc<Database>`,
+//! obtains a `SqliteHandle` from it, and delegates all business logic to
+//! [`jellyx_engine::library_service::LibraryService`].
 //!
-//! Favorite operations use a **source-aware key**: `track.id` for local tracks
-//! (stable UUID) and `track.source_id` for remote tracks (stable resolver ID).
-//! This ensures that remote tracks, which get a new internal UUID on each
-//! resolution, can still be reliably favorited and unfavorited.
+//! Responsibilities kept here (presentation/IPC concerns):
+//! - Map engine DTOs to desktop IPC DTOs (`crate::ipc::dto::*`).
+//! - Deserialize `Track` from `HistoryRow::track_json` to build
+//!   `HistoryEntry` (the IPC-shaped history type the frontend expects).
+//! - Map engine `LibraryServiceError` to `AppError` for consistent IPC
+//!   error handling.
+//!
+//! All business logic (search grouping, artist/album detail, home
+//! recommendations) lives in the engine so both Tauri and Ratatui frontends
+//! share a single implementation.
 
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use rand::rngs::StdRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
+use jellyx_core::models::track::Track;
+use jellyx_engine::dto as engine_dto;
+use jellyx_engine::library_service::{LibraryService as EngineLibraryService, LibraryServiceError};
 
-use crate::errors::types::{AppError, LibraryError};
+use crate::errors::types::{AppError, LibraryError, ValidationError};
 use crate::ipc::dto::{
-    normalize_album_id, normalize_artist_id, AlbumDetail, AlbumSummary, ArtistDetail,
-    ArtistSummary, GroupedSearchResult, HomeSnapshot, RecommendationItem, SearchFilter,
+    AlbumDetail, AlbumSummary, ArtistDetail, ArtistSummary, GroupedSearchResult, HomeSnapshot,
+    RecommendationItem, SearchFilter,
 };
 use crate::persistence::db::Database;
-use crate::persistence::models::{HistoryEntry, LocalTrackEntry};
-use jellyx_core::models::track::Track;
+use crate::persistence::models::HistoryEntry;
+
 /// Service providing library operations (favorites, history).
 ///
 /// Owns an `Arc<Database>` shared reference so it can be cheaply cloned
 /// if needed in the future. All methods are synchronous since SQLite
 /// operations are fast and the WAL mode handles concurrency.
 pub struct LibraryService {
+    /// Kept for direct `Database` access in tests; production code uses
+    /// `engine` exclusively.
+    #[cfg_attr(not(test), allow(dead_code))]
     db: Arc<Database>,
+    engine: EngineLibraryService,
 }
 
 impl LibraryService {
     /// Create a new LibraryService backed by the given Database.
     pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+        let engine = EngineLibraryService::new(db.handle());
+        Self { db, engine }
     }
 
     /// Record a play event in history.
     #[allow(dead_code)]
     pub fn record_play(&self, track: &Track) -> Result<(), AppError> {
-        self.db.insert_history(track).map_err(AppError::from)
+        self.engine.record_play(track).map_err(AppError::from)
     }
 
     /// Get recently played tracks deduplicated by track_id.
     ///
     /// Returns only the most recent entry per track so the same track doesn't
-    /// appear multiple times in the "recently played" list.
+    /// appear multiple times in the "recently played" list. The engine returns
+    /// raw `HistoryRow`s; this adapter deserializes `track_json` into a `Track`
+    /// to build the `HistoryEntry` the IPC layer expects.
     pub fn get_recent_unique(&self, limit: u32) -> Result<Vec<HistoryEntry>, AppError> {
-        self.db.get_recent_unique(limit).map_err(AppError::from)
+        let rows = self
+            .engine
+            .get_recent_unique(limit)
+            .map_err(AppError::from)?;
+        rows.into_iter()
+            .map(|row| {
+                let track: Track = serde_json::from_str(&row.track_json).map_err(|e| AppError {
+                    code: "PERSISTENCE_ERROR".into(),
+                    details: Some(format!("failed to deserialize track: {}", e)),
+                })?;
+                Ok(HistoryEntry {
+                    id: row.id,
+                    track,
+                    played_at: row.played_at,
+                })
+            })
+            .collect()
     }
 
     /// Clear all play history.
     pub fn clear_history(&self) -> Result<(), AppError> {
-        self.db.clear_history().map_err(AppError::from)
+        self.engine.clear_history().map_err(AppError::from)
     }
 
     /// Search local tracks and group results into songs, artists, and albums.
@@ -68,88 +95,12 @@ impl LibraryService {
         query: &str,
         filter: Option<SearchFilter>,
     ) -> Result<GroupedSearchResult, AppError> {
-        let trimmed = query.trim();
-        if trimmed.is_empty() {
-            return Err(crate::errors::types::ValidationError::EmptyQuery.into());
-        }
-
-        let matching_tracks = self
-            .db
-            .search_local_tracks(trimmed)
+        let engine_filter = filter.map(map_search_filter);
+        let engine_result = self
+            .engine
+            .search_grouped(query, engine_filter)
             .map_err(AppError::from)?;
-
-        let include_all = filter.is_none();
-        let include_songs = include_all || filter == Some(SearchFilter::Songs);
-        let include_artists = include_all || filter == Some(SearchFilter::Artists);
-        let include_albums = include_all || filter == Some(SearchFilter::Albums);
-
-        let songs = if include_songs {
-            matching_tracks.clone()
-        } else {
-            Vec::new()
-        };
-
-        let mut artists: Vec<ArtistSummary> = Vec::new();
-        let mut albums: Vec<AlbumSummary> = Vec::new();
-
-        if include_artists || include_albums {
-            let mut artist_map: HashMap<String, Vec<&Track>> = HashMap::new();
-            let mut album_map: HashMap<String, Vec<&Track>> = HashMap::new();
-
-            for track in &matching_tracks {
-                if include_artists {
-                    let artist_id = normalize_artist_id(&track.artist);
-                    artist_map.entry(artist_id).or_default().push(track);
-                }
-
-                if include_albums {
-                    if let Some(ref album) = track.album {
-                        let album_id = normalize_album_id(album, &track.artist);
-                        album_map.entry(album_id).or_default().push(track);
-                    }
-                }
-            }
-
-            artists = artist_map
-                .into_iter()
-                .map(|(id, tracks)| ArtistSummary {
-                    id,
-                    name: tracks[0].artist.clone(),
-                    thumbnail: tracks.iter().find_map(|t| t.thumbnail.clone()),
-                    track_count: tracks.len() as u32,
-                })
-                .collect();
-
-            albums = album_map
-                .into_iter()
-                .map(|(id, tracks)| {
-                    let title = tracks[0].album.clone().unwrap_or_default();
-                    let artist = tracks[0].artist.clone();
-                    let cover = tracks.iter().find_map(|t| t.thumbnail.clone());
-                    let year = tracks
-                        .iter()
-                        .find_map(|t| t.metadata.get("year").and_then(|y| y.parse().ok()));
-                    AlbumSummary {
-                        id,
-                        title,
-                        artist,
-                        cover,
-                        year,
-                        track_count: tracks.len() as u32,
-                    }
-                })
-                .collect();
-
-            artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            albums.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-        }
-
-        Ok(GroupedSearchResult {
-            songs,
-            artists,
-            albums,
-            has_more_songs: false,
-        })
+        Ok(map_grouped_search_result(engine_result))
     }
 
     /// Get full artist detail by artist ID.
@@ -157,41 +108,8 @@ impl LibraryService {
     /// Resolves the artist name from the ID, loads all tracks by that artist,
     /// and computes top tracks by play count (ties broken alphabetically).
     pub fn get_artist_detail(&self, id: &str) -> Result<ArtistDetail, AppError> {
-        let normalized_name = crate::ipc::dto::denormalize_artist_id(id)
-            .ok_or_else(|| LibraryError::NotFound(id.to_string()))?;
-
-        let tracks = self
-            .db
-            .get_local_tracks_by_artist(&normalized_name)
-            .map_err(AppError::from)?;
-        if tracks.is_empty() {
-            return Err(LibraryError::NotFound(id.to_string()).into());
-        }
-
-        let canonical_name = tracks[0].artist.clone();
-
-        let play_counts = self.db.get_track_play_counts().map_err(AppError::from)?;
-
-        let mut top_tracks = tracks.clone();
-        top_tracks.sort_by(|a, b| {
-            let count_a = play_counts.get(&a.id).copied().unwrap_or(0);
-            let count_b = play_counts.get(&b.id).copied().unwrap_or(0);
-            count_b
-                .cmp(&count_a)
-                .then_with(|| a.title.to_lowercase().cmp(&b.title.to_lowercase()))
-        });
-
-        let thumbnail = tracks.iter().find_map(|t| t.thumbnail.clone());
-
-        let albums = Self::build_album_summaries(&tracks);
-
-        Ok(ArtistDetail {
-            id: id.to_string(),
-            name: canonical_name,
-            thumbnail,
-            top_tracks,
-            albums,
-        })
+        let engine_detail = self.engine.get_artist_detail(id).map_err(AppError::from)?;
+        Ok(map_artist_detail(engine_detail))
     }
 
     /// Get full album detail by album ID.
@@ -199,84 +117,11 @@ impl LibraryService {
     /// Resolves the album title and artist from the ID, loads matching tracks,
     /// and orders them by file path (which usually reflects track order).
     pub fn get_album_detail(&self, id: &str) -> Result<AlbumDetail, AppError> {
-        let (normalized_title, normalized_artist) = crate::ipc::dto::denormalize_album_id(id)
-            .ok_or_else(|| LibraryError::NotFound(id.to_string()))?;
-
-        let mut tracks = self
-            .db
-            .get_local_tracks_by_album(&normalized_title, &normalized_artist)
-            .map_err(AppError::from)?;
-        if tracks.is_empty() {
-            return Err(LibraryError::NotFound(id.to_string()).into());
-        }
-
-        tracks.sort_by(|a, b| {
-            a.local_path
-                .as_ref()
-                .unwrap_or(&a.id)
-                .cmp(b.local_path.as_ref().unwrap_or(&b.id))
-        });
-
-        let title = tracks[0].album.clone().unwrap_or_default();
-        let artist = tracks[0].artist.clone();
-        let artist_id = normalize_artist_id(&artist);
-        let cover = tracks.iter().find_map(|t| t.thumbnail.clone());
-        let year = tracks
-            .iter()
-            .find_map(|t| t.metadata.get("year").and_then(|y| y.parse().ok()));
-
-        Ok(AlbumDetail {
-            id: id.to_string(),
-            title,
-            artist,
-            artist_id,
-            cover,
-            year,
-            tracks,
-        })
-    }
-
-    /// Build a list of unique album summaries from a slice of tracks.
-    fn build_album_summaries(tracks: &[Track]) -> Vec<AlbumSummary> {
-        let mut seen: HashMap<String, Vec<&Track>> = HashMap::new();
-        for track in tracks {
-            if let Some(ref album) = track.album {
-                let id = normalize_album_id(album, &track.artist);
-                seen.entry(id).or_default().push(track);
-            }
-        }
-
-        let mut summaries: Vec<AlbumSummary> = seen
-            .into_iter()
-            .map(|(id, tracks)| {
-                let title = tracks[0].album.clone().unwrap_or_default();
-                let artist = tracks[0].artist.clone();
-                let cover = tracks.iter().find_map(|t| t.thumbnail.clone());
-                let year = tracks
-                    .iter()
-                    .find_map(|t| t.metadata.get("year").and_then(|y| y.parse().ok()));
-                AlbumSummary {
-                    id,
-                    title,
-                    artist,
-                    cover,
-                    year,
-                    track_count: tracks.len() as u32,
-                }
-            })
-            .collect();
-
-        summaries.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
-        summaries
+        let engine_detail = self.engine.get_album_detail(id).map_err(AppError::from)?;
+        Ok(map_album_detail(engine_detail))
     }
 
     // ── Home snapshot ──────────────────────────────────────────────────
-
-    const RECENTLY_PLAYED_LIMIT: usize = 20;
-    const ARTIST_AFFINITY_LIMIT: usize = 8;
-    const ALBUM_AFFINITY_LIMIT: usize = 4;
-    const LIBRARY_DISCOVERY_LIMIT: usize = 4;
-    const RECOMMENDATIONS_LIMIT: usize = 20;
 
     /// Get the Home snapshot: recently played only (non-blocking).
     ///
@@ -284,10 +129,22 @@ impl LibraryService {
     /// renders immediately. Use `get_home_recommendations` for the heavy
     /// computation.
     pub fn get_home_snapshot(&self) -> Result<HomeSnapshot, AppError> {
-        let recently_played = self
-            .db
-            .get_recent_unique(Self::RECENTLY_PLAYED_LIMIT as u32)
-            .map_err(AppError::from)?;
+        let engine_snapshot = self.engine.get_home_snapshot().map_err(AppError::from)?;
+        let recently_played = engine_snapshot
+            .recently_played
+            .into_iter()
+            .map(|row| {
+                let track: Track = serde_json::from_str(&row.track_json).map_err(|e| AppError {
+                    code: "PERSISTENCE_ERROR".into(),
+                    details: Some(format!("failed to deserialize track: {}", e)),
+                })?;
+                Ok(HistoryEntry {
+                    id: row.id,
+                    track,
+                    played_at: row.played_at,
+                })
+            })
+            .collect::<Result<Vec<_>, AppError>>()?;
         Ok(HomeSnapshot {
             recently_played,
             recommendations: vec![],
@@ -296,135 +153,178 @@ impl LibraryService {
 
     /// Compute heavy recommendations from history and local library.
     pub fn get_home_recommendations(&self) -> Result<Vec<RecommendationItem>, AppError> {
-        let history = self.db.get_history().map_err(AppError::from)?;
-        let local_tracks = self.db.get_all_local_tracks().map_err(AppError::from)?;
-        Ok(self.build_recommendations(&history, &local_tracks))
+        let engine_recs = self
+            .engine
+            .get_home_recommendations()
+            .map_err(AppError::from)?;
+        Ok(engine_recs
+            .into_iter()
+            .map(map_recommendation_item)
+            .collect())
     }
 
-    /// Assemble recommendations from history and local library.
-    fn build_recommendations(
+    // ── Direct database accessors used by tests ───────────────────────
+    //
+    // The desktop tests insert local tracks and history through the
+    // `Database` directly. These accessors preserve that pattern without
+    // leaking `Database` into the public API.
+
+    #[cfg(test)]
+    pub(crate) fn insert_watched_folder(&self, path: &str) -> Result<(), AppError> {
+        self.db.insert_watched_folder(path).map_err(AppError::from)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn upsert_local_track(
         &self,
-        history: &[HistoryEntry],
-        local_tracks: &[LocalTrackEntry],
-    ) -> Vec<RecommendationItem> {
-        let recent_track_ids: HashSet<String> = history
-            .iter()
-            .take(Self::RECENTLY_PLAYED_LIMIT)
-            .map(|entry| entry.track.id.clone())
-            .collect();
+        file_path: &str,
+        track: &Track,
+        folder_path: &str,
+        file_modified_at: Option<&str>,
+        subfolder_path: Option<&str>,
+    ) -> Result<(), AppError> {
+        self.db
+            .upsert_local_track(
+                file_path,
+                track,
+                folder_path,
+                file_modified_at,
+                subfolder_path,
+            )
+            .map_err(AppError::from)
+    }
 
-        let mut recommended_ids: HashSet<String> = HashSet::new();
-        let mut recommendations: Vec<RecommendationItem> = Vec::new();
+    #[cfg(test)]
+    pub(crate) fn insert_history(&self, track: &Track) -> Result<(), AppError> {
+        self.db.insert_history(track).map_err(AppError::from)
+    }
 
-        // 1. Artist affinity
-        let artist_counts = count_artists_in_history(history);
-        let mut artists_by_plays: Vec<(&String, &usize)> = artist_counts.iter().collect();
-        artists_by_plays.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
-
-        for (artist, _count) in artists_by_plays.iter().take(Self::ARTIST_AFFINITY_LIMIT) {
-            let artist_tracks: Vec<&LocalTrackEntry> = local_tracks
-                .iter()
-                .filter(|entry| entry.track.artist == **artist)
-                .collect();
-            let total_count = artist_tracks.len() as u32;
-            if total_count == 0 {
-                continue;
-            }
-            let id = normalize_artist_id(artist);
-            if recommended_ids.insert(id.clone()) {
-                let reason = format!("Because you listened to {}", artist);
-                recommendations.push(RecommendationItem::Artist {
-                    id,
-                    name: (*artist).clone(),
-                    thumbnail: None,
-                    track_count: total_count,
-                    reason,
-                });
-            }
-        }
-
-        // 2. Album affinity
-        let album_counts = count_albums_in_history(history);
-        let mut albums_by_plays: Vec<((String, String), usize)> =
-            album_counts.into_iter().collect();
-        albums_by_plays.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0 .0.cmp(&b.0 .0)));
-
-        for ((artist, album), _count) in albums_by_plays.iter().take(Self::ALBUM_AFFINITY_LIMIT) {
-            let album_tracks: Vec<&LocalTrackEntry> = local_tracks
-                .iter()
-                .filter(|entry| {
-                    entry.track.artist == *artist && entry.track.album.as_ref() == Some(album)
-                })
-                .collect();
-            if album_tracks.is_empty() {
-                continue;
-            }
-            let id = normalize_album_id(artist, album);
-            if recommended_ids.insert(id.clone()) {
-                let reason = "Based on your listening".to_string();
-                recommendations.push(RecommendationItem::Album {
-                    id,
-                    title: album.clone(),
-                    artist: artist.clone(),
-                    cover: None,
-                    track_count: album_tracks.len() as u32,
-                    reason,
-                });
-            }
-        }
-
-        // 3. Library discovery
-        let seed = daily_seed();
-        let mut rng = StdRng::seed_from_u64(seed);
-        let mut candidates: Vec<&LocalTrackEntry> = local_tracks
-            .iter()
-            .filter(|entry| {
-                !recent_track_ids.contains(&entry.track.id)
-                    && !recommended_ids.contains(&entry.track.id)
-            })
-            .collect();
-        candidates.shuffle(&mut rng);
-
-        for entry in candidates.iter().take(Self::LIBRARY_DISCOVERY_LIMIT) {
-            if recommended_ids.insert(entry.track.id.clone()) {
-                recommendations.push(RecommendationItem::Track {
-                    track: entry.track.clone(),
-                    reason: "Discover from your library".to_string(),
-                });
-            }
-        }
-
-        recommendations.truncate(Self::RECOMMENDATIONS_LIMIT);
-        recommendations
+    #[cfg(test)]
+    pub(crate) fn get_history(&self) -> Result<Vec<HistoryEntry>, AppError> {
+        self.db.get_history().map_err(AppError::from)
     }
 }
 
-fn count_artists_in_history(history: &[HistoryEntry]) -> HashMap<String, usize> {
-    let mut counts = HashMap::new();
-    for entry in history.iter() {
-        *counts.entry(entry.track.artist.clone()).or_insert(0) += 1;
-    }
-    counts
-}
+// ── Error mapping ─────────────────────────────────────────────────────
 
-fn count_albums_in_history(history: &[HistoryEntry]) -> HashMap<(String, String), usize> {
-    let mut counts = HashMap::new();
-    for entry in history.iter() {
-        if let Some(album) = entry.track.album.as_ref() {
-            *counts
-                .entry((entry.track.artist.clone(), album.clone()))
-                .or_insert(0) += 1;
+impl From<LibraryServiceError> for AppError {
+    fn from(error: LibraryServiceError) -> Self {
+        match error {
+            LibraryServiceError::NotFound(msg) => LibraryError::NotFound(msg).into(),
+            LibraryServiceError::ValidationError(msg) => {
+                if msg.contains("empty") {
+                    ValidationError::EmptyQuery.into()
+                } else {
+                    ValidationError::InvalidInput(msg).into()
+                }
+            }
+            LibraryServiceError::Persistence(msg) => AppError {
+                code: "PERSISTENCE_ERROR".into(),
+                details: Some(msg),
+            },
+            LibraryServiceError::Deserialization(msg) => AppError {
+                code: "PERSISTENCE_ERROR".into(),
+                details: Some(format!("failed to deserialize track: {}", msg)),
+            },
         }
     }
-    counts
 }
 
-fn daily_seed() -> u64 {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    now / 86400
+// ── DTO mapping ───────────────────────────────────────────────────────
+
+fn map_search_filter(filter: SearchFilter) -> engine_dto::SearchFilter {
+    match filter {
+        SearchFilter::Songs => engine_dto::SearchFilter::Songs,
+        SearchFilter::Artists => engine_dto::SearchFilter::Artists,
+        SearchFilter::Albums => engine_dto::SearchFilter::Albums,
+    }
+}
+
+fn map_grouped_search_result(result: engine_dto::GroupedSearchResult) -> GroupedSearchResult {
+    GroupedSearchResult {
+        songs: result.songs,
+        artists: result.artists.into_iter().map(map_artist_summary).collect(),
+        albums: result.albums.into_iter().map(map_album_summary).collect(),
+        has_more_songs: result.has_more_songs,
+    }
+}
+
+fn map_artist_summary(summary: engine_dto::ArtistSummary) -> ArtistSummary {
+    ArtistSummary {
+        id: summary.id,
+        name: summary.name,
+        thumbnail: summary.thumbnail,
+        track_count: summary.track_count,
+    }
+}
+
+fn map_album_summary(summary: engine_dto::AlbumSummary) -> AlbumSummary {
+    AlbumSummary {
+        id: summary.id,
+        title: summary.title,
+        artist: summary.artist,
+        cover: summary.cover,
+        year: summary.year,
+        track_count: summary.track_count,
+    }
+}
+
+fn map_artist_detail(detail: engine_dto::ArtistDetail) -> ArtistDetail {
+    ArtistDetail {
+        id: detail.id,
+        name: detail.name,
+        thumbnail: detail.thumbnail,
+        top_tracks: detail.top_tracks,
+        albums: detail.albums.into_iter().map(map_album_summary).collect(),
+    }
+}
+
+fn map_album_detail(detail: engine_dto::AlbumDetail) -> AlbumDetail {
+    AlbumDetail {
+        id: detail.id,
+        title: detail.title,
+        artist: detail.artist,
+        artist_id: detail.artist_id,
+        cover: detail.cover,
+        year: detail.year,
+        tracks: detail.tracks,
+    }
+}
+
+fn map_recommendation_item(item: engine_dto::RecommendationItem) -> RecommendationItem {
+    match item {
+        engine_dto::RecommendationItem::Track { track, reason } => {
+            RecommendationItem::Track { track, reason }
+        }
+        engine_dto::RecommendationItem::Artist {
+            id,
+            name,
+            thumbnail,
+            track_count,
+            reason,
+        } => RecommendationItem::Artist {
+            id,
+            name,
+            thumbnail,
+            track_count,
+            reason,
+        },
+        engine_dto::RecommendationItem::Album {
+            id,
+            title,
+            artist,
+            cover,
+            track_count,
+            reason,
+        } => RecommendationItem::Album {
+            id,
+            title,
+            artist,
+            cover,
+            track_count,
+            reason,
+        },
+    }
 }
 
 #[cfg(test)]
@@ -474,11 +374,10 @@ mod tests {
     }
 
     fn insert_local_tracks(svc: &LibraryService, tracks: &[Track], _folder: &str) {
-        svc.db.insert_watched_folder(_folder).unwrap();
+        svc.insert_watched_folder(_folder).unwrap();
         for t in tracks {
             let path = t.local_path.as_ref().unwrap();
-            svc.db
-                .upsert_local_track(path, t, _folder, None, None)
+            svc.upsert_local_track(path, t, _folder, None, None)
                 .unwrap();
         }
     }
@@ -489,7 +388,7 @@ mod tests {
         let track = sample_track("t1");
         svc.record_play(&track).unwrap();
 
-        let history = svc.db.get_history().unwrap();
+        let history = svc.get_history().unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].track.id, "t1");
     }
@@ -502,7 +401,7 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(10));
         svc.record_play(&track).unwrap();
 
-        let history = svc.db.get_history().unwrap();
+        let history = svc.get_history().unwrap();
         assert_eq!(history.len(), 2);
     }
 
@@ -512,7 +411,7 @@ mod tests {
         svc.record_play(&sample_track("t1")).unwrap();
         svc.record_play(&sample_track("t2")).unwrap();
         svc.clear_history().unwrap();
-        assert_eq!(svc.db.get_history().unwrap().len(), 0);
+        assert_eq!(svc.get_history().unwrap().len(), 0);
     }
 
     // ── Grouped search tests (REQ-MS-1/2) ────────────────────────────────
@@ -653,9 +552,9 @@ mod tests {
         ];
         insert_local_tracks(&svc, &tracks, "/music");
         // t1 played twice, t2 once → t1 should be the first top track
-        svc.db.insert_history(&tracks[0]).unwrap();
-        svc.db.insert_history(&tracks[0]).unwrap();
-        svc.db.insert_history(&tracks[1]).unwrap();
+        svc.insert_history(&tracks[0]).unwrap();
+        svc.insert_history(&tracks[0]).unwrap();
+        svc.insert_history(&tracks[1]).unwrap();
 
         let id = crate::ipc::dto::normalize_artist_id("Daft Punk");
         let detail = svc.get_artist_detail(&id).unwrap();
@@ -774,7 +673,7 @@ mod tests {
     #[test]
     fn get_home_recommendations_artist_affinity() {
         let svc = setup_service();
-        svc.db.insert_watched_folder("/music").unwrap();
+        svc.insert_watched_folder("/music").unwrap();
         for i in 0..3 {
             let track = sample_local_track(
                 &format!("local-{}", i),
@@ -782,15 +681,14 @@ mod tests {
                 "Affinity Artist",
                 Some("Album A"),
             );
-            svc.db
-                .upsert_local_track(
-                    &format!("/music/{}.mp3", i),
-                    &track,
-                    "/music",
-                    Some(&format!("100{}", i)),
-                    None,
-                )
-                .unwrap();
+            svc.upsert_local_track(
+                &format!("/music/{}.mp3", i),
+                &track,
+                "/music",
+                Some(&format!("100{}", i)),
+                None,
+            )
+            .unwrap();
         }
         let played = sample_local_track(
             "hist-0",
@@ -813,7 +711,7 @@ mod tests {
     #[test]
     fn get_home_recommendations_excludes_recently_played_when_alternatives_exist() {
         let svc = setup_service();
-        svc.db.insert_watched_folder("/music").unwrap();
+        svc.insert_watched_folder("/music").unwrap();
         let played = sample_local_track(
             "track-played",
             "/music/played.mp3",
@@ -826,11 +724,9 @@ mod tests {
             "Same Artist",
             Some("Album X"),
         );
-        svc.db
-            .upsert_local_track("/music/played.mp3", &played, "/music", Some("1000"), None)
+        svc.upsert_local_track("/music/played.mp3", &played, "/music", Some("1000"), None)
             .unwrap();
-        svc.db
-            .upsert_local_track("/music/alt.mp3", &alternative, "/music", Some("1001"), None)
+        svc.upsert_local_track("/music/alt.mp3", &alternative, "/music", Some("1001"), None)
             .unwrap();
 
         insert_history_at(&svc, &played, 0);
@@ -849,7 +745,7 @@ mod tests {
     #[test]
     fn get_home_recommendations_falls_back_to_library_discovery_with_empty_signals() {
         let svc = setup_service();
-        svc.db.insert_watched_folder("/music").unwrap();
+        svc.insert_watched_folder("/music").unwrap();
         for i in 0..5 {
             let track = sample_local_track(
                 &format!("lib-{}", i),
@@ -857,15 +753,14 @@ mod tests {
                 "Library Artist",
                 None,
             );
-            svc.db
-                .upsert_local_track(
-                    &format!("/music/{}.mp3", i),
-                    &track,
-                    "/music",
-                    Some(&format!("100{}", i)),
-                    None,
-                )
-                .unwrap();
+            svc.upsert_local_track(
+                &format!("/music/{}.mp3", i),
+                &track,
+                "/music",
+                Some(&format!("100{}", i)),
+                None,
+            )
+            .unwrap();
         }
 
         let recs = svc.get_home_recommendations().unwrap();
@@ -886,7 +781,7 @@ mod tests {
     #[test]
     fn get_home_snapshot_recommendations_max_20() {
         let svc = setup_service();
-        svc.db.insert_watched_folder("/music").unwrap();
+        svc.insert_watched_folder("/music").unwrap();
         for i in 0..60 {
             let track = sample_local_track(
                 &format!("lib-{}", i),
@@ -894,15 +789,14 @@ mod tests {
                 &format!("Artist {}", i % 5),
                 Some("Album"),
             );
-            svc.db
-                .upsert_local_track(
-                    &format!("/music/{}.mp3", i),
-                    &track,
-                    "/music",
-                    Some(&format!("100{}", i)),
-                    None,
-                )
-                .unwrap();
+            svc.upsert_local_track(
+                &format!("/music/{}.mp3", i),
+                &track,
+                "/music",
+                Some(&format!("100{}", i)),
+                None,
+            )
+            .unwrap();
         }
         // Add some history for affinity signals
         for i in 0..5 {

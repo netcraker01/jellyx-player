@@ -1306,6 +1306,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "env_home"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7f84e12ccf0a7ddc17a6c41c93326024c42920d7ee630d04950e6926645c0fe"
+
+[[package]]
 name = "equivalent"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1521,6 +1527,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b91aa448ca50d7e79433bdf3ee8d99215430d2ec02ade5aefab2a073a1822e8a"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "fs4"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e72ed92b67c146290f88e9c89d60ca163ea417a446f61ffd7b72df3e7f1dfd5"
+dependencies = [
+ "rustix",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2423,9 +2439,19 @@ dependencies = [
 name = "jellyx-cli"
 version = "0.4.3"
 dependencies = [
+ "cpal",
+ "crossbeam-channel",
  "crossterm",
+ "dirs 5.0.1",
  "jellyx-core",
+ "jellyx-engine",
  "ratatui",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "symphonia-core",
+ "which",
 ]
 
 [[package]]
@@ -2448,6 +2474,7 @@ dependencies = [
  "crossbeam-channel",
  "dirs 5.0.1",
  "jellyx-core",
+ "jellyx-engine",
  "percent-encoding",
  "rand 0.8.6",
  "reqwest 0.12.28",
@@ -2475,6 +2502,24 @@ dependencies = [
  "uuid",
  "walkdir",
  "winreg",
+]
+
+[[package]]
+name = "jellyx-engine"
+version = "0.4.3"
+dependencies = [
+ "fs4",
+ "jellyx-core",
+ "percent-encoding",
+ "rand 0.8.6",
+ "reqwest 0.12.28",
+ "rusqlite",
+ "rustix",
+ "serde",
+ "serde_json",
+ "symphonia",
+ "symphonia-core",
+ "uuid",
 ]
 
 [[package]]
@@ -6763,6 +6808,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "which"
+version = "7.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24d643ce3fd3e5b54854602a080f34fb10ab75e0b813ee32d00ca2b44fa74762"
+dependencies = [
+ "either",
+ "env_home",
+ "rustix",
+ "winsafe",
+]
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7324,6 +7381,12 @@ dependencies = [
  "cfg-if",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "winsafe"
+version = "0.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "wit-bindgen"

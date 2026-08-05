@@ -1,58 +1,85 @@
-//! Settings service — manages source plugin enable/disable state and audio settings.
+//! Settings service — re-exported from the engine.
+//!
+//! The engine owns the settings service logic so both Tauri and Ratatui
+//! frontends share a single source of truth. Desktop re-exports the engine
+//! types and provides an adapter that maps `SettingsError` to `AppError`.
 
 use std::sync::Arc;
 
+use jellyx_engine::preferences::PreferencesRepository;
+use jellyx_engine::settings_service::{
+    AudioSettings as EngineAudioSettings, SettingsError, SettingsService as EngineSettingsService,
+    SourceSetting as EngineSourceSetting, TelemetrySettings as EngineTelemetrySettings,
+};
+
 use crate::errors::types::AppError;
-use crate::persistence::db::Database;
 use crate::persistence::models::{AudioSettings, SourceSetting, TelemetrySettings};
 
-/// Service for managing application settings, including source enablement and audio normalization.
 pub struct SettingsService {
-    db: Arc<Database>,
+    inner: EngineSettingsService,
 }
 
 impl SettingsService {
-    pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+    pub fn new(repository: Arc<dyn PreferencesRepository>) -> Self {
+        Self {
+            inner: EngineSettingsService::new(repository),
+        }
     }
 
-    /// Get all source settings (YouTube, SoundCloud), defaulting to enabled.
     pub fn get_source_settings(&self) -> Result<Vec<SourceSetting>, AppError> {
-        self.db.get_source_settings().map_err(AppError::from)
+        self.inner
+            .get_source_settings()
+            .map(|settings| {
+                settings
+                    .into_iter()
+                    .map(|s| SourceSetting {
+                        source: s.source,
+                        enabled: s.enabled,
+                        label: s.label,
+                    })
+                    .collect()
+            })
+            .map_err(map_error)
     }
 
-    /// Set whether a source is enabled.
     pub fn set_source_enabled(&self, source: &str, enabled: bool) -> Result<(), AppError> {
-        self.db
+        self.inner
             .set_source_enabled(source, enabled)
-            .map_err(AppError::from)
+            .map_err(map_error)
     }
 
-    /// Get the set of currently enabled source names.
     pub fn get_enabled_sources(&self) -> Result<std::collections::HashSet<String>, AppError> {
-        self.db.get_enabled_sources().map_err(AppError::from)
+        self.inner.get_enabled_sources().map_err(map_error)
     }
 
-    /// Get audio settings (normalization toggle, etc.).
     pub fn get_audio_settings(&self) -> Result<AudioSettings, AppError> {
-        let normalize_audio = self.db.get_normalize_audio().map_err(AppError::from)?;
-        Ok(AudioSettings { normalize_audio })
+        self.inner
+            .get_audio_settings()
+            .map(|a| AudioSettings {
+                normalize_audio: a.normalize_audio,
+            })
+            .map_err(map_error)
     }
 
-    /// Set whether audio normalization is enabled.
     pub fn set_normalize_audio(&self, enabled: bool) -> Result<(), AppError> {
-        self.db.set_normalize_audio(enabled).map_err(AppError::from)
+        self.inner.set_normalize_audio(enabled).map_err(map_error)
     }
 
     pub fn get_telemetry_settings(&self) -> Result<TelemetrySettings, AppError> {
-        Ok(TelemetrySettings {
-            enabled: self.db.get_telemetry_enabled().map_err(AppError::from)?,
-        })
+        self.inner
+            .get_telemetry_settings()
+            .map(|t| TelemetrySettings { enabled: t.enabled })
+            .map_err(map_error)
     }
 
     pub fn set_telemetry_enabled(&self, enabled: bool) -> Result<(), AppError> {
-        self.db
-            .set_telemetry_enabled(enabled)
-            .map_err(AppError::from)
+        self.inner.set_telemetry_enabled(enabled).map_err(map_error)
+    }
+}
+
+fn map_error(e: SettingsError) -> AppError {
+    AppError {
+        code: "PERSISTENCE_ERROR".into(),
+        details: Some(e.0),
     }
 }

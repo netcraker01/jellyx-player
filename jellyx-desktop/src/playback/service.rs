@@ -31,6 +31,8 @@ use crate::sources::local::LocalResolver;
 use crate::sources::soundcloud::SoundCloudResolver;
 use crate::sources::youtube::YouTubeResolver;
 use crate::sources::SourceRegistry;
+use jellyx_engine::playback_events::PlaybackEventEmitter as _PlaybackEventEmitterTrait;
+use jellyx_engine::queue_controller::QueueController;
 
 use crate::visualizer::fft_bridge::emit_fft_frame;
 use jellyx_core::models::source::Source;
@@ -1454,12 +1456,7 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     /// Removes any played entry equal to `removed_index` and shifts higher
     /// indices down by one. This keeps shuffle history valid after mutations.
     fn rebase_played_indices(played_indices: &mut Vec<usize>, removed_index: usize) {
-        played_indices.retain(|&i| i != removed_index);
-        for i in played_indices.iter_mut() {
-            if *i > removed_index {
-                *i -= 1;
-            }
-        }
+        QueueController::rebase_played_indices(played_indices, removed_index);
     }
 
     /// Resolve a track ID from the source registry.
@@ -1579,72 +1576,19 @@ impl<R: tauri::Runtime> PlaybackService<R> {
     /// Returns the index to play next and updates `played_indices`. The
     /// queue order is not modified; only the selection changes.
     fn shuffle_next_track(queue: &mut QueueState) -> Option<usize> {
-        let len = queue.tracks.len();
-        if len == 0 {
-            return None;
-        }
-
-        let current = queue.current_index.unwrap_or(0);
-        let unplayed: Vec<usize> = (0..len)
-            .filter(|i| *i != current && !queue.played_indices.contains(i))
-            .collect();
-
-        if unplayed.is_empty() {
-            if queue.repeat_mode == RepeatMode::All {
-                queue.played_indices.clear();
-                queue.played_indices.push(current);
-                let next = (0..len)
-                    .filter(|i| *i != current)
-                    .collect::<Vec<_>>()
-                    .choose(&mut rand::thread_rng())
-                    .copied();
-                if let Some(idx) = next {
-                    queue.played_indices.push(idx);
-                }
-                return next;
-            }
-            return None;
-        }
-
-        let next = unplayed.choose(&mut rand::thread_rng()).copied();
-        if let Some(idx) = next {
-            queue.played_indices.push(idx);
-        }
-        next
+        QueueController::shuffle_next_track(queue)
     }
 
     /// Compute the next track index, applying shuffle and repeat modes.
     ///
     /// Returns `None` when playback should stop (end of queue with repeat off).
     fn compute_next_index(queue: &mut QueueState) -> Option<usize> {
-        let len = queue.tracks.len();
-        if len == 0 {
-            return None;
-        }
-
-        let current = queue.current_index.unwrap_or(0);
-        if queue.shuffle {
-            Self::shuffle_next_track(queue)
-        } else {
-            Self::sequential_next_index(current, len, queue.repeat_mode)
-        }
+        QueueController::compute_next_index(queue)
     }
 
     /// Pick the next sequential index, applying repeat-all and repeat-one logic.
     fn sequential_next_index(current: usize, len: usize, repeat: RepeatMode) -> Option<usize> {
-        match repeat {
-            RepeatMode::One => Some(current),
-            _ => {
-                let candidate = current + 1;
-                if candidate < len {
-                    Some(candidate)
-                } else if repeat == RepeatMode::All {
-                    Some(0)
-                } else {
-                    None
-                }
-            }
-        }
+        QueueController::sequential_next_index(current, len, repeat)
     }
 
     /// Skip to the next track in the queue, applying shuffle and repeat modes.

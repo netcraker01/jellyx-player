@@ -1,0 +1,29 @@
+[package]
+name = "jellyx-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-neutral application boundary shared by Jellyx frontends"
+
+[lib]
+name = "jellyx_engine"
+path = "src/lib.rs"
+
+[dependencies]
+fs4 = "1.1"
+jellyx-core = { path = "../jellyx-core" }
+percent-encoding = "2"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "default-tls", "charset"] }
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+symphonia = { version = "0.6", features = ["mp3", "isomp4", "aac", "ogg", "vorbis", "flac", "wav", "pcm"] }
+symphonia-core = "0.6"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }

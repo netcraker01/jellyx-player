@@ -279,6 +279,24 @@ jobs:
           JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
         run: cargo build --release -p jellyx-desktop
 
+      - name: Build TUI binary (jellyx-cli)
+        run: cargo build --release -p jellyx-cli
+
+      - name: Package TUI archive
+        id: tui_archive
+        shell: bash
+        run: |
+          version="${{ needs.authorize.outputs.version }}"
+          cli_dir="target/release-cli"
+          mkdir -p "$cli_dir"
+          cp target/release/jellyx-cli "$cli_dir/"
+          archive="$cli_dir/jellyx-tui_${version}_linux_x86_64.tar.gz"
+          tar -czf "$archive" -C "$cli_dir" jellyx-cli
+          hash=$(sha256sum "$archive" | cut -d' ' -f1)
+          echo "$hash  $(basename "$archive")" > "${archive}.sha256"
+          echo "tui_archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "tui_hash_file=${archive}.sha256" >> "$GITHUB_OUTPUT"
+
       - name: Verify Sentry DSN executable boundary
         env:
           JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
@@ -468,6 +486,16 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload TUI archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellyx-tui-linux-${{ steps.artifacts.outputs.version }}
+          path: |
+            ${{ steps.tui_archive.outputs.tui_archive }}
+            ${{ steps.tui_archive.outputs.tui_hash_file }}
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Generate release body
         id: body
         shell: bash
@@ -608,6 +636,25 @@ jobs:
           JELLYX_SENTRY_DSN: ${{ secrets.JELLYX_SENTRY_DSN }}
           STATIC_VCRUNTIME: "true"
         run: cargo tauri build --no-bundle
+
+      - name: Build TUI binary (jellyx-cli)
+        shell: bash
+        run: cargo build --release -p jellyx-cli
+
+      - name: Package TUI archive (Windows)
+        id: tui_archive_win
+        shell: bash
+        run: |
+          version="${{ needs.authorize-release.outputs.version }}"
+          cli_dir="target/release-cli"
+          mkdir -p "$cli_dir"
+          cp target/release/jellyx-cli.exe "$cli_dir/"
+          archive="$cli_dir/jellyx-tui_${version}_windows_x86_64.zip"
+          (cd "$cli_dir" && zip -j "$(basename "$archive")" jellyx-cli.exe)
+          hash=$(sha256sum "$archive" | cut -d' ' -f1)
+          echo "$hash  $(basename "$archive")" > "${archive}.sha256"
+          echo "tui_archive=$archive" >> "$GITHUB_OUTPUT"
+          echo "tui_hash_file=${archive}.sha256" >> "$GITHUB_OUTPUT"
 
       - name: Verify Sentry DSN executable boundary
         shell: bash
@@ -876,6 +923,16 @@ jobs:
           path: |
             ${{ steps.portable.outputs.exe_path }}
             ${{ steps.portable.outputs.sha256_file }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload TUI archive (Windows)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jellyx-tui-windows-${{ steps.msi.outputs.version }}
+          path: |
+            ${{ steps.tui_archive_win.outputs.tui_archive }}
+            ${{ steps.tui_archive_win.outputs.tui_hash_file }}
           if-no-files-found: error
           retention-days: 30
 
