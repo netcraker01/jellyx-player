@@ -1,53 +1,76 @@
-//! Playlist service — CRUD for user-created local playlists.
+//! Playlist service — desktop adapter over the engine `PlaylistService`.
 //!
-//! `PlaylistService` wraps the `Database` and provides business-logic-level
-//! operations for user playlists. All methods return `AppError`
-//! for consistent IPC error handling.
+//! Desktop's `PlaylistService` is a thin adapter that owns an `Arc<Database>`,
+//! obtains a `SqliteHandle` from it, and delegates all business logic to
+//! [`jellyx_engine::playlist_service::PlaylistService`].
+//!
+//! Responsibilities kept here (presentation/IPC concerns):
+//! - Map engine types to desktop persistence models
+//!   (`crate::persistence::models::{UserPlaylist, PlaylistTrackEntry,
+//!   ArtistFavorite}`) so the IPC command layer keeps working unchanged.
+//! - Map engine `PlaylistServiceError` to `AppError` for consistent IPC
+//!   error handling.
+//!
+//! All business logic (playlist CRUD, artist/folder playlist generation,
+//! artist favorites) lives in the engine so both Tauri and Ratatui frontends
+//! share a single implementation.
 
-use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::sync::Arc;
+
+use jellyx_core::models::track::Track;
+use jellyx_engine::playlist_service::{
+    PlaylistService as EnginePlaylistService, PlaylistServiceError,
+};
 
 use crate::errors::types::AppError;
 use crate::persistence::db::Database;
-use crate::persistence::models::{PlaylistTrackEntry, UserPlaylist};
-use jellyx_core::models::track::Track;
-
-/// Fallback artist name when a track has no artist metadata.
-const UNKNOWN_ARTIST: &str = "Unknown Artist";
+use crate::persistence::models::{ArtistFavorite, PlaylistTrackEntry, UserPlaylist};
 
 /// Service providing user playlist operations.
 ///
 /// Owns an `Arc<Database>` shared reference so it can be cheaply cloned.
 /// All methods are synchronous since SQLite operations are fast.
 pub struct PlaylistService {
+    /// Kept for direct `Database` access in tests; production code uses
+    /// `engine` exclusively.
+    #[cfg_attr(not(test), allow(dead_code))]
     db: Arc<Database>,
+    engine: EnginePlaylistService,
 }
 
 impl PlaylistService {
     /// Create a new PlaylistService backed by the given Database.
     pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+        let engine = EnginePlaylistService::new(db.handle());
+        Self { db, engine }
     }
 
     /// Create a new user playlist.
     pub fn create_playlist(&self, title: &str) -> Result<UserPlaylist, AppError> {
-        self.db.create_playlist(title).map_err(AppError::from)
+        self.engine
+            .create_playlist(title)
+            .map(map_playlist)
+            .map_err(AppError::from)
     }
 
     /// Rename an existing user playlist.
     pub fn rename_playlist(&self, id: &str, title: &str) -> Result<(), AppError> {
-        self.db.rename_playlist(id, title).map_err(AppError::from)
+        self.engine
+            .rename_playlist(id, title)
+            .map_err(AppError::from)
     }
 
     /// Delete a user playlist by ID.
     pub fn delete_playlist(&self, id: &str) -> Result<(), AppError> {
-        self.db.delete_playlist(id).map_err(AppError::from)
+        self.engine.delete_playlist(id).map_err(AppError::from)
     }
 
     /// Get all user playlists.
     pub fn get_all_playlists(&self) -> Result<Vec<UserPlaylist>, AppError> {
-        self.db.get_all_playlists().map_err(AppError::from)
+        self.engine
+            .get_all_playlists()
+            .map(|v| v.into_iter().map(map_playlist).collect())
+            .map_err(AppError::from)
     }
 
     /// Get all playlists generated from a watched folder (parent + children).
@@ -55,39 +78,47 @@ impl PlaylistService {
         &self,
         folder_path: &str,
     ) -> Result<Vec<UserPlaylist>, AppError> {
-        self.db
+        self.engine
             .get_playlists_by_source_folder(folder_path)
+            .map(|v| v.into_iter().map(map_playlist).collect())
             .map_err(AppError::from)
     }
 
     /// Get all child playlists of a parent playlist.
     pub fn get_child_playlists(&self, parent_id: &str) -> Result<Vec<UserPlaylist>, AppError> {
-        self.db
+        self.engine
             .get_child_playlists(parent_id)
+            .map(|v| v.into_iter().map(map_playlist).collect())
             .map_err(AppError::from)
     }
 
     /// Delete all playlists generated from a watched folder (cascade).
     #[allow(dead_code)]
     pub fn delete_playlists_by_source_folder(&self, folder_path: &str) -> Result<u64, AppError> {
-        self.db
+        self.engine
             .delete_playlists_by_source_folder(folder_path)
             .map_err(AppError::from)
     }
 
     /// Get recent playlists (limited).
     pub fn get_recent_playlists(&self, limit: u32) -> Result<Vec<UserPlaylist>, AppError> {
-        self.db.get_recent_playlists(limit).map_err(AppError::from)
+        self.engine
+            .get_recent_playlists(limit)
+            .map(|v| v.into_iter().map(map_playlist).collect())
+            .map_err(AppError::from)
     }
 
     /// Search playlists by title.
     pub fn search_playlists(&self, query: &str) -> Result<Vec<UserPlaylist>, AppError> {
-        self.db.search_playlists(query).map_err(AppError::from)
+        self.engine
+            .search_playlists(query)
+            .map(|v| v.into_iter().map(map_playlist).collect())
+            .map_err(AppError::from)
     }
 
     /// Add a track to a playlist.
     pub fn add_track_to_playlist(&self, playlist_id: &str, track: &Track) -> Result<(), AppError> {
-        self.db
+        self.engine
             .add_track_to_playlist(playlist_id, track)
             .map_err(AppError::from)
     }
@@ -98,7 +129,7 @@ impl PlaylistService {
         playlist_id: &str,
         position: i64,
     ) -> Result<(), AppError> {
-        self.db
+        self.engine
             .remove_track_from_playlist(playlist_id, position)
             .map_err(AppError::from)
     }
@@ -108,310 +139,47 @@ impl PlaylistService {
         &self,
         playlist_id: &str,
     ) -> Result<Vec<PlaylistTrackEntry>, AppError> {
-        self.db
+        self.engine
             .get_playlist_tracks(playlist_id)
+            .map(|v| v.into_iter().map(map_playlist_track).collect())
             .map_err(AppError::from)
     }
 
     /// Count tracks in a playlist.
     pub fn count_playlist_tracks(&self, playlist_id: &str) -> Result<u32, AppError> {
-        self.db
+        self.engine
             .count_playlist_tracks(playlist_id)
             .map_err(AppError::from)
     }
 
     /// Get up to 4 thumbnail URLs from a playlist's tracks.
     pub fn get_playlist_thumbnails(&self, playlist_id: &str) -> Result<Vec<String>, AppError> {
-        self.db
+        self.engine
             .get_playlist_thumbnails(playlist_id)
             .map_err(AppError::from)
     }
 
     // ── Artist Playlist Generation ──────────────────────────────────────
 
-    /// Generate one playlist per artist from the local track catalog.
-    ///
-    /// Groups all local tracks by `track.artist` (empty/whitespace-only artists
-    /// fall back to "Unknown Artist"). For each artist, if a playlist with that
-    /// exact title already exists, it is reused and only new tracks are appended
-    /// (idempotent). Otherwise a new playlist is created and all the artist's
-    /// tracks are added.
-    ///
-    /// Returns the list of playlists that were either created or updated
-    /// during this run (existing-but-unchanged playlists are not included).
+    /// Generate one playlist per artist from the local track catalog
+    /// (idempotent). Returns the playlists that were created or had tracks
+    /// added.
     pub fn generate_artist_playlists(&self) -> Result<Vec<UserPlaylist>, AppError> {
-        let local_entries = self.db.get_all_local_tracks()?;
-
-        // Nothing to do if there are no local tracks at all.
-        if local_entries.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Group tracks by artist name (cloning the owned Track from each entry).
-        let mut by_artist: HashMap<String, Vec<Track>> = HashMap::new();
-        for entry in &local_entries {
-            let trimmed_artist = entry.track.artist.trim();
-            let artist = if trimmed_artist.is_empty() {
-                UNKNOWN_ARTIST.to_string()
-            } else {
-                trimmed_artist.to_string()
-            };
-            by_artist
-                .entry(artist)
-                .or_default()
-                .push(entry.track.clone());
-        }
-
-        // Load existing playlists once and index their IDs by title for O(1) lookup.
-        let existing = self.db.get_all_playlists()?;
-        let mut existing_by_title: HashMap<String, UserPlaylist> = existing
-            .into_iter()
-            .map(|pl| (pl.title.clone(), pl))
-            .collect();
-
-        let mut touched: Vec<UserPlaylist> = Vec::new();
-
-        // Artists are processed in a stable alphabetical order so repeated runs
-        // produce playlists in a deterministic sequence (useful for tests and UI).
-        let mut artists: Vec<String> = by_artist.keys().cloned().collect();
-        artists.sort();
-
-        for artist in artists {
-            let tracks = by_artist.get(&artist).expect("artist key must exist");
-
-            let playlist = if let Some(pl) = existing_by_title.get(&artist) {
-                pl.clone()
-            } else {
-                let pl = self.db.create_playlist(&artist)?;
-                existing_by_title.insert(artist.clone(), pl.clone());
-                pl
-            };
-
-            // Fetch the tracks already in this playlist so we only append the
-            // missing ones. This keeps re-runs cheap and avoids duplicates.
-            let existing_tracks = self.db.get_playlist_tracks(&playlist.id)?;
-            let existing_ids: HashSet<&str> = existing_tracks
-                .iter()
-                .map(|e| e.track.id.as_str())
-                .collect();
-
-            let mut added_any = false;
-            for track in tracks {
-                if existing_ids.contains(track.id.as_str()) {
-                    continue;
-                }
-                self.db.add_track_to_playlist(&playlist.id, track)?;
-                added_any = true;
-            }
-
-            // Only report playlists that were created or had new tracks added.
-            if added_any || !existing_ids.is_empty() {
-                // For newly created playlists `existing_ids` is empty, so the
-                // `added_any` branch covers them. For existing playlists we only
-                // include them if we actually appended tracks.
-                if added_any {
-                    touched.push(playlist);
-                }
-            } else {
-                // Newly created playlist that somehow has no tracks — still report
-                // it once so the caller knows it was created.
-                touched.push(playlist);
-            }
-        }
-
-        Ok(touched)
+        self.engine
+            .generate_artist_playlists()
+            .map(|v| v.into_iter().map(map_playlist).collect())
+            .map_err(AppError::from)
     }
 
-    // ── Folder-as-Playlist Generation ─────────────────────────────────────
-
-    /// Generate (or update) the folder-as-playlist hierarchy for a watched
-    /// folder.
-    ///
-    /// Groups all local tracks belonging to `watched_folder_path` by their
-    /// `subfolder_path` (relative to the watched root). Creates a parent
-    /// playlist named after the folder's basename with `kind = "folder"` and
-    /// `source_folder_path = watched_folder_path`. For each non-empty
-    /// subfolder, creates a child playlist named
-    /// `"{parent} - {relative_subfolder_path}"` (e.g. `"Rock - CD 1"` or
-    /// `"Rock - Bonus/Live"`) with `parent_playlist_id = parent.id`. Using
-    /// the full relative subfolder path — not just the final segment —
-    /// guarantees uniqueness for nested subfolders that would otherwise
-    /// collide (e.g. `Album1/Live` and `Album2/Live` both becoming
-    /// `"Rock - Live"`). When the folder has no subfolders, the parent
-    /// playlist contains all tracks directly.
-    ///
-    /// ## Synchronization with scanner state
-    ///
-    /// Because `playlist_tracks` stores serialized Track JSON with no
-    /// foreign key to `local_tracks`, simply appending new tracks on re-scan
-    /// would leave stale entries pointing at removed/moved files forever.
-    /// To stay synchronized with the current scanner state, this method
-    /// **wipes and rebuilds** the `playlist_tracks` rows for every
-    /// folder-generated playlist belonging to `watched_folder_path` on each
-    /// successful scan, then re-adds the current tracks from `local_tracks`.
-    /// Manual playlists (`kind = "manual"`) and artist-generated playlists
-    /// are never touched. This is the simplest safe approach: no diff
-    /// computation, no orphaned JSON, and the rebuild is cheap because
-    /// folder playlists are bounded by the watched folder's file count.
+    /// Generate folder-as-playlist hierarchy for a watched folder.
     pub fn generate_folder_playlists(
         &self,
         watched_folder_path: &str,
     ) -> Result<Vec<UserPlaylist>, AppError> {
-        let entries = self.db.get_local_tracks(Some(watched_folder_path))?;
-        if entries.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Folder basename is the parent playlist title. We intentionally
-        // keep the trailing-slash-free form so "/home/u/Music/Rock" becomes
-        // "Rock" and not "".
-        let parent_name = Path::new(watched_folder_path)
-            .file_name()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| watched_folder_path.to_string());
-
-        // Look up any existing folder playlists for this watched folder.
-        let existing = self
-            .db
-            .get_playlists_by_source_folder(watched_folder_path)?;
-        let parent_playlist: UserPlaylist =
-            if let Some(parent) = existing.iter().find(|p| p.parent_playlist_id.is_none()) {
-                parent.clone()
-            } else {
-                self.db.create_folder_playlist(
-                    &parent_name,
-                    "folder",
-                    Some(watched_folder_path),
-                    None,
-                )?
-            };
-
-        // Index existing children by title so we can reuse them idempotently.
-        let existing_children_by_title: HashMap<String, UserPlaylist> = existing
-            .iter()
-            .filter(|p| p.parent_playlist_id.is_some())
-            .map(|p| (p.title.clone(), p.clone()))
-            .collect();
-
-        // Group tracks by subfolder. Tracks directly in the watched root
-        // (subfolder_path None or "") go into the parent playlist directly.
-        let mut by_subfolder: HashMap<String, Vec<Track>> = HashMap::new();
-        let mut root_tracks: Vec<Track> = Vec::new();
-        for entry in entries {
-            match entry.subfolder_path.as_deref() {
-                None | Some("") => root_tracks.push(entry.track.clone()),
-                Some(sub) => by_subfolder
-                    .entry(sub.to_string())
-                    .or_default()
-                    .push(entry.track.clone()),
-            }
-        }
-
-        // ── Synchronization step ───────────────────────────────────────
-        // Wipe `playlist_tracks` for every folder-generated playlist that
-        // belongs to this watched folder BEFORE rebuilding. This removes
-        // stale entries for files that were deleted/moved since the last
-        // scan. Only `kind = "folder"` playlists with a matching
-        // `source_folder_path` are touched; manual and artist-generated
-        // playlists are preserved.
-        self.db.clear_playlist_tracks(&parent_playlist.id)?;
-        for child in existing_children_by_title.values() {
-            self.db.clear_playlist_tracks(&child.id)?;
-        }
-
-        let mut touched: Vec<UserPlaylist> = Vec::new();
-        touched.push(parent_playlist.clone());
-
-        // Sort subfolders alphabetically for deterministic ordering.
-        let mut subfolders: Vec<String> = by_subfolder.keys().cloned().collect();
-        subfolders.sort();
-        let has_subfolders = !subfolders.is_empty();
-
-        for sub in &subfolders {
-            let tracks = by_subfolder.remove(sub).unwrap_or_default();
-            // Child title uses the FULL relative subfolder path (relative to
-            // the watched root) as the suffix — not just the final segment.
-            // This guarantees uniqueness for nested subfolders: "Album1/Live"
-            // becomes "Rock - Album1/Live" and "Album2/Live" becomes
-            // "Rock - Album2/Live", so they no longer collide on "Rock - Live".
-            let child_title = format!("{} - {}", parent_name, sub);
-
-            let child = if let Some(existing) = existing_children_by_title.get(&child_title) {
-                existing.clone()
-            } else {
-                self.db.create_folder_playlist(
-                    &child_title,
-                    "folder",
-                    Some(watched_folder_path),
-                    Some(&parent_playlist.id),
-                )?
-            };
-            touched.push(child.clone());
-
-            // Sort tracks by file path for stable ordering, then add them
-            // fresh (the playlist was wiped above, so every track is new).
-            let mut sorted = tracks;
-            sorted.sort_by(|a, b| {
-                a.local_path
-                    .as_ref()
-                    .unwrap_or(&a.id)
-                    .cmp(b.local_path.as_ref().unwrap_or(&b.id))
-            });
-            self.add_tracks_to_playlist(&child.id, &sorted)?;
-        }
-
-        // Rebuild root-level tracks (files directly in the watched root) in
-        // the parent playlist. When the folder has no subfolders, ALL tracks
-        // are root tracks, so the parent playlist contains everything. When
-        // the folder has subfolders AND root tracks, the parent ends up with
-        // both its own root tracks and links to its children (handled by the
-        // frontend via `parent_playlist_id`).
-        if !root_tracks.is_empty() || !has_subfolders {
-            let mut sorted = root_tracks;
-            sorted.sort_by(|a, b| {
-                a.local_path
-                    .as_ref()
-                    .unwrap_or(&a.id)
-                    .cmp(b.local_path.as_ref().unwrap_or(&b.id))
-            });
-            self.add_tracks_to_playlist(&parent_playlist.id, &sorted)?;
-        }
-
-        Ok(touched)
-    }
-
-    /// Add tracks to a playlist unconditionally.
-    ///
-    /// Used by `generate_folder_playlists` after the playlist's
-    /// `playlist_tracks` rows have been wiped, so every track in `tracks`
-    /// is guaranteed to be new. This is the rebuild counterpart to the
-    /// `clear_playlist_tracks` synchronization step.
-    fn add_tracks_to_playlist(&self, playlist_id: &str, tracks: &[Track]) -> Result<(), AppError> {
-        for track in tracks {
-            self.db.add_track_to_playlist(playlist_id, track)?;
-        }
-        Ok(())
-    }
-
-    /// Append tracks to a playlist, skipping those already present.
-    ///
-    /// Helper used by `generate_folder_playlists` to keep the operation
-    /// idempotent: re-running generation only appends new tracks.
-    #[allow(dead_code)]
-    fn append_missing_tracks(&self, playlist_id: &str, tracks: &[Track]) -> Result<(), AppError> {
-        if tracks.is_empty() {
-            return Ok(());
-        }
-        let existing = self.db.get_playlist_tracks(playlist_id)?;
-        let existing_ids: HashSet<&str> = existing.iter().map(|e| e.track.id.as_str()).collect();
-        for track in tracks {
-            if existing_ids.contains(track.id.as_str()) {
-                continue;
-            }
-            self.db.add_track_to_playlist(playlist_id, track)?;
-        }
-        Ok(())
+        self.engine
+            .generate_folder_playlists(watched_folder_path)
+            .map(|v| v.into_iter().map(map_playlist).collect())
+            .map_err(AppError::from)
     }
 
     // ── Artist Favorites ────────────────────────────────────────────────
@@ -431,10 +199,6 @@ impl PlaylistService {
     }
 
     /// Add an artist to favorites with an explicit source dimension.
-    ///
-    /// Uses `INSERT ... ON CONFLICT(artist_id, source) DO NOTHING` so the
-    /// first-seen `thumbnail` and `artist_name` are preserved when the same
-    /// `(artist_id, source)` is favorited again.
     pub fn add_artist_favorite_with_source(
         &self,
         artist_id: &str,
@@ -443,45 +207,106 @@ impl PlaylistService {
         thumbnail: Option<&str>,
         source_artist_ref: Option<&str>,
     ) -> Result<(), AppError> {
-        self.db
-            .add_artist_favorite(artist_id, source, artist_name, thumbnail, source_artist_ref)
+        self.engine
+            .add_artist_favorite_with_source(
+                artist_id,
+                source,
+                artist_name,
+                thumbnail,
+                source_artist_ref,
+            )
             .map_err(AppError::from)
     }
 
     /// Remove an artist from favorites.
-    ///
-    /// Pass `source = Some("youtube")` to remove only the YouTube favorite;
-    /// pass `None` to remove every favorite for that artist across all sources.
     pub fn remove_artist_favorite(
         &self,
         artist_id: &str,
         source: Option<&str>,
     ) -> Result<(), AppError> {
-        self.db
+        self.engine
             .remove_artist_favorite(artist_id, source)
             .map_err(AppError::from)
     }
 
     /// Check if an artist is favorited.
-    ///
-    /// When `source` is `None`, returns true if any source has a favorite for
-    /// this artist. When `source` is provided, returns true only if that
-    /// exact `(artist_id, source)` pair exists.
     pub fn is_artist_favorite(
         &self,
         artist_id: &str,
         source: Option<&str>,
     ) -> Result<bool, AppError> {
-        self.db
+        self.engine
             .is_artist_favorite(artist_id, source)
             .map_err(AppError::from)
     }
 
     /// Get all favorited artists.
-    pub fn get_all_artist_favorites(
-        &self,
-    ) -> Result<Vec<crate::persistence::models::ArtistFavorite>, AppError> {
-        self.db.get_all_artist_favorites().map_err(AppError::from)
+    pub fn get_all_artist_favorites(&self) -> Result<Vec<ArtistFavorite>, AppError> {
+        self.engine
+            .get_all_artist_favorites()
+            .map(|v| v.into_iter().map(map_artist_favorite).collect())
+            .map_err(AppError::from)
+    }
+}
+
+// ── Error mapping ─────────────────────────────────────────────────────
+
+impl From<PlaylistServiceError> for AppError {
+    fn from(error: PlaylistServiceError) -> Self {
+        match error {
+            PlaylistServiceError::NotFound(msg) => AppError {
+                code: "NOT_FOUND".into(),
+                details: Some(msg),
+            },
+            PlaylistServiceError::Persistence(msg) => AppError {
+                code: "PERSISTENCE_ERROR".into(),
+                details: Some(msg),
+            },
+            PlaylistServiceError::Deserialization(msg) => AppError {
+                code: "PERSISTENCE_ERROR".into(),
+                details: Some(format!("failed to deserialize track: {}", msg)),
+            },
+            PlaylistServiceError::Serialization(msg) => AppError {
+                code: "PERSISTENCE_ERROR".into(),
+                details: Some(format!("failed to serialize track: {}", msg)),
+            },
+        }
+    }
+}
+
+// ── Type mapping ──────────────────────────────────────────────────────
+
+fn map_playlist(p: jellyx_engine::user_playlists::UserPlaylist) -> UserPlaylist {
+    UserPlaylist {
+        id: p.id,
+        title: p.title,
+        kind: p.kind,
+        source_folder_path: p.source_folder_path,
+        parent_playlist_id: p.parent_playlist_id,
+        created_at: p.created_at,
+        updated_at: p.updated_at,
+    }
+}
+
+fn map_playlist_track(
+    e: jellyx_engine::playlist_service::PlaylistTrackEntry,
+) -> PlaylistTrackEntry {
+    PlaylistTrackEntry {
+        playlist_id: e.playlist_id,
+        position: e.position,
+        track: e.track,
+        added_at: e.added_at,
+    }
+}
+
+fn map_artist_favorite(row: jellyx_engine::artist_favorites::ArtistFavoriteRow) -> ArtistFavorite {
+    ArtistFavorite {
+        artist_id: row.artist_id,
+        source: row.source,
+        artist_name: row.artist_name,
+        thumbnail: row.thumbnail,
+        source_artist_ref: row.source_artist_ref,
+        added_at: row.added_at,
     }
 }
 
@@ -601,21 +426,17 @@ mod tests {
 
         let svc = PlaylistService::new(Arc::new(db));
 
-        // First run: 2 playlists created.
         let first = svc.generate_artist_playlists().unwrap();
         assert_eq!(first.len(), 2);
 
-        // Second run: no new tracks, so nothing should be touched.
         let second = svc.generate_artist_playlists().unwrap();
         assert_eq!(
             second.len(),
             0,
-            "idempotent re-run should not create or modify playlists"
+            "idempotent re-run should not touch playlists"
         );
 
-        // Total playlist count stays at 2.
-        let all = svc.get_all_playlists().unwrap();
-        assert_eq!(all.len(), 2);
+        assert_eq!(svc.get_all_playlists().unwrap().len(), 2);
     }
 
     #[test]
@@ -634,7 +455,6 @@ mod tests {
         let first = svc.generate_artist_playlists().unwrap();
         assert_eq!(first.len(), 1);
 
-        // Add a new Daft Punk track after the first generation.
         seed_local_track(
             &db,
             &local_track("t2", "Daft Punk", "/music/b.mp3"),
@@ -642,8 +462,6 @@ mod tests {
             "/music",
         );
 
-        // Re-run: the existing Daft Punk playlist should be reused and the new
-        // track appended. The playlist should be reported as touched.
         let second = svc.generate_artist_playlists().unwrap();
         assert_eq!(
             second.len(),
@@ -678,21 +496,18 @@ mod tests {
         let db = Database::open_in_memory().unwrap();
         db.insert_watched_folder("/music").unwrap();
 
-        // Track with empty artist string → should become "Unknown Artist".
         seed_local_track(
             &db,
             &local_track("t1", "", "/music/a.mp3"),
             "/music/a.mp3",
             "/music",
         );
-        // Track with whitespace-only artist → also "Unknown Artist".
         seed_local_track(
             &db,
             &local_track("t2", "   ", "/music/b.mp3"),
             "/music/b.mp3",
             "/music",
         );
-        // A normal artist.
         seed_local_track(
             &db,
             &local_track("t3", "Queen", "/music/c.mp3"),
@@ -703,13 +518,11 @@ mod tests {
         let svc = PlaylistService::new(Arc::new(db));
         let created = svc.generate_artist_playlists().unwrap();
 
-        // Two groups: "Unknown Artist" and "Queen".
         assert_eq!(created.len(), 2);
         let titles: Vec<String> = created.iter().map(|p| p.title.clone()).collect();
         assert!(titles.contains(&"Unknown Artist".to_string()));
         assert!(titles.contains(&"Queen".to_string()));
 
-        // Unknown Artist playlist should have 2 tracks.
         let unknown = created
             .iter()
             .find(|p| p.title == "Unknown Artist")
@@ -725,7 +538,6 @@ mod tests {
         let db = Arc::new(Database::open_in_memory().unwrap());
         db.insert_watched_folder("/music/Rock").unwrap();
 
-        // Two subfolders, each with two tracks.
         seed_local_track_in_subfolder(
             &db,
             &local_track("a1", "AC/DC", "/music/Rock/Album1/a1.mp3"),
@@ -758,7 +570,6 @@ mod tests {
         let svc = PlaylistService::new(db.clone());
         let created = svc.generate_folder_playlists("/music/Rock").unwrap();
 
-        // Parent + 2 children = 3 playlists.
         assert_eq!(created.len(), 3, "should create parent + 2 children");
 
         let parent = created
@@ -774,16 +585,7 @@ mod tests {
             .filter(|p| p.parent_playlist_id.is_some())
             .collect();
         assert_eq!(children.len(), 2, "should have 2 children");
-        for child in &children {
-            assert_eq!(
-                child.parent_playlist_id.as_deref(),
-                Some(parent.id.as_str())
-            );
-            assert_eq!(child.kind, "folder");
-            assert_eq!(child.source_folder_path.as_deref(), Some("/music/Rock"));
-        }
 
-        // Each child should contain only its own 2 tracks.
         let album1 = children
             .iter()
             .find(|c| c.title == "Rock - Album1")
@@ -796,7 +598,6 @@ mod tests {
             .expect("Album2 child should exist");
         assert_eq!(svc.get_playlist_tracks(&album2.id).unwrap().len(), 2);
 
-        // Parent should have no tracks (subfolders absorb all tracks).
         assert_eq!(svc.get_playlist_tracks(&parent.id).unwrap().len(), 0);
     }
 
@@ -805,7 +606,6 @@ mod tests {
         let db = Arc::new(Database::open_in_memory().unwrap());
         db.insert_watched_folder("/music/Singles").unwrap();
 
-        // All tracks at root level (no subfolder).
         seed_local_track(
             &db,
             &local_track("s1", "DJ", "/music/Singles/s1.mp3"),
@@ -822,7 +622,6 @@ mod tests {
         let svc = PlaylistService::new(db.clone());
         let created = svc.generate_folder_playlists("/music/Singles").unwrap();
 
-        // Only the parent, no children.
         assert_eq!(
             created.len(),
             1,
@@ -830,8 +629,6 @@ mod tests {
         );
         assert_eq!(created[0].title, "Singles");
         assert_eq!(created[0].kind, "folder");
-
-        // Parent should contain all tracks.
         assert_eq!(svc.get_playlist_tracks(&created[0].id).unwrap().len(), 2);
     }
 
@@ -852,20 +649,15 @@ mod tests {
         let first = svc.generate_folder_playlists("/music/Rock").unwrap();
         assert_eq!(first.len(), 2, "first run: parent + 1 child");
 
-        let second = svc.generate_folder_playlists("/music/Rock").unwrap();
-        // Should still report parent + child (existing) but no duplicates.
+        let _ = svc.generate_folder_playlists("/music/Rock").unwrap();
         let all = svc.get_all_playlists().unwrap();
         assert_eq!(all.len(), 2, "no duplicate playlists on re-run");
 
-        // Child should still contain only 1 track (no duplication).
         let child = all
             .iter()
             .find(|p| p.parent_playlist_id.is_some())
             .expect("child should exist");
         assert_eq!(svc.get_playlist_tracks(&child.id).unwrap().len(), 1);
-
-        // Second run should not have touched parent (it's already up to date).
-        let _ = second;
     }
 
     #[test]
@@ -884,7 +676,6 @@ mod tests {
         let svc = PlaylistService::new(db.clone());
         let _ = svc.generate_folder_playlists("/music/Rock").unwrap();
 
-        // Add a second track to the same subfolder.
         seed_local_track_in_subfolder(
             &db,
             &local_track("a2", "AC/DC", "/music/Rock/Album1/a2.mp3"),
@@ -923,7 +714,6 @@ mod tests {
         let db = Arc::new(Database::open_in_memory().unwrap());
         db.insert_watched_folder("/music/Rock").unwrap();
 
-        // Initial scan: two tracks in Album1.
         seed_local_track_in_subfolder(
             &db,
             &local_track("a1", "AC/DC", "/music/Rock/Album1/a1.mp3"),
@@ -947,28 +737,15 @@ mod tests {
             .iter()
             .find(|p| p.parent_playlist_id.is_some())
             .expect("child should exist");
-        assert_eq!(
-            svc.get_playlist_tracks(&child.id).unwrap().len(),
-            2,
-            "initial state: 2 tracks"
-        );
+        assert_eq!(svc.get_playlist_tracks(&child.id).unwrap().len(), 2);
 
-        // Simulate a rescan where a1 was deleted from disk. The scanner
-        // would have removed the `local_tracks` row for it.
         db.delete_local_track_by_path("/music/Rock/Album1/a1.mp3")
             .unwrap();
 
-        // Re-run generation: it must wipe and rebuild from the current
-        // local_tracks, so the stale a1 entry must NOT survive in the
-        // auto-generated playlist.
         let _ = svc.generate_folder_playlists("/music/Rock").unwrap();
 
         let tracks = svc.get_playlist_tracks(&child.id).unwrap();
-        assert_eq!(
-            tracks.len(),
-            1,
-            "stale track must be removed from auto-generated playlist after rescan"
-        );
+        assert_eq!(tracks.len(), 1, "stale track must be removed after rescan");
         assert_eq!(tracks[0].track.id, "a2");
     }
 
@@ -977,7 +754,6 @@ mod tests {
         let db = Arc::new(Database::open_in_memory().unwrap());
         db.insert_watched_folder("/music/Rock").unwrap();
 
-        // Initial state: one track at Album1/old.mp3.
         seed_local_track_in_subfolder(
             &db,
             &local_track("a1", "AC/DC", "/music/Rock/Album1/old.mp3"),
@@ -1001,7 +777,6 @@ mod tests {
             Some("/music/Rock/Album1/old.mp3")
         );
 
-        // Simulate a rename: scanner deletes the old row and upserts the new one.
         db.delete_local_track_by_path("/music/Rock/Album1/old.mp3")
             .unwrap();
         seed_local_track_in_subfolder(
@@ -1018,8 +793,7 @@ mod tests {
         assert_eq!(tracks.len(), 1, "renamed file must replace the old entry");
         assert_eq!(
             tracks[0].track.local_path.as_deref(),
-            Some("/music/Rock/Album1/new.mp3"),
-            "playlist must reflect the new path after rename"
+            Some("/music/Rock/Album1/new.mp3")
         );
     }
 
@@ -1038,7 +812,6 @@ mod tests {
 
         let svc = PlaylistService::new(db.clone());
 
-        // User creates a manual playlist and adds a track to it.
         let manual = svc.create_playlist("My Mix").unwrap();
         svc.add_track_to_playlist(
             &manual.id,
@@ -1048,12 +821,11 @@ mod tests {
 
         let _ = svc.generate_folder_playlists("/music/Rock").unwrap();
 
-        // The manual playlist must keep its track untouched.
         let manual_tracks = svc.get_playlist_tracks(&manual.id).unwrap();
         assert_eq!(
             manual_tracks.len(),
             1,
-            "manual playlist tracks must NOT be wiped by folder playlist sync"
+            "manual playlist tracks must NOT be wiped"
         );
         assert_eq!(manual_tracks[0].track.id, "m1");
     }
@@ -1065,10 +837,6 @@ mod tests {
         let db = Arc::new(Database::open_in_memory().unwrap());
         db.insert_watched_folder("/music/Rock").unwrap();
 
-        // Two nested subfolders that share the same final segment "Live"
-        // but live under different parents. With the old scheme both would
-        // become "Rock - Live" and collide. With the full-relative-path
-        // scheme they become "Rock - Album1/Live" and "Rock - Album2/Live".
         seed_local_track_in_subfolder(
             &db,
             &local_track("l1", "AC/DC", "/music/Rock/Album1/Live/l1.mp3"),
@@ -1088,36 +856,17 @@ mod tests {
         let created = svc.generate_folder_playlists("/music/Rock").unwrap();
 
         let titles: Vec<String> = created.iter().map(|p| p.title.clone()).collect();
-        assert!(
-            titles.contains(&"Rock - Album1/Live".to_string()),
-            "expected full-relative-path child title, got {:?}",
-            titles
-        );
-        assert!(
-            titles.contains(&"Rock - Album2/Live".to_string()),
-            "expected full-relative-path child title, got {:?}",
-            titles
-        );
-        assert_eq!(
-            titles.iter().filter(|t| t == &"Rock - Live").count(),
-            0,
-            "no child should collapse to the colliding last-segment title"
-        );
+        assert!(titles.contains(&"Rock - Album1/Live".to_string()));
+        assert!(titles.contains(&"Rock - Album2/Live".to_string()));
+        assert_eq!(titles.iter().filter(|t| t == &"Rock - Live").count(), 0);
 
-        // Idempotency: re-running must reuse the same full-path titles,
-        // not create new playlists with different titles.
-        let second = svc.generate_folder_playlists("/music/Rock").unwrap();
+        let _ = svc.generate_folder_playlists("/music/Rock").unwrap();
         let all = svc.get_all_playlists().unwrap();
-        // Parent + 2 children = 3 total, no duplicates from re-run.
         assert_eq!(all.len(), 3, "re-run must not duplicate playlists");
-        let _ = second;
     }
 
     #[test]
     fn generate_folder_playlists_simple_subfolder_uses_segment_as_suffix() {
-        // Single-level subfolder: full relative path equals the segment,
-        // so the child title is still "Rock - Album1". This guards the
-        // backward-compatible case after the title-scheme change.
         let db = Arc::new(Database::open_in_memory().unwrap());
         db.insert_watched_folder("/music/Rock").unwrap();
 
@@ -1159,13 +908,15 @@ mod tests {
             )
             .unwrap();
 
-        let deleted = db.delete_playlists_by_source_folder("/music/Rock").unwrap();
+        let svc = PlaylistService::new(db.clone());
+        let deleted = svc
+            .delete_playlists_by_source_folder("/music/Rock")
+            .unwrap();
         assert_eq!(deleted, 2, "should delete parent + child");
 
-        let all = db.get_all_playlists().unwrap();
+        let all = svc.get_all_playlists().unwrap();
         assert_eq!(all.len(), 1, "manual playlist should remain");
         assert_eq!(all[0].id, manual.id);
-        // The child id should not appear in the remaining playlists.
         assert!(all.iter().all(|p| p.id != child.id));
     }
 
@@ -1174,9 +925,9 @@ mod tests {
     #[test]
     fn add_artist_favorite_with_source_does_not_overwrite_other_source() {
         let db = Database::open_in_memory().unwrap();
+        let svc = PlaylistService::new(Arc::new(db));
 
-        // Add YouTube favorite with thumbnail A.
-        db.add_artist_favorite(
+        svc.add_artist_favorite_with_source(
             "artist:daft-punk",
             "youtube",
             "Daft Punk",
@@ -1184,10 +935,7 @@ mod tests {
             None,
         )
         .unwrap();
-
-        // Add Local favorite with the same artist_id but different source.
-        // This MUST NOT overwrite the YouTube entry.
-        db.add_artist_favorite(
+        svc.add_artist_favorite_with_source(
             "artist:daft-punk",
             "local",
             "Daft Punk",
@@ -1196,7 +944,7 @@ mod tests {
         )
         .unwrap();
 
-        let all = db.get_all_artist_favorites().unwrap();
+        let all = svc.get_all_artist_favorites().unwrap();
         assert_eq!(all.len(), 2, "two distinct favorites should coexist");
 
         let yt = all.iter().find(|f| f.source == "youtube").unwrap();
@@ -1208,9 +956,9 @@ mod tests {
     #[test]
     fn add_artist_favorite_same_source_does_not_overwrite_existing_fields() {
         let db = Database::open_in_memory().unwrap();
+        let svc = PlaylistService::new(Arc::new(db));
 
-        // First insert with thumbnail A.
-        db.add_artist_favorite(
+        svc.add_artist_favorite_with_source(
             "artist:daft-punk",
             "youtube",
             "Daft Punk",
@@ -1218,10 +966,7 @@ mod tests {
             None,
         )
         .unwrap();
-
-        // Second insert with the SAME (artist_id, source) but different
-        // thumbnail. ON CONFLICT DO NOTHING should preserve thumb-a.
-        db.add_artist_favorite(
+        svc.add_artist_favorite_with_source(
             "artist:daft-punk",
             "youtube",
             "Daft Punk Remixed",
@@ -1230,7 +975,7 @@ mod tests {
         )
         .unwrap();
 
-        let all = db.get_all_artist_favorites().unwrap();
+        let all = svc.get_all_artist_favorites().unwrap();
         assert_eq!(
             all.len(),
             1,

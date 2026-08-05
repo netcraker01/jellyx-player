@@ -15,15 +15,8 @@
 use crate::audio::AudioError;
 use serde::Serialize;
 
-/// Error type for source resolution failures.
-#[derive(Debug, Clone)]
-pub enum SourceError {
-    NetworkError(String),
-    #[allow(dead_code)]
-    ResolveError(String),
-    UnsupportedSource,
-    DependencyMissing(String),
-}
+// Re-export SourceError from the engine.
+pub use jellyx_engine::source_resolver::SourceError;
 
 /// Playback state errors.
 #[derive(Debug)]
@@ -54,6 +47,21 @@ pub enum PersistenceError {
     DatabaseError(String),
     #[allow(dead_code)]
     WriteError(String),
+}
+
+impl std::fmt::Display for PersistenceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DatabaseError(msg) => write!(f, "{msg}"),
+            Self::WriteError(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl From<rusqlite::Error> for PersistenceError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::DatabaseError(error.to_string())
+    }
 }
 
 /// Input validation errors.

@@ -1,8 +1,10 @@
 //! IPC DTOs — shared data transfer objects for Tauri commands.
 //!
-//! These structures are serialized as camelCase JSON for the Svelte frontend.
-//! New DTOs for artist/album detail and grouped search live here so both
-//! commands and services can depend on them without circular imports.
+//! Shared DTOs (search, artist/album detail, recommendations, ID normalization)
+//! live in `jellyx-engine::dto` so both frontends use the same definitions.
+//! Desktop-specific DTOs (UserPlaylist, PlaylistTrackEntry, ArtistFavorite)
+//! remain here because they mirror the persistence models with IPC serde
+//! defaults.
 
 use serde::{Deserialize, Serialize};
 
@@ -11,78 +13,13 @@ use crate::updater::checker::UpdateInfo;
 use crate::updater::prefs::UpdatePrefs;
 use jellyx_core::models::track::Track;
 
-/// Filter for grouped search: limit results to a single entity type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SearchFilter {
-    Songs,
-    Artists,
-    Albums,
-}
-
-/// Grouped search result returned by `search_grouped`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct GroupedSearchResult {
-    pub songs: Vec<Track>,
-    pub artists: Vec<ArtistSummary>,
-    pub albums: Vec<AlbumSummary>,
-    /// Whether more song results are available via pagination.
-    #[serde(default)]
-    pub has_more_songs: bool,
-}
-
-/// Lightweight artist summary for search results.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ArtistSummary {
-    pub id: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thumbnail: Option<String>,
-    pub track_count: u32,
-}
-
-/// Lightweight album summary for search results.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AlbumSummary {
-    pub id: String,
-    pub title: String,
-    pub artist: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cover: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub year: Option<u32>,
-    pub track_count: u32,
-}
-
-/// Full artist detail for `/artist/:id` view.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ArtistDetail {
-    pub id: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thumbnail: Option<String>,
-    pub top_tracks: Vec<Track>,
-    pub albums: Vec<AlbumSummary>,
-}
-
-/// Full album detail for `/album/:id` view.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AlbumDetail {
-    pub id: String,
-    pub title: String,
-    pub artist: String,
-    pub artist_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cover: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub year: Option<u32>,
-    pub tracks: Vec<Track>,
-}
+// Re-export shared DTOs from the engine
+pub use jellyx_engine::dto::{
+    artist_id_source, denormalize_album_id, denormalize_artist_id, normalize_album_id,
+    normalize_artist_id, normalize_artist_id_with_source, AlbumDetail, AlbumSummary, ArtistDetail,
+    ArtistSummary, GroupedSearchResult, HomeSnapshot as EngineHomeSnapshot, RecommendationItem,
+    SearchFilter,
+};
 
 /// A user-created local playlist (DTO for IPC).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,14 +27,10 @@ pub struct AlbumDetail {
 pub struct UserPlaylist {
     pub id: String,
     pub title: String,
-    /// Playlist kind: `"manual"`, `"folder"`, or `"generated_artist"`.
     #[serde(default = "default_playlist_kind_dto")]
     pub kind: String,
-    /// For folder-derived playlists: the watched folder path this playlist
-    /// was generated from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_folder_path: Option<String>,
-    /// For child folder playlists: the parent playlist's id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_playlist_id: Option<String>,
     pub created_at: String,
@@ -123,13 +56,11 @@ pub struct PlaylistTrackEntry {
 #[serde(rename_all = "camelCase")]
 pub struct ArtistFavorite {
     pub artist_id: String,
-    /// Source dimension ("local", "youtube", "soundcloud", ...).
     #[serde(default = "default_favorite_source_dto")]
     pub source: String,
     pub artist_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
-    /// Optional source-specific artist id (e.g. Spotify/YouTube artist id).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_artist_ref: Option<String>,
     pub added_at: String,
@@ -139,146 +70,10 @@ fn default_favorite_source_dto() -> String {
     "local".to_string()
 }
 
-// ── ID normalization helpers ─────────────────────────────────────────
-
-/// Normalize a raw artist name into a stable artist ID.
-///
-/// Format: `artist:{lowercase-trimmed-dashes}`. Spaces and consecutive
-/// whitespace become single hyphens. When `source` is provided, the source
-/// is appended as a third dimension so the same artist name from different
-/// sources (e.g. `artist:daft-punk:local` vs `artist:daft-punk:youtube`)
-/// has distinct, non-colliding IDs.
-pub fn normalize_artist_id(name: &str) -> String {
-    normalize_artist_id_with_source(name, None)
-}
-
-/// Normalize a raw artist name into a stable artist ID, optionally tagged
-/// with a source dimension.
-///
-/// When `source` is `Some("local")` the ID becomes `artist:daft-punk:local`.
-/// When `source` is `None` the legacy format `artist:daft-punk` is returned
-/// (backward compatible with existing favorites).
-pub fn normalize_artist_id_with_source(name: &str, source: Option<&str>) -> String {
-    let normalized = name
-        .trim()
-        .to_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join("-");
-    match source {
-        Some(src) if !src.is_empty() => {
-            format!("artist:{}:{}", normalized, src.to_lowercase())
-        }
-        _ => format!("artist:{}", normalized),
-    }
-}
-
-/// Extract the artist name from an artist ID. Handles both the legacy
-/// `artist:{name}` and the source-tagged `artist:{name}:{source}` formats.
-///
-/// Returns `None` if the ID does not start with `artist:`.
-pub fn denormalize_artist_id(id: &str) -> Option<String> {
-    let rest = id.strip_prefix("artist:")?;
-    // Split off the trailing source dimension if present. The artist name
-    // portion always comes before the last `:` that is followed by a source
-    // tag. We split on the LAST colon; if the remainder has no colon, the
-    // whole string is the name (legacy format).
-    match rest.rsplit_once(':') {
-        // The source tag must be a single token (no spaces), otherwise the
-        // colon we found is part of the artist name itself (e.g. "ac/dc").
-        Some((name, src)) if !src.contains('-') || src.is_empty() => {
-            Some(name.split('-').collect::<Vec<_>>().join(" ").to_lowercase())
-        }
-        _ => Some(rest.split('-').collect::<Vec<_>>().join(" ").to_lowercase()),
-    }
-}
-
-/// Extract the source dimension from an artist ID, if present.
-///
-/// `artist:daft-punk:youtube` → `Some("youtube")`
-/// `artist:daft-punk`         → `None`
-#[allow(dead_code)]
-pub fn artist_id_source(id: &str) -> Option<String> {
-    let rest = id.strip_prefix("artist:")?;
-    let (_, src) = rest.rsplit_once(':')?;
-    if src.is_empty() {
-        None
-    } else {
-        Some(src.to_string())
-    }
-}
-
-/// Normalize album title and artist into a stable album ID.
-///
-/// Format: `album:{lowercase-title}:{lowercase-artist}`
-/// Spaces are collapsed to hyphens per design AD-3.
-pub fn normalize_album_id(title: &str, artist: &str) -> String {
-    let norm_title = title
-        .trim()
-        .to_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join("-");
-    let norm_artist = artist
-        .trim()
-        .to_lowercase()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join("-");
-    format!("album:{}:{}", norm_title, norm_artist)
-}
-
-/// Extract the original album title and artist name from an album ID.
-///
-/// Returns `None` if the ID is not in `album:{title}:{artist}` format.
-pub fn denormalize_album_id(id: &str) -> Option<(String, String)> {
-    let rest = id.strip_prefix("album:")?;
-    let mut parts = rest.splitn(2, ':');
-    let title = parts
-        .next()?
-        .split('-')
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase();
-    let artist = parts
-        .next()?
-        .split('-')
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase();
-    Some((title, artist))
-}
-
-/// A single recommendation item, which may be a track, artist, or album.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[serde(rename_all_fields = "camelCase")]
-#[serde(tag = "type")]
-pub enum RecommendationItem {
-    #[serde(rename = "Track")]
-    Track { track: Track, reason: String },
-    #[serde(rename = "Artist")]
-    Artist {
-        id: String,
-        name: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        thumbnail: Option<String>,
-        track_count: u32,
-        reason: String,
-    },
-    #[serde(rename = "Album")]
-    Album {
-        id: String,
-        title: String,
-        artist: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cover: Option<String>,
-        track_count: u32,
-        reason: String,
-    },
-}
-
 /// Home snapshot returned by `get_home_snapshot`.
+///
+/// Uses the engine's `HomeSnapshot` internally but wraps it with the
+/// desktop's `HistoryEntry` type for IPC compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HomeSnapshot {
@@ -287,10 +82,6 @@ pub struct HomeSnapshot {
 }
 
 // ── Updater DTOs ─────────────────────────────────────────────────────
-//
-// Keep the alias names referenced by commands. The underlying canonical types
-// live in the `updater` module next to their logic; these aliases document the
-// IPC intent without creating unused public re-exports.
 pub type UpdaterInfo = UpdateInfo;
 pub type UpdaterPrefs = UpdatePrefs;
 
