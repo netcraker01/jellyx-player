@@ -56,6 +56,21 @@ pub enum PersistenceError {
     WriteError(String),
 }
 
+impl std::fmt::Display for PersistenceError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::DatabaseError(msg) => write!(f, "{msg}"),
+            Self::WriteError(msg) => write!(f, "{msg}"),
+        }
+    }
+}
+
+impl From<rusqlite::Error> for PersistenceError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::DatabaseError(error.to_string())
+    }
+}
+
 /// Input validation errors.
 #[derive(Debug)]
 pub enum ValidationError {
