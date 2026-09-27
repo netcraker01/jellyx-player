@@ -2,7 +2,7 @@
 
 > Maintainer reference for publishing Jellyx to native package registries.
 
-This document explains what accounts, credentials, and steps are needed to publish Jellyx through each distribution channel. The packaging scaffolds live in `packaging/` — these are templates that compile correctly but contain placeholders for release-specific values (checksums, URLs, version numbers).
+This document explains what accounts, credentials, and steps are needed to publish Jellyx through each distribution channel. The AUR recipe currently repackages the official x86_64 `.deb` with native Arch dependencies; other packaging channels may still contain release-specific placeholders.
 
 ---
 
@@ -11,7 +11,7 @@ This document explains what accounts, credentials, and steps are needed to publi
 | Channel | Directory | Account needed | Submission method |
 |---------|-----------|---------------|-------------------|
 | Flatpak / Flathub | `packaging/flatpak/` | GitHub + Flathub account | PR to flathub/flathub |
-| AUR | `packaging/aur/` | AUR SSH key | `git push` to aur.archlinux.org |
+| Arch package recipe | `packaging/aur/` | None to build locally | `makepkg -si`; AUR publication is still pending |
 | Homebrew Cask | `packaging/homebrew/` | GitHub account | Create `homebrew-jellyx` tap repo |
 | winget | `packaging/winget/` | GitHub account | PR to microsoft/winget-pkgs |
 | Windows NSIS | (Tauri build) | — | GitHub Releases (CI) |
@@ -69,32 +69,28 @@ This document explains what accounts, credentials, and steps are needed to publi
 - **AUR account** — register at https://aur.archlinux.org/register/
 - **SSH key** — upload at https://aur.archlinux.org/account/ (add your public key)
 
-### Steps
-1. Prepare the PKGBUILD:
+### Build and install locally
+
+Users can install directly from the GitHub repository; see [Install Jellyx on Arch Linux](INSTALL-ARCH.md). The package recipe consumes the official release `.deb` and declares the native dependencies needed for WebKit playback, including `gst-plugins-base-libs` and `gst-plugins-good`.
+
+### Publish to AUR
+
+Before publishing, maintainers must:
+
+1. Verify and update the release version and checksums in the PKGBUILD:
    ```bash
    cd packaging/aur/
-   # Update sha256sums with the release tarball checksum
-   updpkgsums  # from pacman-contrib
-   # OR manually: sha256sum jellyx-0.1.0.tar.gz
+   makepkg --printsrcinfo > .SRCINFO
    ```
 
-2. Test build in a clean chroot:
+2. Test the package in a clean chroot and inspect it:
    ```bash
    extra-x86_64-build  # from devtools package
-   ```
-
-3. Validate:
-   ```bash
    namcap PKGBUILD
    namcap jellyx-player-*.pkg.tar.zst
    ```
 
-4. Generate .SRCINFO:
-   ```bash
-   makepkg --printsrcinfo > .SRCINFO
-   ```
-
-5. Publish:
+3. Publish `PKGBUILD`, `.SRCINFO`, and `jellyx-player.install` to the AUR Git repository:
    ```bash
    git clone ssh://aur@aur.archlinux.org/jellyx-player.git aur-jellyx-player
    cd aur-jellyx-player
@@ -106,11 +102,12 @@ This document explains what accounts, credentials, and steps are needed to publi
    git push
    ```
 
-6. Update on each release: bump `pkgver`, `pkgrel`, update `sha256sums`, regenerate `.SRCINFO`, push.
+4. On each release, update `pkgver` and checksums, regenerate `.SRCINFO`, and push.
 
 ### Notes
-- Package name: `jellyx-player` (avoiding collision with the `helix` text editor in AUR)
-- `NO_STRIP=1` is set in the PKGBUILD build() function to prevent stripping RELR-enabled binaries
+- The package is x86_64-only because the available Linux `.deb` release is amd64.
+- The package recipe is in GitHub but is not yet published to AUR.
+- `!strip` preserves the prebuilt release executable.
 - AGPL-3.0 is an OSI-approved license — accepted by AUR
 
 ---

@@ -1,0 +1,24 @@
+pkgbase = jellyx-player
+	pkgdesc = Desktop background music player for YouTube, SoundCloud, and local files
+	pkgver = 0.4.4
+	pkgrel = 1
+	url = https://github.com/netcraker01/jellyx-player
+	install = jellyx-player.install
+	arch = x86_64
+	license = AGPL-3.0-or-later
+	depends = gtk3
+	depends = webkit2gtk-4.1
+	depends = gst-plugins-base-libs
+	depends = gst-plugins-good
+	optdepends = yt-dlp: Stream resolution for online sources (Jellyx can download it on first launch)
+	optdepends = pipewire-pulse: Audio output on PipeWire systems
+	optdepends = pulseaudio: Audio output on PulseAudio systems
+	provides = jellyx
+	conflicts = jellyx
+	options = !strip
+	source = Jellyx.Player_0.4.4_amd64.deb::https://github.com/netcraker01/jellyx-player/releases/download/v0.4.4/Jellyx.Player_0.4.4_amd64.deb
+	source = LICENSE::https://raw.githubusercontent.com/netcraker01/jellyx-player/v0.4.4/LICENSE
+	sha256sums = b9fcf562fc6d582003aa1107dcb6faa235d1ede8973a681689c7cf399a0365b5
+	sha256sums = d686be348ac333b02f12218ccb06141e9eaca33ab80e05a5b0ec1a76d6a63dbd
+
+pkgname = jellyx-player

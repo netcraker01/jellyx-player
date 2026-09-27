@@ -180,13 +180,15 @@ Pick your platform and try the current alpha:
 
 | Platform | Recommended | Alternative |
 |---|---|---|
-| **Linux** | [`.deb` / `.rpm`](https://github.com/netcraker01/jellyx-player/releases) | `AppImage`, `.tar.gz` |
+| **Linux** | [`.deb` / `.rpm`](https://github.com/netcraker01/jellyx-player/releases) · [Arch Linux instructions](docs/INSTALL-ARCH.md) | `AppImage`, `.tar.gz` |
 | **macOS** | [DMG for Apple Silicon](https://github.com/netcraker01/jellyx-player/releases) | Intel support is still limited in alpha |
 | **Windows** | [NSIS setup.exe](https://github.com/netcraker01/jellyx-player/releases) | `.msi` or portable `.exe` |
 
 > **Windows note:** Installers are currently unsigned. Windows 11 may show a SmartScreen warning. Click "More info -> Run anyway" to install.
 
 > **Linux note:** For this alpha, `.deb` and `.rpm` are the recommended Linux packages. AppImage is available, but may have graphics or runtime issues on some Wayland setups.
+
+> **Arch Linux note:** Use the [Arch Linux package instructions](docs/INSTALL-ARCH.md). They package the native `.deb` executable with system WebKitGTK and the GStreamer plugins required for playback.
 
 All downloads, checksums and release notes are on the [Releases](https://github.com/netcraker01/jellyx-player/releases) page.
 
@@ -216,6 +218,7 @@ All contributors keep ownership of their work and are credited in [AUTHORS.md](A
 ## Developer Docs
 
 - [Building from source](docs/BUILDING.md)
+- [Installing on Arch Linux](docs/INSTALL-ARCH.md)
 - [Architecture overview](docs/ARCHITECTURE.md)
 - [Platform strategy](docs/PLATFORM.md)
 - [UI design](docs/UI_DESIGN.md)
