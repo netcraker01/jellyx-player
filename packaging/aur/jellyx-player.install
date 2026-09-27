@@ -1,18 +1,12 @@
-# Jellyx Player AUR Package — Post-install/upgrade/removal hooks
-# =============================================================================
-# yt-dlp is auto-downloaded on first use if not installed.
-# This .install file provides user-facing messages about optional dependencies.
-# =============================================================================
-
 post_install() {
   echo ""
-  echo "==> Jellyx Music Player installed successfully."
+  echo "==> Jellyx Player installed successfully."
   echo ""
-  echo "    yt-dlp is required for streaming from YouTube/SoundCloud/Bandcamp."
-  echo "    If yt-dlp is not installed, Jellyx will auto-download it on first run."
+  echo "    GStreamer base/good plugins are required for WebKit audio playback."
+  echo "    yt-dlp is used for online sources and can be downloaded by Jellyx."
   echo ""
   echo "    Optional runtime dependencies:"
-  echo "      - pulseaudio or pipewire-pulse: Audio playback"
+  echo "      - pipewire-pulse or pulseaudio: Audio output backend"
   echo ""
 }
 
@@ -22,7 +16,7 @@ post_upgrade() {
 
 post_remove() {
   echo ""
-  echo "==> Jellyx Music Player removed."
+  echo "==> Jellyx Player removed."
   echo ""
   echo "    Auto-downloaded yt-dlp binary may remain in:"
   echo "      ~/.local/share/jellyx/bin/"
